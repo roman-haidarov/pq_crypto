@@ -115,6 +115,23 @@ int pq_unseal_and_verify(uint8_t *plaintext, size_t *plaintext_len, const uint8_
 int pq_public_key_pem(char **output, size_t *output_len, const uint8_t *public_key,
                       size_t public_key_len);
 
+int pq_public_key_to_spki_der(uint8_t **output, size_t *output_len, const uint8_t *public_key,
+                              size_t public_key_len, const char *algorithm);
+int pq_public_key_to_spki_pem(char **output, size_t *output_len, const uint8_t *public_key,
+                              size_t public_key_len, const char *algorithm);
+int pq_secret_key_to_pkcs8_der(uint8_t **output, size_t *output_len, const uint8_t *secret_key,
+                               size_t secret_key_len, const char *algorithm);
+int pq_secret_key_to_pkcs8_pem(char **output, size_t *output_len, const uint8_t *secret_key,
+                               size_t secret_key_len, const char *algorithm);
+int pq_public_key_from_spki_der(char **algorithm_out, uint8_t **key_out, size_t *key_len_out,
+                                const uint8_t *input, size_t input_len);
+int pq_public_key_from_spki_pem(char **algorithm_out, uint8_t **key_out, size_t *key_len_out,
+                                const char *input, size_t input_len);
+int pq_secret_key_from_pkcs8_der(char **algorithm_out, uint8_t **key_out, size_t *key_len_out,
+                                 const uint8_t *input, size_t input_len);
+int pq_secret_key_from_pkcs8_pem(char **algorithm_out, uint8_t **key_out, size_t *key_len_out,
+                                 const char *input, size_t input_len);
+
 const char *pq_version(void);
 
 #define PQ_HYBRID_PUBLICKEYBYTES    HYBRID_PUBLICKEYBYTES

@@ -1,15 +1,19 @@
 # Get Started with PQCrypto
 
-## 1. What this gem is today
+## 1. Current direction
 
-`PQCrypto` is a native Ruby wrapper around a fixed cryptographic suite:
-- hybrid KEM: ML-KEM-768 + X25519;
-- signatures: ML-DSA-65;
-- transport/session AEAD: AES-256-GCM.
+`PQCrypto` should be approached as a **primitive-first Ruby PQ library**.
 
-It is intentionally **native-only** in the supported path. There is no supported Ruby fallback anymore.
+The core surface is:
+- `PQCrypto::KEM`
+- `PQCrypto::Signature`
+- typed key objects
+- raw-byte import/export
+- capability introspection
 
-## 2. Install correctly
+High-level protocol-style helpers still exist for compatibility, but they are experimental and are no longer the recommended entrypoint.
+
+## 2. Install
 
 ```bash
 bundle install
@@ -18,75 +22,72 @@ bundle exec rake compile
 bundle exec rake test
 ```
 
-If PQClean sources are missing, the extension build fails on purpose.
-
-## 3. Check runtime mode
+## 3. Load the gem
 
 ```ruby
 require "pq_crypto"
+```
 
-PQCrypto.backend        # => :native_pqclean
-PQCrypto.experimental?  # => true
+## 4. Check capabilities
+
+```ruby
 PQCrypto.version
+PQCrypto.backend
+PQCrypto.supported_kems
+PQCrypto.supported_signatures
+PQCrypto::KEM.details(:ml_kem_768)
+PQCrypto::Signature.details(:ml_dsa_65)
 ```
 
-`production_ready?` currently returns `false` deliberately: the gem still needs stronger protocol hardening, KAT coverage, interop tests, CI, and external review.
-
-## 4. Key establishment
+## 5. Use KEM primitives
 
 ```ruby
-public_key, secret_key = PQCrypto.kem_keypair
-ciphertext, shared_secret_a = PQCrypto.kem_encapsulate(public_key)
-shared_secret_b = PQCrypto.kem_decapsulate(ciphertext, secret_key)
+keypair = PQCrypto::KEM.generate(:ml_kem_768)
+result = keypair.public_key.encapsulate
+shared_secret = keypair.secret_key.decapsulate(result.ciphertext)
 
-raise "mismatch" unless shared_secret_a == shared_secret_b
+raise "mismatch" unless shared_secret == result.shared_secret
 ```
 
-## 5. Signatures
+## 6. Use signature primitives
 
 ```ruby
-public_key, secret_key = PQCrypto.sign_keypair
-signature = PQCrypto.sign("hello", secret_key)
-PQCrypto.verify("hello", signature, public_key)
+signer = PQCrypto::Signature.generate(:ml_dsa_65)
+signature = signer.secret_key.sign("hello")
+
+puts signer.public_key.verify("hello", signature)
+signer.public_key.verify!("hello", signature)
 ```
 
-Verification failure raises `PQCrypto::VerificationError`.
-
-## 6. Sessions
+## 7. Import/export raw key bytes
 
 ```ruby
-shared_secret = "A" * PQCrypto::KEM_SHARED_SECRET_BYTES
-alice = PQCrypto::Session.new(shared_secret, true)
-bob = PQCrypto::Session.new(shared_secret, false)
-
-ciphertext = alice.encrypt("hello", aad: "meta")
-plaintext = bob.decrypt(ciphertext, aad: "meta")
+kem = PQCrypto::KEM.generate(:ml_kem_768)
+pub = PQCrypto::KEM.public_key_from_bytes(:ml_kem_768, kem.public_key.to_bytes)
+sec = PQCrypto::KEM.secret_key_from_bytes(:ml_kem_768, kem.secret_key.to_bytes)
 ```
-
-Sessions now derive separate send/receive keys and enforce a monotonic receive nonce.
-
-## 7. One-shot sealing
 
 ```ruby
-public_key, secret_key = PQCrypto.kem_keypair
-sealed = PQCrypto.seal("payload", public_key)
-plain = PQCrypto.unseal(sealed, secret_key)
+sig = PQCrypto::Signature.generate(:ml_dsa_65)
+pub = PQCrypto::Signature.public_key_from_bytes(:ml_dsa_65, sig.public_key.to_bytes)
+sec = PQCrypto::Signature.secret_key_from_bytes(:ml_dsa_65, sig.secret_key.to_bytes)
 ```
 
-## 8. Authenticated one-shot payloads
+## 8. Legacy / experimental helpers
 
-```ruby
-sign_public_key, sign_secret_key = PQCrypto.sign_keypair
-kem_public_key, kem_secret_key = PQCrypto.kem_keypair
+These still exist, but are no longer the recommended center of the gem:
+- `PQCrypto.kem_keypair`
+- `PQCrypto.sign_keypair`
+- `PQCrypto::KEMKeypair`
+- `PQCrypto::SignKeypair`
+- `PQCrypto::Session`
+- `PQCrypto::Identity`
+- `PQCrypto::Experimental.*`
 
-payload = PQCrypto.sign_and_seal("payload", kem_public_key, sign_secret_key)
-plain = PQCrypto.unseal_and_verify(payload, kem_secret_key, sign_public_key)
-```
+## 9. Experimental status
 
-## 9. Main caveats
-
-This gem is still experimental. The most important remaining work is:
-- stronger protocol hardening and wire-format versioning;
-- KAT and interop tests;
-- CI;
-- external security review.
+The gem remains experimental. The next major area of work is:
+- interop and serialization;
+- KAT/conformance coverage;
+- continued protocol hardening;
+- cleaner separation between primitives and optional high-level helpers.

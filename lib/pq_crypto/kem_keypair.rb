@@ -13,10 +13,24 @@ module PQCrypto
     end
 
     def initialize(public_key, secret_key)
-      @public_key = String(public_key).b
-      @secret_key = String(secret_key).b
+      @typed = KEM::Keypair.new(
+        KEM.public_key_from_bytes(:ml_kem_768, public_key),
+        KEM.secret_key_from_bytes(:ml_kem_768, secret_key)
+      )
+      @public_key = @typed.public_key.to_bytes
+      @secret_key = @typed.secret_key.to_bytes
+    end
 
-      validate_lengths!
+    def algorithm
+      @typed.algorithm
+    end
+
+    def public_key_object
+      @typed.public_key
+    end
+
+    def secret_key_object
+      @typed.secret_key
     end
 
     def public_key_pem
@@ -24,15 +38,9 @@ module PQCrypto
     end
 
     def wipe!
-      PQCrypto.secure_wipe(@secret_key)
+      @typed.secret_key.wipe!
+      @secret_key = @typed.secret_key.to_bytes
       self
-    end
-
-    private
-
-    def validate_lengths!
-      raise ArgumentError, "Invalid public key length" unless @public_key.bytesize == KEM_PUBLIC_KEY_BYTES
-      raise ArgumentError, "Invalid secret key length" unless @secret_key.bytesize == KEM_SECRET_KEY_BYTES
     end
   end
 end

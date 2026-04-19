@@ -116,6 +116,29 @@ static VALUE ePQCryptoVerificationError;
 static VALUE ePQCryptoDecryptionError;
 static VALUE cPQCryptoSession;
 
+static const char *pq_algorithm_symbol_to_cstr(VALUE algorithm) {
+    ID id;
+    if (SYMBOL_P(algorithm)) {
+        id = SYM2ID(algorithm);
+    } else {
+        VALUE str = StringValue(algorithm);
+        id = rb_intern_str(str);
+    }
+    if (id == rb_intern("ml_kem_768") || id == rb_intern("ml_kem_768_x25519"))
+        return "ml_kem_768_x25519";
+    if (id == rb_intern("ml_dsa_65"))
+        return "ml_dsa_65";
+    rb_raise(rb_eArgError, "Unsupported serialization algorithm");
+}
+
+static VALUE pq_algorithm_cstr_to_symbol(const char *algorithm) {
+    if (strcmp(algorithm, "ml_kem_768_x25519") == 0)
+        return ID2SYM(rb_intern("ml_kem_768_x25519"));
+    if (strcmp(algorithm, "ml_dsa_65") == 0)
+        return ID2SYM(rb_intern("ml_dsa_65"));
+    rb_raise(rb_eArgError, "Unsupported serialization algorithm");
+}
+
 static void *pq_kem_keypair_nogvl(void *arg) {
     kem_keypair_call_t *call = (kem_keypair_call_t *)arg;
     call->result = pq_kem_keypair(call->public_key, call->secret_key);
@@ -880,8 +903,8 @@ static VALUE pqcrypto_sign_and_seal(VALUE self, VALUE message, VALUE kem_public_
     call.message = pq_copy_ruby_string(message, &call.message_len);
     call.kem_public_key = (const uint8_t *)RSTRING_PTR(kem_public_key);
     call.sign_secret_key = (const uint8_t *)RSTRING_PTR(sign_secret_key);
-    call.output_len =
-        4 + PQ_MLDSA_BYTES + PQ_HYBRID_CIPHERTEXTBYTES + pq_session_encrypt_len(call.message_len);
+    call.output_len = 6 + 4 + PQ_MLDSA_BYTES + PQ_HYBRID_CIPHERTEXTBYTES +
+                      pq_session_encrypt_len(call.message_len);
     call.output = pq_alloc_buffer(call.output_len);
 
     rb_thread_call_without_gvl(pq_sign_and_seal_nogvl, &call, NULL, NULL);
@@ -911,7 +934,7 @@ static VALUE pqcrypto_unseal_and_verify(VALUE self, VALUE input, VALUE kem_secre
     if ((size_t)RSTRING_LEN(sign_public_key) != PQ_MLDSA_PUBLICKEYBYTES) {
         rb_raise(rb_eArgError, "Invalid public key length");
     }
-    if ((size_t)RSTRING_LEN(input) < (4 + PQ_HYBRID_CIPHERTEXTBYTES + PQ_SESSION_OVERHEAD)) {
+    if ((size_t)RSTRING_LEN(input) < (6 + 4 + PQ_HYBRID_CIPHERTEXTBYTES + PQ_SESSION_OVERHEAD)) {
         rb_raise(rb_eArgError, "Invalid signed sealed payload length");
     }
 
@@ -948,13 +971,152 @@ static void define_constants(void) {
     rb_define_const(mPQCrypto, "SESSION_OVERHEAD", INT2NUM(PQ_SESSION_OVERHEAD));
 }
 
+static VALUE pqcrypto_public_key_to_spki_der(VALUE self, VALUE algorithm, VALUE key_bytes) {
+    uint8_t *out = NULL;
+    size_t out_len = 0;
+    VALUE result;
+    StringValue(key_bytes);
+    int ret = pq_public_key_to_spki_der(&out, &out_len, (const uint8_t *)RSTRING_PTR(key_bytes),
+                                        (size_t)RSTRING_LEN(key_bytes),
+                                        pq_algorithm_symbol_to_cstr(algorithm));
+    if (ret != PQ_SUCCESS)
+        pq_raise_general_error(ret);
+    result = pq_string_from_buffer(out, out_len);
+    pq_secure_wipe(out, out_len);
+    free(out);
+    return result;
+}
+
+static VALUE pqcrypto_public_key_to_spki_pem(VALUE self, VALUE algorithm, VALUE key_bytes) {
+    char *out = NULL;
+    size_t out_len = 0;
+    VALUE result;
+    StringValue(key_bytes);
+    int ret = pq_public_key_to_spki_pem(&out, &out_len, (const uint8_t *)RSTRING_PTR(key_bytes),
+                                        (size_t)RSTRING_LEN(key_bytes),
+                                        pq_algorithm_symbol_to_cstr(algorithm));
+    if (ret != PQ_SUCCESS)
+        pq_raise_general_error(ret);
+    result = rb_utf8_str_new(out, (long)out_len);
+    pq_secure_wipe(out, out_len);
+    free(out);
+    return result;
+}
+
+static VALUE pqcrypto_secret_key_to_pkcs8_der(VALUE self, VALUE algorithm, VALUE key_bytes) {
+    uint8_t *out = NULL;
+    size_t out_len = 0;
+    VALUE result;
+    StringValue(key_bytes);
+    int ret = pq_secret_key_to_pkcs8_der(&out, &out_len, (const uint8_t *)RSTRING_PTR(key_bytes),
+                                         (size_t)RSTRING_LEN(key_bytes),
+                                         pq_algorithm_symbol_to_cstr(algorithm));
+    if (ret != PQ_SUCCESS)
+        pq_raise_general_error(ret);
+    result = pq_string_from_buffer(out, out_len);
+    pq_secure_wipe(out, out_len);
+    free(out);
+    return result;
+}
+
+static VALUE pqcrypto_secret_key_to_pkcs8_pem(VALUE self, VALUE algorithm, VALUE key_bytes) {
+    char *out = NULL;
+    size_t out_len = 0;
+    VALUE result;
+    StringValue(key_bytes);
+    int ret = pq_secret_key_to_pkcs8_pem(&out, &out_len, (const uint8_t *)RSTRING_PTR(key_bytes),
+                                         (size_t)RSTRING_LEN(key_bytes),
+                                         pq_algorithm_symbol_to_cstr(algorithm));
+    if (ret != PQ_SUCCESS)
+        pq_raise_general_error(ret);
+    result = rb_utf8_str_new(out, (long)out_len);
+    pq_secure_wipe(out, out_len);
+    free(out);
+    return result;
+}
+
+static VALUE pqcrypto_public_key_from_spki_der(VALUE self, VALUE der) {
+    char *algorithm = NULL;
+    uint8_t *key = NULL;
+    size_t key_len = 0;
+    VALUE ary;
+    StringValue(der);
+    int ret = pq_public_key_from_spki_der(
+        &algorithm, &key, &key_len, (const uint8_t *)RSTRING_PTR(der), (size_t)RSTRING_LEN(der));
+    if (ret != PQ_SUCCESS)
+        pq_raise_general_error(ret);
+    ary = rb_ary_new_capa(2);
+    rb_ary_push(ary, pq_algorithm_cstr_to_symbol(algorithm));
+    rb_ary_push(ary, pq_string_from_buffer(key, key_len));
+    free(algorithm);
+    pq_secure_wipe(key, key_len);
+    free(key);
+    return ary;
+}
+
+static VALUE pqcrypto_public_key_from_spki_pem(VALUE self, VALUE pem) {
+    char *algorithm = NULL;
+    uint8_t *key = NULL;
+    size_t key_len = 0;
+    VALUE ary;
+    StringValue(pem);
+    int ret = pq_public_key_from_spki_pem(&algorithm, &key, &key_len, RSTRING_PTR(pem),
+                                          (size_t)RSTRING_LEN(pem));
+    if (ret != PQ_SUCCESS)
+        pq_raise_general_error(ret);
+    ary = rb_ary_new_capa(2);
+    rb_ary_push(ary, pq_algorithm_cstr_to_symbol(algorithm));
+    rb_ary_push(ary, pq_string_from_buffer(key, key_len));
+    free(algorithm);
+    pq_secure_wipe(key, key_len);
+    free(key);
+    return ary;
+}
+
+static VALUE pqcrypto_secret_key_from_pkcs8_der(VALUE self, VALUE der) {
+    char *algorithm = NULL;
+    uint8_t *key = NULL;
+    size_t key_len = 0;
+    VALUE ary;
+    StringValue(der);
+    int ret = pq_secret_key_from_pkcs8_der(
+        &algorithm, &key, &key_len, (const uint8_t *)RSTRING_PTR(der), (size_t)RSTRING_LEN(der));
+    if (ret != PQ_SUCCESS)
+        pq_raise_general_error(ret);
+    ary = rb_ary_new_capa(2);
+    rb_ary_push(ary, pq_algorithm_cstr_to_symbol(algorithm));
+    rb_ary_push(ary, pq_string_from_buffer(key, key_len));
+    free(algorithm);
+    pq_secure_wipe(key, key_len);
+    free(key);
+    return ary;
+}
+
+static VALUE pqcrypto_secret_key_from_pkcs8_pem(VALUE self, VALUE pem) {
+    char *algorithm = NULL;
+    uint8_t *key = NULL;
+    size_t key_len = 0;
+    VALUE ary;
+    StringValue(pem);
+    int ret = pq_secret_key_from_pkcs8_pem(&algorithm, &key, &key_len, RSTRING_PTR(pem),
+                                           (size_t)RSTRING_LEN(pem));
+    if (ret != PQ_SUCCESS)
+        pq_raise_general_error(ret);
+    ary = rb_ary_new_capa(2);
+    rb_ary_push(ary, pq_algorithm_cstr_to_symbol(algorithm));
+    rb_ary_push(ary, pq_string_from_buffer(key, key_len));
+    free(algorithm);
+    pq_secure_wipe(key, key_len);
+    free(key);
+    return ary;
+}
+
 void Init_pqcrypto_secure(void) {
     mPQCrypto = rb_define_module("PQCrypto");
     ePQCryptoError = rb_define_class_under(mPQCrypto, "Error", rb_eStandardError);
     ePQCryptoVerificationError =
-        rb_define_class_under(mPQCrypto, "VerificationError", rb_eStandardError);
-    ePQCryptoDecryptionError =
-        rb_define_class_under(mPQCrypto, "DecryptionError", rb_eStandardError);
+        rb_define_class_under(mPQCrypto, "VerificationError", ePQCryptoError);
+    ePQCryptoDecryptionError = rb_define_class_under(mPQCrypto, "DecryptionError", ePQCryptoError);
 
     cPQCryptoSession = rb_define_class_under(mPQCrypto, "Session", rb_cObject);
     rb_define_alloc_func(cPQCryptoSession, pqcrypto_session_alloc);
@@ -971,6 +1133,22 @@ void Init_pqcrypto_secure(void) {
     rb_define_module_function(mPQCrypto, "secure_wipe", pqcrypto_secure_wipe, 1);
     rb_define_module_function(mPQCrypto, "version", pqcrypto_version, 0);
     rb_define_module_function(mPQCrypto, "public_key_pem", pqcrypto_public_key_pem, 1);
+    rb_define_module_function(mPQCrypto, "public_key_to_spki_der", pqcrypto_public_key_to_spki_der,
+                              2);
+    rb_define_module_function(mPQCrypto, "public_key_to_spki_pem", pqcrypto_public_key_to_spki_pem,
+                              2);
+    rb_define_module_function(mPQCrypto, "secret_key_to_pkcs8_der",
+                              pqcrypto_secret_key_to_pkcs8_der, 2);
+    rb_define_module_function(mPQCrypto, "secret_key_to_pkcs8_pem",
+                              pqcrypto_secret_key_to_pkcs8_pem, 2);
+    rb_define_module_function(mPQCrypto, "public_key_from_spki_der",
+                              pqcrypto_public_key_from_spki_der, 1);
+    rb_define_module_function(mPQCrypto, "public_key_from_spki_pem",
+                              pqcrypto_public_key_from_spki_pem, 1);
+    rb_define_module_function(mPQCrypto, "secret_key_from_pkcs8_der",
+                              pqcrypto_secret_key_from_pkcs8_der, 1);
+    rb_define_module_function(mPQCrypto, "secret_key_from_pkcs8_pem",
+                              pqcrypto_secret_key_from_pkcs8_pem, 1);
     rb_define_module_function(mPQCrypto, "establish_session", pqcrypto_establish_session, 1);
     rb_define_module_function(mPQCrypto, "accept_session", pqcrypto_accept_session, 2);
     rb_define_module_function(mPQCrypto, "seal", pqcrypto_seal, 2);

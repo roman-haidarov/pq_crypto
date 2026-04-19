@@ -27,7 +27,6 @@ def download(url, destination)
   URI.open(url) { |remote| File.binwrite(destination, remote.read) }
 end
 
-
 def verify_checksum!(archive, expected_sha256)
   actual = Digest::SHA256.file(archive).hexdigest
 
@@ -35,7 +34,6 @@ def verify_checksum!(archive, expected_sha256)
 
   abort "SHA256 mismatch: expected #{expected_sha256}, got #{actual}" unless actual == expected_sha256
 end
-
 
 def extract_subset(archive, destination, strip_prefix:, keep_dirs:)
   prefix_re = /\A#{Regexp.escape(strip_prefix)}\//
@@ -57,7 +55,6 @@ def extract_subset(archive, destination, strip_prefix:, keep_dirs:)
     end
   end
 end
-
 
 def write_manifest!
   File.write(File.join(VENDOR_DIR, ".vendored"), "pqclean=#{PQCLEAN[:version]}\n")

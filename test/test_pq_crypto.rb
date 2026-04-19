@@ -9,7 +9,7 @@ class TestPQCrypto < Minitest::Test
   end
 
   def test_version_constant
-    assert_equal "0.3.0", PQCrypto::VERSION
+    assert_equal "0.5.0", PQCrypto::VERSION
   end
 
   def test_backend_is_native_pqclean
@@ -45,8 +45,8 @@ class TestPQCrypto < Minitest::Test
   def test_kem_validates_input_lengths
     _, secret_key = PQCrypto.kem_keypair
 
-    assert_raises(ArgumentError) { PQCrypto.kem_encapsulate("short") }
-    assert_raises(ArgumentError) { PQCrypto.kem_decapsulate("short", secret_key) }
+    assert_raises(PQCrypto::InvalidKeyError) { PQCrypto.kem_encapsulate("short") }
+    assert_raises(PQCrypto::InvalidCiphertextError) { PQCrypto.kem_decapsulate("short", secret_key) }
   end
 
   def test_sign_keypair_lengths
@@ -145,17 +145,62 @@ class TestPQCrypto < Minitest::Test
     assert_equal "Sealed message", PQCrypto.unseal(sealed, secret_key)
   end
 
-  def test_sign_and_seal_prefixes_signature_length
+  def test_sign_and_seal_has_versioned_wire_format
     alice_sign_public, alice_sign_secret = PQCrypto.sign_keypair
     bob_kem_public, = PQCrypto.kem_keypair
 
     payload = PQCrypto.sign_and_seal("Authenticated and encrypted", bob_kem_public, alice_sign_secret)
-    signature_length = payload.byteslice(0, 4).unpack1("N")
-    signature = payload.byteslice(4, signature_length)
-    sealed = payload.byteslice(4 + signature_length..)
+
+    # Header: magic(4) "PQ10" + version(1) 0x01 + suite_id(1) 0x01
+    assert_equal "PQ10", payload.byteslice(0, 4)
+    assert_equal 0x01, payload.getbyte(4)
+    assert_equal 0x01, payload.getbyte(5)
+
+    signature_length = payload.byteslice(6, 4).unpack1("N")
+    signature = payload.byteslice(10, signature_length)
+    sealed = payload.byteslice(10 + signature_length..)
 
     assert_equal signature_length, signature.bytesize
     assert PQCrypto.verify(sealed, signature, alice_sign_public)
+  end
+
+  def test_unseal_and_verify_rejects_bad_magic
+    alice_sign_public, alice_sign_secret = PQCrypto.sign_keypair
+    bob_kem_public, bob_kem_secret = PQCrypto.kem_keypair
+
+    payload = PQCrypto.sign_and_seal("hello", bob_kem_public, alice_sign_secret)
+    tampered = payload.dup
+    tampered.setbyte(0, 0xFF)
+
+    assert_raises(PQCrypto::VerificationError) do
+      PQCrypto.unseal_and_verify(tampered, bob_kem_secret, alice_sign_public)
+    end
+  end
+
+  def test_unseal_and_verify_rejects_bad_version
+    alice_sign_public, alice_sign_secret = PQCrypto.sign_keypair
+    bob_kem_public, bob_kem_secret = PQCrypto.kem_keypair
+
+    payload = PQCrypto.sign_and_seal("hello", bob_kem_public, alice_sign_secret)
+    tampered = payload.dup
+    tampered.setbyte(4, 0xFF)
+
+    assert_raises(PQCrypto::VerificationError) do
+      PQCrypto.unseal_and_verify(tampered, bob_kem_secret, alice_sign_public)
+    end
+  end
+
+  def test_unseal_and_verify_rejects_bad_suite_id
+    alice_sign_public, alice_sign_secret = PQCrypto.sign_keypair
+    bob_kem_public, bob_kem_secret = PQCrypto.kem_keypair
+
+    payload = PQCrypto.sign_and_seal("hello", bob_kem_public, alice_sign_secret)
+    tampered = payload.dup
+    tampered.setbyte(5, 0xFF)
+
+    assert_raises(PQCrypto::VerificationError) do
+      PQCrypto.unseal_and_verify(tampered, bob_kem_secret, alice_sign_public)
+    end
   end
 
   def test_unseal_and_verify

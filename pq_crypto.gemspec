@@ -6,10 +6,8 @@ Gem::Specification.new do |spec|
   spec.authors       = ["Roman Haydarov"]
   spec.email         = ["romanhajdarov@gmail.com"]
 
-  spec.summary       = "Experimental post-quantum cryptography primitives for Ruby"
-  spec.description   = "Native Ruby wrapper around hybrid ML-KEM-768 + X25519 key establishment, " \
-                       "ML-DSA-65 signatures, and AES-256-GCM session encryption. PQClean vendoring " \
-                       "is required for supported builds."
+  spec.summary       = "Experimental primitive-first post-quantum cryptography for Ruby"
+  spec.description   = "Native Ruby wrapper around ML-KEM-768 and ML-DSA-65 with a primitive-first API, typed key objects, and PQClean-backed supported builds."
   spec.homepage      = "https://github.com/roman-haidarov/pq_crypto"
   spec.license       = "MIT"
   spec.required_ruby_version = ">= 3.1.0"
@@ -27,8 +25,9 @@ Gem::Specification.new do |spec|
     "GET_STARTED.md",
     "CHANGELOG.md",
     "LICENSE.txt",
-    "SECURITY_AUDIT.md",
-    "script/vendor_libs.rb"
+    "SECURITY.md",
+    "script/vendor_libs.rb",
+    ".github/workflows/ci.yml"
   ]
 
   spec.bindir        = "exe"
