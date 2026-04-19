@@ -951,8 +951,8 @@ int pq_public_key_pem(char **output, size_t *output_len, const uint8_t *public_k
 #define PQC_SERIALIZATION_TYPE_PUBLIC 0x01
 #define PQC_SERIALIZATION_TYPE_SECRET 0x02
 
-static const char PQC_OID_ML_KEM_768_X25519[] = "1.3.6.1.4.1.55555.1";
-static const char PQC_OID_ML_DSA_65[] = "1.3.6.1.4.1.55555.2";
+static const char PQC_OID_ML_KEM_768_X25519[] = "2.25.260242945110721168101139140490528778800";
+static const char PQC_OID_ML_DSA_65[] = "2.25.305232938483772195555080795650659207792";
 
 static int pq_serialization_key_bytes_for_algorithm(const char *algorithm, int is_public,
                                                     size_t *expected_len) {

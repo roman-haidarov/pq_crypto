@@ -6,12 +6,12 @@ module PQCrypto
       ml_kem_768_x25519: {
         family: :ml_kem_hybrid,
         # UUID c3c8f7d4-1e6a-4b5f-9a2e-8f1d7c4b6a30
-        oid: "1.3.6.1.4.1.55555.1",
+        oid: "2.25.260242945110721168101139140490528778800",
       }.freeze,
       ml_dsa_65: {
         family: :ml_dsa,
         # UUID e5a1b9c2-7d3f-4c8e-a6b1-2f5d8e9c4a70
-        oid: "1.3.6.1.4.1.55555.2",
+        oid: "2.25.305232938483772195555080795650659207792",
       }.freeze,
     }.freeze
 

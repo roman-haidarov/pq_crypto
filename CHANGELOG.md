@@ -1,3 +1,8 @@
+## [0.5.1]
+
+### Changed
+- Replaced placeholder OIDs `1.3.6.1.4.1.55555.*` with legit UUID-derived OIDs in IANA arc `2.25.*`. The old arc used an unregistered Private Enterprise Number (55555 is not assigned to this project); UUID-derived OIDs under `2.25.*` are the IANA-specified way to obtain a unique OID without registration. Containers produced by 0.5.0 and earlier will not round-trip under 0.5.1 due to this OID change.
+
 ## [0.5.0] - 2026-04-19
 
 ### Added

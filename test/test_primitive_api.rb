@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "test_helper"
+require "stringio"
 
 class TestPQCryptoPrimitiveAPI < Minitest::Test
   def test_supported_algorithms
@@ -86,8 +87,8 @@ class TestPQCryptoPrimitiveAPI < Minitest::Test
   def test_kem_spki_and_pkcs8_roundtrip
     keypair = PQCrypto::KEM.generate(:ml_kem_768_x25519)
 
-    pub_der = keypair.public_key.to_spki_der
-    sec_der = keypair.secret_key.to_pkcs8_der
+    pub_der = keypair.public_key.to_pqc_container_der
+    sec_der = keypair.secret_key.to_pqc_container_der
 
     imported_pub = PQCrypto::KEM.public_key_from_spki_der(pub_der)
     imported_sec = PQCrypto::KEM.secret_key_from_pkcs8_der(sec_der)
@@ -99,8 +100,8 @@ class TestPQCryptoPrimitiveAPI < Minitest::Test
   def test_signature_spki_and_pkcs8_roundtrip
     keypair = PQCrypto::Signature.generate(:ml_dsa_65)
 
-    pub_pem = keypair.public_key.to_spki_pem
-    sec_pem = keypair.secret_key.to_pkcs8_pem
+    pub_pem = keypair.public_key.to_pqc_container_pem
+    sec_pem = keypair.secret_key.to_pqc_container_pem
 
     imported_pub = PQCrypto::Signature.public_key_from_spki_pem(pub_pem)
     imported_sec = PQCrypto::Signature.secret_key_from_pkcs8_pem(sec_pem)
@@ -113,7 +114,7 @@ class TestPQCryptoPrimitiveAPI < Minitest::Test
     keypair = PQCrypto::KEM.generate(:ml_kem_768_x25519)
 
     error = assert_raises(PQCrypto::SerializationError) do
-      PQCrypto::Signature.public_key_from_spki_der(keypair.public_key.to_spki_der, :ml_dsa_65)
+      PQCrypto::Signature.public_key_from_spki_der(keypair.public_key.to_pqc_container_der, :ml_dsa_65)
     end
 
     assert_match(/Expected/, error.message)
@@ -124,9 +125,9 @@ class TestPQCryptoPrimitiveAPI < Minitest::Test
     sig = PQCrypto::Signature.details(:ml_dsa_65)
 
     assert_equal :ml_kem_hybrid, kem[:family]
-    assert_match(/\A1\.3\.6\.1\.4\.1\./, kem[:oid])
+    assert_match(/\A2\.25\./, kem[:oid])
     assert_equal :ml_dsa, sig[:family]
-    assert_match(/\A1\.3\.6\.1\.4\.1\./, sig[:oid])
+    assert_match(/\A2\.25\./, sig[:oid])
   end
 
   def test_unsupported_algorithm_errors
@@ -144,5 +145,42 @@ class TestPQCryptoPrimitiveAPI < Minitest::Test
     assert_respond_to PQCrypto::Experimental, :unseal
     assert_respond_to PQCrypto::Experimental, :sign_and_seal
     assert_respond_to PQCrypto::Experimental, :unseal_and_verify
+  end
+
+  def test_deprecated_kem_alias_still_works
+    original_stderr = $stderr
+    $stderr = StringIO.new
+    begin
+      keypair = PQCrypto::KEM.generate(:ml_kem_768)
+      assert_equal :ml_kem_768_x25519, keypair.algorithm
+    ensure
+      $stderr = original_stderr
+    end
+  end
+
+  def test_deprecated_kem_spki_serializer_still_works
+    original_stderr = $stderr
+    $stderr = StringIO.new
+    begin
+      keypair = PQCrypto::KEM.generate(:ml_kem_768_x25519)
+      canonical = keypair.public_key.to_pqc_container_der
+      legacy = keypair.public_key.to_spki_der
+      assert_equal canonical, legacy
+    ensure
+      $stderr = original_stderr
+    end
+  end
+
+  def test_deprecated_signature_spki_serializer_still_works
+    original_stderr = $stderr
+    $stderr = StringIO.new
+    begin
+      keypair = PQCrypto::Signature.generate(:ml_dsa_65)
+      canonical = keypair.public_key.to_pqc_container_der
+      legacy = keypair.public_key.to_spki_der
+      assert_equal canonical, legacy
+    ensure
+      $stderr = original_stderr
+    end
   end
 end

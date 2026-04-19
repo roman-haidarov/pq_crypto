@@ -9,7 +9,7 @@ class TestPQCrypto < Minitest::Test
   end
 
   def test_version_constant
-    assert_equal "0.5.0", PQCrypto::VERSION
+    assert_equal "0.5.1", PQCrypto::VERSION
   end
 
   def test_backend_is_native_pqclean

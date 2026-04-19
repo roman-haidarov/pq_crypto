@@ -66,6 +66,18 @@ module PQCrypto
 
         raise UnsupportedAlgorithmError, "Unsupported signature algorithm: #{algorithm.inspect}"
       end
+
+      def warn_once_about_deprecated_serializer(old_name, new_name)
+        @warned_serializers ||= {}
+        return if @warned_serializers[old_name]
+
+        @warned_serializers[old_name] = true
+        Warning.warn(
+          "[pq_crypto] #{old_name} is deprecated because the output was never real " \
+          "SPKI/PKCS#8 ASN.1 DER — it is a pq_crypto-specific container. Use " \
+          "#{new_name} to make this explicit. #{old_name} will be removed in a future release.\n",
+        )
+      end
     end
 
     class Keypair
@@ -98,12 +110,26 @@ module PQCrypto
         @bytes.dup
       end
 
-      def to_spki_der
+      # Project-local serialization container. NOT interoperable with
+      # OpenSSL/Go/etc. (not real ASN.1 SPKI).
+      def to_pqc_container_der
         Serialization.public_key_to_spki_der(@algorithm, @bytes)
       end
 
-      def to_spki_pem
+      def to_pqc_container_pem
         Serialization.public_key_to_spki_pem(@algorithm, @bytes)
+      end
+
+      # Deprecated names. The output was never real SPKI; it's a pq_crypto
+      # project container. Will be removed in a future release.
+      def to_spki_der
+        Signature.send(:warn_once_about_deprecated_serializer, :to_spki_der, :to_pqc_container_der)
+        to_pqc_container_der
+      end
+
+      def to_spki_pem
+        Signature.send(:warn_once_about_deprecated_serializer, :to_spki_pem, :to_pqc_container_pem)
+        to_pqc_container_pem
       end
 
       def verify(message, signature)
@@ -152,12 +178,22 @@ module PQCrypto
         @bytes.dup
       end
 
-      def to_pkcs8_der
+      def to_pqc_container_der
         Serialization.secret_key_to_pkcs8_der(@algorithm, @bytes)
       end
 
-      def to_pkcs8_pem
+      def to_pqc_container_pem
         Serialization.secret_key_to_pkcs8_pem(@algorithm, @bytes)
+      end
+
+      def to_pkcs8_der
+        Signature.send(:warn_once_about_deprecated_serializer, :to_pkcs8_der, :to_pqc_container_der)
+        to_pqc_container_der
+      end
+
+      def to_pkcs8_pem
+        Signature.send(:warn_once_about_deprecated_serializer, :to_pkcs8_pem, :to_pqc_container_pem)
+        to_pqc_container_pem
       end
 
       def sign(message)
