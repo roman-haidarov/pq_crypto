@@ -13,9 +13,9 @@ module PQCrypto
     end
 
     def initialize(public_key, secret_key)
-      @typed = KEM::Keypair.new(
-        KEM.public_key_from_bytes(:ml_kem_768, public_key),
-        KEM.secret_key_from_bytes(:ml_kem_768, secret_key)
+      @typed = HybridKEM::Keypair.new(
+        HybridKEM.public_key_from_bytes(:ml_kem_768_x25519_hkdf_sha256, public_key),
+        HybridKEM.secret_key_from_bytes(:ml_kem_768_x25519_hkdf_sha256, secret_key)
       )
       @public_key = @typed.public_key.to_bytes
       @secret_key = @typed.secret_key.to_bytes

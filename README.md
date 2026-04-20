@@ -53,6 +53,11 @@ The intended core API is:
 
 Compatibility helpers such as `PQCrypto.kem_keypair`, `PQCrypto.sign_keypair`, and legacy wrapper classes are still available, but they are not the long-term primary surface.
 
+Important semantic note:
+- `PQCrypto::KEM` now means **pure ML-KEM** only.
+- The legacy top-level `PQCrypto.kem_*` methods still use the gem's older **hybrid ML-KEM-768 + X25519** compatibility surface.
+- The typed hybrid primitive now lives under `PQCrypto::HybridKEM`.
+
 ## Supported primitive APIs
 
 ### KEM
@@ -69,6 +74,17 @@ shared_secret_b = sec.decapsulate(ciphertext)
 ```ruby
 pub2 = PQCrypto::KEM.public_key_from_bytes(:ml_kem_768, pub.to_bytes)
 sec2 = PQCrypto::KEM.secret_key_from_bytes(:ml_kem_768, sec.to_bytes)
+```
+
+### Hybrid KEM (compatibility / explicit hybrid primitive)
+
+```ruby
+keypair = PQCrypto::HybridKEM.generate(:ml_kem_768_x25519_hkdf_sha256)
+pub = keypair.public_key
+sec = keypair.secret_key
+
+ciphertext, shared_secret_a = pub.encapsulate_to_bytes
+shared_secret_b = sec.decapsulate(ciphertext)
 ```
 
 ### Signatures
@@ -94,8 +110,10 @@ sec2 = PQCrypto::Signature.secret_key_from_bytes(:ml_dsa_65, sec.to_bytes)
 PQCrypto.version
 PQCrypto.backend
 PQCrypto.supported_kems
+PQCrypto.supported_hybrid_kems
 PQCrypto.supported_signatures
 PQCrypto::KEM.details(:ml_kem_768)
+PQCrypto::HybridKEM.details(:ml_kem_768_x25519_hkdf_sha256)
 PQCrypto::Signature.details(:ml_dsa_65)
 ```
 
@@ -137,15 +155,15 @@ MIT. See [LICENSE.txt](LICENSE.txt).
 
 ## Serialization
 
-Primitive key objects support raw byte export/import and project-scoped ASN.1 DER/PEM containers:
+Primitive key objects support raw byte export/import and project-local DER/PEM containers:
 
 ```ruby
 kem = PQCrypto::KEM.generate(:ml_kem_768)
-pub_der = kem.public_key.to_spki_der
-sec_pem = kem.secret_key.to_pkcs8_pem
+pub_der = kem.public_key.to_pqc_container_der
+sec_pem = kem.secret_key.to_pqc_container_pem
 
-imported_pub = PQCrypto::KEM.public_key_from_spki_der(pub_der)
-imported_sec = PQCrypto::KEM.secret_key_from_pkcs8_pem(sec_pem)
+imported_pub = PQCrypto::KEM.public_key_from_pqc_container_der(pub_der)
+imported_sec = PQCrypto::KEM.secret_key_from_pqc_container_pem(sec_pem)
 ```
 
-These DER/PEM wrappers are currently project-local serialization containers intended for stable export/import inside pq_crypto. They are not yet advertised as interoperable with OpenSSL, Go, or other ecosystems.
+These DER/PEM wrappers are currently pq_crypto-specific containers intended for stable import/export inside pq_crypto. They are not yet advertised as interoperable with OpenSSL, Go, or other ecosystems. Deprecated `to_spki_*` / `to_pkcs8_*` aliases remain for compatibility only.

@@ -81,6 +81,11 @@ typedef struct {
 
 void pq_secure_wipe(void *ptr, size_t len);
 
+int pq_mlkem_keypair(uint8_t *public_key, uint8_t *secret_key);
+int pq_mlkem_encapsulate(uint8_t *ciphertext, uint8_t *shared_secret, const uint8_t *public_key);
+int pq_mlkem_decapsulate(uint8_t *shared_secret, const uint8_t *ciphertext,
+                         const uint8_t *secret_key);
+
 int pq_hybrid_keypair(uint8_t *public_key, uint8_t *secret_key);
 int pq_hybrid_encapsulate(uint8_t *ciphertext, uint8_t *shared_secret, const uint8_t *public_key);
 int pq_hybrid_decapsulate(uint8_t *shared_secret, const uint8_t *ciphertext,
@@ -132,7 +137,26 @@ int pq_secret_key_from_pkcs8_der(char **algorithm_out, uint8_t **key_out, size_t
 int pq_secret_key_from_pkcs8_pem(char **algorithm_out, uint8_t **key_out, size_t *key_len_out,
                                  const char *input, size_t input_len);
 
+
+/* Test-only deterministic hooks for regression/KAT harness. */
+int pq_testing_mlkem_keypair_from_seed(uint8_t *public_key, uint8_t *secret_key,
+                                       const uint8_t *seed, size_t seed_len);
+int pq_testing_mlkem_encapsulate_from_seed(uint8_t *ciphertext, uint8_t *shared_secret,
+                                           const uint8_t *public_key, const uint8_t *seed,
+                                           size_t seed_len);
+int pq_testing_mldsa_keypair_from_seed(uint8_t *public_key, uint8_t *secret_key,
+                                       const uint8_t *seed, size_t seed_len);
+int pq_testing_mldsa_sign_from_seed(uint8_t *signature, size_t *signature_len,
+                                    const uint8_t *message, size_t message_len,
+                                    const uint8_t *secret_key, const uint8_t *seed,
+                                    size_t seed_len);
+
 const char *pq_version(void);
+
+#define PQ_MLKEM_PUBLICKEYBYTES    MLKEM_PUBLICKEYBYTES
+#define PQ_MLKEM_SECRETKEYBYTES    MLKEM_SECRETKEYBYTES
+#define PQ_MLKEM_CIPHERTEXTBYTES   MLKEM_CIPHERTEXTBYTES
+#define PQ_MLKEM_SHAREDSECRETBYTES MLKEM_SHAREDSECRETBYTES
 
 #define PQ_HYBRID_PUBLICKEYBYTES    HYBRID_PUBLICKEYBYTES
 #define PQ_HYBRID_SECRETKEYBYTES    HYBRID_SECRETKEYBYTES
@@ -149,5 +173,11 @@ int pq_kem_keypair(uint8_t *public_key, uint8_t *secret_key);
 int pq_kem_encapsulate(uint8_t *ciphertext, uint8_t *shared_secret, const uint8_t *public_key);
 int pq_kem_decapsulate(uint8_t *shared_secret, const uint8_t *ciphertext,
                        const uint8_t *secret_key);
+
+int pq_hybrid_kem_keypair(uint8_t *public_key, uint8_t *secret_key);
+int pq_hybrid_kem_encapsulate(uint8_t *ciphertext, uint8_t *shared_secret,
+                              const uint8_t *public_key);
+int pq_hybrid_kem_decapsulate(uint8_t *shared_secret, const uint8_t *ciphertext,
+                              const uint8_t *secret_key);
 
 #endif

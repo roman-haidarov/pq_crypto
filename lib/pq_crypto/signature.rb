@@ -30,24 +30,44 @@ module PQCrypto
         SecretKey.new(algorithm, bytes)
       end
 
-      def public_key_from_spki_der(der, algorithm = nil)
+      def public_key_from_pqc_container_der(der, algorithm = nil)
         resolved_algorithm, bytes = Serialization.public_key_from_spki_der(algorithm, der)
         PublicKey.new(resolved_algorithm, bytes)
       end
 
-      def public_key_from_spki_pem(pem, algorithm = nil)
+      def public_key_from_pqc_container_pem(pem, algorithm = nil)
         resolved_algorithm, bytes = Serialization.public_key_from_spki_pem(algorithm, pem)
         PublicKey.new(resolved_algorithm, bytes)
       end
 
-      def secret_key_from_pkcs8_der(der, algorithm = nil)
+      def secret_key_from_pqc_container_der(der, algorithm = nil)
         resolved_algorithm, bytes = Serialization.secret_key_from_pkcs8_der(algorithm, der)
         SecretKey.new(resolved_algorithm, bytes)
       end
 
-      def secret_key_from_pkcs8_pem(pem, algorithm = nil)
+      def secret_key_from_pqc_container_pem(pem, algorithm = nil)
         resolved_algorithm, bytes = Serialization.secret_key_from_pkcs8_pem(algorithm, pem)
         SecretKey.new(resolved_algorithm, bytes)
+      end
+
+      def public_key_from_spki_der(der, algorithm = nil)
+        warn_once_about_deprecated_serializer(:public_key_from_spki_der, :public_key_from_pqc_container_der)
+        public_key_from_pqc_container_der(der, algorithm)
+      end
+
+      def public_key_from_spki_pem(pem, algorithm = nil)
+        warn_once_about_deprecated_serializer(:public_key_from_spki_pem, :public_key_from_pqc_container_pem)
+        public_key_from_pqc_container_pem(pem, algorithm)
+      end
+
+      def secret_key_from_pkcs8_der(der, algorithm = nil)
+        warn_once_about_deprecated_serializer(:secret_key_from_pkcs8_der, :secret_key_from_pqc_container_der)
+        secret_key_from_pqc_container_der(der, algorithm)
+      end
+
+      def secret_key_from_pkcs8_pem(pem, algorithm = nil)
+        warn_once_about_deprecated_serializer(:secret_key_from_pkcs8_pem, :secret_key_from_pqc_container_pem)
+        secret_key_from_pqc_container_pem(pem, algorithm)
       end
 
       def details(algorithm)

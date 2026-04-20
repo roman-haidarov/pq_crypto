@@ -48,6 +48,12 @@ int PQCLEAN_MLDSA65_CLEAN_crypto_sign_open(uint8_t *m, size_t *mlen,
         const uint8_t *sm, size_t smlen,
         const uint8_t *pk);
 
+int PQCLEAN_MLDSA65_CLEAN_crypto_sign_keypair_seed(uint8_t *pk, uint8_t *sk, const uint8_t seed[32]);
+int PQCLEAN_MLDSA65_CLEAN_crypto_sign_signature_seed(uint8_t *sig, size_t *siglen,
+        const uint8_t *m, size_t mlen,
+        const uint8_t *sk,
+        const uint8_t randomness_seed[32]);
+
 #endif
 
 #endif

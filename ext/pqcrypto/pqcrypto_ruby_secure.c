@@ -14,6 +14,8 @@ typedef struct {
     int result;
     uint8_t *public_key;
     uint8_t *secret_key;
+    const uint8_t *seed;
+    size_t seed_len;
 } kem_keypair_call_t;
 
 typedef struct {
@@ -21,6 +23,8 @@ typedef struct {
     uint8_t *ciphertext;
     uint8_t *shared_secret;
     const uint8_t *public_key;
+    const uint8_t *seed;
+    size_t seed_len;
 } kem_encapsulate_call_t;
 
 typedef struct {
@@ -34,6 +38,8 @@ typedef struct {
     int result;
     uint8_t *public_key;
     uint8_t *secret_key;
+    const uint8_t *seed;
+    size_t seed_len;
 } sign_keypair_call_t;
 
 typedef struct {
@@ -43,6 +49,8 @@ typedef struct {
     uint8_t *message;
     size_t message_len;
     const uint8_t *secret_key;
+    const uint8_t *seed;
+    size_t seed_len;
 } sign_call_t;
 
 typedef struct {
@@ -124,16 +132,20 @@ static const char *pq_algorithm_symbol_to_cstr(VALUE algorithm) {
         VALUE str = StringValue(algorithm);
         id = rb_intern_str(str);
     }
-    if (id == rb_intern("ml_kem_768") || id == rb_intern("ml_kem_768_x25519"))
-        return "ml_kem_768_x25519";
+    if (id == rb_intern("ml_kem_768"))
+        return "ml_kem_768";
+    if (id == rb_intern("ml_kem_768_x25519_hkdf_sha256") || id == rb_intern("ml_kem_768_x25519"))
+        return "ml_kem_768_x25519_hkdf_sha256";
     if (id == rb_intern("ml_dsa_65"))
         return "ml_dsa_65";
     rb_raise(rb_eArgError, "Unsupported serialization algorithm");
 }
 
 static VALUE pq_algorithm_cstr_to_symbol(const char *algorithm) {
-    if (strcmp(algorithm, "ml_kem_768_x25519") == 0)
-        return ID2SYM(rb_intern("ml_kem_768_x25519"));
+    if (strcmp(algorithm, "ml_kem_768") == 0)
+        return ID2SYM(rb_intern("ml_kem_768"));
+    if (strcmp(algorithm, "ml_kem_768_x25519_hkdf_sha256") == 0)
+        return ID2SYM(rb_intern("ml_kem_768_x25519_hkdf_sha256"));
     if (strcmp(algorithm, "ml_dsa_65") == 0)
         return ID2SYM(rb_intern("ml_dsa_65"));
     rb_raise(rb_eArgError, "Unsupported serialization algorithm");
@@ -157,6 +169,58 @@ static void *pq_kem_decapsulate_nogvl(void *arg) {
     return NULL;
 }
 
+static void *pq_ml_kem_keypair_nogvl(void *arg) {
+    kem_keypair_call_t *call = (kem_keypair_call_t *)arg;
+    call->result = pq_mlkem_keypair(call->public_key, call->secret_key);
+    return NULL;
+}
+
+static void *pq_ml_kem_encapsulate_nogvl(void *arg) {
+    kem_encapsulate_call_t *call = (kem_encapsulate_call_t *)arg;
+    call->result = pq_mlkem_encapsulate(call->ciphertext, call->shared_secret, call->public_key);
+    return NULL;
+}
+
+static void *pq_ml_kem_decapsulate_nogvl(void *arg) {
+    kem_decapsulate_call_t *call = (kem_decapsulate_call_t *)arg;
+    call->result = pq_mlkem_decapsulate(call->shared_secret, call->ciphertext, call->secret_key);
+    return NULL;
+}
+
+static void *pq_testing_ml_kem_keypair_nogvl(void *arg) {
+    kem_keypair_call_t *call = (kem_keypair_call_t *)arg;
+    call->result = pq_testing_mlkem_keypair_from_seed(call->public_key, call->secret_key,
+                                                      call->seed, call->seed_len);
+    return NULL;
+}
+
+static void *pq_testing_ml_kem_encapsulate_nogvl(void *arg) {
+    kem_encapsulate_call_t *call = (kem_encapsulate_call_t *)arg;
+    call->result = pq_testing_mlkem_encapsulate_from_seed(
+        call->ciphertext, call->shared_secret, call->public_key, call->seed, call->seed_len);
+    return NULL;
+}
+
+static void *pq_hybrid_kem_keypair_nogvl(void *arg) {
+    kem_keypair_call_t *call = (kem_keypair_call_t *)arg;
+    call->result = pq_hybrid_kem_keypair(call->public_key, call->secret_key);
+    return NULL;
+}
+
+static void *pq_hybrid_kem_encapsulate_nogvl(void *arg) {
+    kem_encapsulate_call_t *call = (kem_encapsulate_call_t *)arg;
+    call->result =
+        pq_hybrid_kem_encapsulate(call->ciphertext, call->shared_secret, call->public_key);
+    return NULL;
+}
+
+static void *pq_hybrid_kem_decapsulate_nogvl(void *arg) {
+    kem_decapsulate_call_t *call = (kem_decapsulate_call_t *)arg;
+    call->result =
+        pq_hybrid_kem_decapsulate(call->shared_secret, call->ciphertext, call->secret_key);
+    return NULL;
+}
+
 static void *pq_sign_keypair_nogvl(void *arg) {
     sign_keypair_call_t *call = (sign_keypair_call_t *)arg;
     call->result = pq_sign_keypair(call->public_key, call->secret_key);
@@ -167,6 +231,21 @@ static void *pq_sign_nogvl(void *arg) {
     sign_call_t *call = (sign_call_t *)arg;
     call->result = pq_sign(call->signature, &call->signature_len, call->message, call->message_len,
                            call->secret_key);
+    return NULL;
+}
+
+static void *pq_testing_sign_keypair_nogvl(void *arg) {
+    sign_keypair_call_t *call = (sign_keypair_call_t *)arg;
+    call->result = pq_testing_mldsa_keypair_from_seed(call->public_key, call->secret_key,
+                                                      call->seed, call->seed_len);
+    return NULL;
+}
+
+static void *pq_testing_sign_nogvl(void *arg) {
+    sign_call_t *call = (sign_call_t *)arg;
+    call->result = pq_testing_mldsa_sign_from_seed(call->signature, &call->signature_len,
+                                                   call->message, call->message_len,
+                                                   call->secret_key, call->seed, call->seed_len);
     return NULL;
 }
 
@@ -421,6 +500,172 @@ static ruby_pq_session_t *pqcrypto_get_session(VALUE self) {
     return wrapper;
 }
 
+static VALUE pqcrypto_ml_kem_keypair(VALUE self) {
+    (void)self;
+
+    kem_keypair_call_t call = {0};
+    call.public_key = pq_alloc_buffer(PQ_MLKEM_PUBLICKEYBYTES);
+    call.secret_key = pq_alloc_buffer(PQ_MLKEM_SECRETKEYBYTES);
+
+    rb_thread_call_without_gvl(pq_ml_kem_keypair_nogvl, &call, NULL, NULL);
+
+    if (call.result != PQ_SUCCESS) {
+        pq_wipe_and_free(call.secret_key, PQ_MLKEM_SECRETKEYBYTES);
+        free(call.public_key);
+        pq_raise_general_error(call.result);
+    }
+
+    VALUE result = rb_ary_new2(2);
+    rb_ary_push(result, pq_string_from_buffer(call.public_key, PQ_MLKEM_PUBLICKEYBYTES));
+    rb_ary_push(result, pq_string_from_buffer(call.secret_key, PQ_MLKEM_SECRETKEYBYTES));
+
+    free(call.public_key);
+    pq_wipe_and_free(call.secret_key, PQ_MLKEM_SECRETKEYBYTES);
+    return result;
+}
+
+static VALUE pqcrypto_ml_kem_encapsulate(VALUE self, VALUE public_key) {
+    (void)self;
+    StringValue(public_key);
+
+    if ((size_t)RSTRING_LEN(public_key) != PQ_MLKEM_PUBLICKEYBYTES) {
+        rb_raise(rb_eArgError, "Invalid public key length");
+    }
+
+    kem_encapsulate_call_t call = {0};
+    call.public_key = (const uint8_t *)RSTRING_PTR(public_key);
+    call.ciphertext = pq_alloc_buffer(PQ_MLKEM_CIPHERTEXTBYTES);
+    call.shared_secret = pq_alloc_buffer(PQ_MLKEM_SHAREDSECRETBYTES);
+
+    rb_thread_call_without_gvl(pq_ml_kem_encapsulate_nogvl, &call, NULL, NULL);
+
+    if (call.result != PQ_SUCCESS) {
+        pq_wipe_and_free(call.shared_secret, PQ_MLKEM_SHAREDSECRETBYTES);
+        free(call.ciphertext);
+        pq_raise_general_error(call.result);
+    }
+
+    VALUE result = rb_ary_new2(2);
+    rb_ary_push(result, pq_string_from_buffer(call.ciphertext, PQ_MLKEM_CIPHERTEXTBYTES));
+    rb_ary_push(result, pq_string_from_buffer(call.shared_secret, PQ_MLKEM_SHAREDSECRETBYTES));
+
+    free(call.ciphertext);
+    pq_wipe_and_free(call.shared_secret, PQ_MLKEM_SHAREDSECRETBYTES);
+    return result;
+}
+
+static VALUE pqcrypto_ml_kem_decapsulate(VALUE self, VALUE ciphertext, VALUE secret_key) {
+    (void)self;
+    StringValue(ciphertext);
+    StringValue(secret_key);
+
+    if ((size_t)RSTRING_LEN(ciphertext) != PQ_MLKEM_CIPHERTEXTBYTES) {
+        rb_raise(rb_eArgError, "Invalid ciphertext length");
+    }
+    if ((size_t)RSTRING_LEN(secret_key) != PQ_MLKEM_SECRETKEYBYTES) {
+        rb_raise(rb_eArgError, "Invalid secret key length");
+    }
+
+    kem_decapsulate_call_t call = {0};
+    call.ciphertext = (const uint8_t *)RSTRING_PTR(ciphertext);
+    call.secret_key = (const uint8_t *)RSTRING_PTR(secret_key);
+    call.shared_secret = pq_alloc_buffer(PQ_MLKEM_SHAREDSECRETBYTES);
+
+    rb_thread_call_without_gvl(pq_ml_kem_decapsulate_nogvl, &call, NULL, NULL);
+
+    if (call.result != PQ_SUCCESS) {
+        pq_wipe_and_free(call.shared_secret, PQ_MLKEM_SHAREDSECRETBYTES);
+        pq_raise_general_error(call.result);
+    }
+
+    VALUE result = pq_string_from_buffer(call.shared_secret, PQ_MLKEM_SHAREDSECRETBYTES);
+    pq_wipe_and_free(call.shared_secret, PQ_MLKEM_SHAREDSECRETBYTES);
+    return result;
+}
+
+static VALUE pqcrypto_hybrid_kem_keypair(VALUE self) {
+    (void)self;
+
+    kem_keypair_call_t call = {0};
+    call.public_key = pq_alloc_buffer(PQ_HYBRID_PUBLICKEYBYTES);
+    call.secret_key = pq_alloc_buffer(PQ_HYBRID_SECRETKEYBYTES);
+
+    rb_thread_call_without_gvl(pq_hybrid_kem_keypair_nogvl, &call, NULL, NULL);
+
+    if (call.result != PQ_SUCCESS) {
+        pq_wipe_and_free(call.secret_key, PQ_HYBRID_SECRETKEYBYTES);
+        free(call.public_key);
+        pq_raise_general_error(call.result);
+    }
+
+    VALUE result = rb_ary_new2(2);
+    rb_ary_push(result, pq_string_from_buffer(call.public_key, PQ_HYBRID_PUBLICKEYBYTES));
+    rb_ary_push(result, pq_string_from_buffer(call.secret_key, PQ_HYBRID_SECRETKEYBYTES));
+
+    free(call.public_key);
+    pq_wipe_and_free(call.secret_key, PQ_HYBRID_SECRETKEYBYTES);
+    return result;
+}
+
+static VALUE pqcrypto_hybrid_kem_encapsulate(VALUE self, VALUE public_key) {
+    (void)self;
+    StringValue(public_key);
+
+    if ((size_t)RSTRING_LEN(public_key) != PQ_HYBRID_PUBLICKEYBYTES) {
+        rb_raise(rb_eArgError, "Invalid public key length");
+    }
+
+    kem_encapsulate_call_t call = {0};
+    call.public_key = (const uint8_t *)RSTRING_PTR(public_key);
+    call.ciphertext = pq_alloc_buffer(PQ_HYBRID_CIPHERTEXTBYTES);
+    call.shared_secret = pq_alloc_buffer(PQ_HYBRID_SHAREDSECRETBYTES);
+
+    rb_thread_call_without_gvl(pq_hybrid_kem_encapsulate_nogvl, &call, NULL, NULL);
+
+    if (call.result != PQ_SUCCESS) {
+        pq_wipe_and_free(call.shared_secret, PQ_HYBRID_SHAREDSECRETBYTES);
+        free(call.ciphertext);
+        pq_raise_general_error(call.result);
+    }
+
+    VALUE result = rb_ary_new2(2);
+    rb_ary_push(result, pq_string_from_buffer(call.ciphertext, PQ_HYBRID_CIPHERTEXTBYTES));
+    rb_ary_push(result, pq_string_from_buffer(call.shared_secret, PQ_HYBRID_SHAREDSECRETBYTES));
+
+    free(call.ciphertext);
+    pq_wipe_and_free(call.shared_secret, PQ_HYBRID_SHAREDSECRETBYTES);
+    return result;
+}
+
+static VALUE pqcrypto_hybrid_kem_decapsulate(VALUE self, VALUE ciphertext, VALUE secret_key) {
+    (void)self;
+    StringValue(ciphertext);
+    StringValue(secret_key);
+
+    if ((size_t)RSTRING_LEN(ciphertext) != PQ_HYBRID_CIPHERTEXTBYTES) {
+        rb_raise(rb_eArgError, "Invalid ciphertext length");
+    }
+    if ((size_t)RSTRING_LEN(secret_key) != PQ_HYBRID_SECRETKEYBYTES) {
+        rb_raise(rb_eArgError, "Invalid secret key length");
+    }
+
+    kem_decapsulate_call_t call = {0};
+    call.ciphertext = (const uint8_t *)RSTRING_PTR(ciphertext);
+    call.secret_key = (const uint8_t *)RSTRING_PTR(secret_key);
+    call.shared_secret = pq_alloc_buffer(PQ_HYBRID_SHAREDSECRETBYTES);
+
+    rb_thread_call_without_gvl(pq_hybrid_kem_decapsulate_nogvl, &call, NULL, NULL);
+
+    if (call.result != PQ_SUCCESS) {
+        pq_wipe_and_free(call.shared_secret, PQ_HYBRID_SHAREDSECRETBYTES);
+        pq_raise_general_error(call.result);
+    }
+
+    VALUE result = pq_string_from_buffer(call.shared_secret, PQ_HYBRID_SHAREDSECRETBYTES);
+    pq_wipe_and_free(call.shared_secret, PQ_HYBRID_SHAREDSECRETBYTES);
+    return result;
+}
+
 static VALUE pqcrypto_kem_keypair(VALUE self) {
     (void)self;
 
@@ -501,6 +746,139 @@ static VALUE pqcrypto_kem_decapsulate(VALUE self, VALUE ciphertext, VALUE secret
 
     VALUE result = pq_string_from_buffer(call.shared_secret, PQ_HYBRID_SHAREDSECRETBYTES);
     pq_wipe_and_free(call.shared_secret, PQ_HYBRID_SHAREDSECRETBYTES);
+    return result;
+}
+
+static VALUE pqcrypto__test_ml_kem_keypair_from_seed(VALUE self, VALUE seed) {
+    (void)self;
+    StringValue(seed);
+
+    if ((size_t)RSTRING_LEN(seed) != 32 && (size_t)RSTRING_LEN(seed) != 64) {
+        rb_raise(rb_eArgError, "Deterministic ML-KEM test seed must be 32 or 64 bytes");
+    }
+
+    kem_keypair_call_t call = {0};
+    call.public_key = pq_alloc_buffer(PQ_MLKEM_PUBLICKEYBYTES);
+    call.secret_key = pq_alloc_buffer(PQ_MLKEM_SECRETKEYBYTES);
+    call.seed = (const uint8_t *)RSTRING_PTR(seed);
+    call.seed_len = (size_t)RSTRING_LEN(seed);
+
+    rb_thread_call_without_gvl(pq_testing_ml_kem_keypair_nogvl, &call, NULL, NULL);
+
+    if (call.result != PQ_SUCCESS) {
+        pq_wipe_and_free(call.secret_key, PQ_MLKEM_SECRETKEYBYTES);
+        free(call.public_key);
+        pq_raise_general_error(call.result);
+    }
+
+    VALUE result = rb_ary_new2(2);
+    rb_ary_push(result, pq_string_from_buffer(call.public_key, PQ_MLKEM_PUBLICKEYBYTES));
+    rb_ary_push(result, pq_string_from_buffer(call.secret_key, PQ_MLKEM_SECRETKEYBYTES));
+
+    free(call.public_key);
+    pq_wipe_and_free(call.secret_key, PQ_MLKEM_SECRETKEYBYTES);
+    return result;
+}
+
+static VALUE pqcrypto__test_ml_kem_encapsulate_from_seed(VALUE self, VALUE public_key, VALUE seed) {
+    (void)self;
+    StringValue(public_key);
+    StringValue(seed);
+
+    if ((size_t)RSTRING_LEN(public_key) != PQ_MLKEM_PUBLICKEYBYTES) {
+        rb_raise(rb_eArgError, "Invalid public key length");
+    }
+    if ((size_t)RSTRING_LEN(seed) != 32) {
+        rb_raise(rb_eArgError, "Deterministic test seed must be 32 bytes");
+    }
+
+    kem_encapsulate_call_t call = {0};
+    call.public_key = (const uint8_t *)RSTRING_PTR(public_key);
+    call.ciphertext = pq_alloc_buffer(PQ_MLKEM_CIPHERTEXTBYTES);
+    call.shared_secret = pq_alloc_buffer(PQ_MLKEM_SHAREDSECRETBYTES);
+    call.seed = (const uint8_t *)RSTRING_PTR(seed);
+    call.seed_len = (size_t)RSTRING_LEN(seed);
+
+    rb_thread_call_without_gvl(pq_testing_ml_kem_encapsulate_nogvl, &call, NULL, NULL);
+
+    if (call.result != PQ_SUCCESS) {
+        pq_wipe_and_free(call.shared_secret, PQ_MLKEM_SHAREDSECRETBYTES);
+        free(call.ciphertext);
+        pq_raise_general_error(call.result);
+    }
+
+    VALUE result = rb_ary_new2(2);
+    rb_ary_push(result, pq_string_from_buffer(call.ciphertext, PQ_MLKEM_CIPHERTEXTBYTES));
+    rb_ary_push(result, pq_string_from_buffer(call.shared_secret, PQ_MLKEM_SHAREDSECRETBYTES));
+
+    free(call.ciphertext);
+    pq_wipe_and_free(call.shared_secret, PQ_MLKEM_SHAREDSECRETBYTES);
+    return result;
+}
+
+static VALUE pqcrypto__test_sign_keypair_from_seed(VALUE self, VALUE seed) {
+    (void)self;
+    StringValue(seed);
+
+    if ((size_t)RSTRING_LEN(seed) != 32) {
+        rb_raise(rb_eArgError, "Deterministic test seed must be 32 bytes");
+    }
+
+    sign_keypair_call_t call = {0};
+    call.public_key = pq_alloc_buffer(PQ_MLDSA_PUBLICKEYBYTES);
+    call.secret_key = pq_alloc_buffer(PQ_MLDSA_SECRETKEYBYTES);
+    call.seed = (const uint8_t *)RSTRING_PTR(seed);
+    call.seed_len = (size_t)RSTRING_LEN(seed);
+
+    rb_thread_call_without_gvl(pq_testing_sign_keypair_nogvl, &call, NULL, NULL);
+
+    if (call.result != PQ_SUCCESS) {
+        pq_wipe_and_free(call.secret_key, PQ_MLDSA_SECRETKEYBYTES);
+        free(call.public_key);
+        pq_raise_general_error(call.result);
+    }
+
+    VALUE result = rb_ary_new2(2);
+    rb_ary_push(result, pq_string_from_buffer(call.public_key, PQ_MLDSA_PUBLICKEYBYTES));
+    rb_ary_push(result, pq_string_from_buffer(call.secret_key, PQ_MLDSA_SECRETKEYBYTES));
+
+    free(call.public_key);
+    pq_wipe_and_free(call.secret_key, PQ_MLDSA_SECRETKEYBYTES);
+    return result;
+}
+
+static VALUE pqcrypto__test_sign_from_seed(VALUE self, VALUE message, VALUE secret_key,
+                                           VALUE seed) {
+    (void)self;
+    StringValue(secret_key);
+    StringValue(seed);
+
+    if ((size_t)RSTRING_LEN(secret_key) != PQ_MLDSA_SECRETKEYBYTES) {
+        rb_raise(rb_eArgError, "Invalid secret key length");
+    }
+    if ((size_t)RSTRING_LEN(seed) != 32) {
+        rb_raise(rb_eArgError, "Deterministic test seed must be 32 bytes");
+    }
+
+    sign_call_t call = {0};
+    call.secret_key = (const uint8_t *)RSTRING_PTR(secret_key);
+    call.signature_len = PQ_MLDSA_BYTES;
+    call.signature = pq_alloc_buffer(PQ_MLDSA_BYTES);
+    call.message = pq_copy_ruby_string(message, &call.message_len);
+    call.seed = (const uint8_t *)RSTRING_PTR(seed);
+    call.seed_len = (size_t)RSTRING_LEN(seed);
+
+    rb_thread_call_without_gvl(pq_testing_sign_nogvl, &call, NULL, NULL);
+
+    pq_wipe_and_free(call.message, call.message_len);
+
+    if (call.result != PQ_SUCCESS) {
+        pq_wipe_and_free(call.signature, PQ_MLDSA_BYTES);
+        pq_raise_general_error(call.result);
+    }
+
+    VALUE result = pq_string_from_buffer(call.signature, call.signature_len);
+    pq_wipe_and_free(call.signature, PQ_MLDSA_BYTES);
     return result;
 }
 
@@ -959,6 +1337,15 @@ static VALUE pqcrypto_unseal_and_verify(VALUE self, VALUE input, VALUE kem_secre
 }
 
 static void define_constants(void) {
+    rb_define_const(mPQCrypto, "ML_KEM_PUBLIC_KEY_BYTES", INT2NUM(PQ_MLKEM_PUBLICKEYBYTES));
+    rb_define_const(mPQCrypto, "ML_KEM_SECRET_KEY_BYTES", INT2NUM(PQ_MLKEM_SECRETKEYBYTES));
+    rb_define_const(mPQCrypto, "ML_KEM_CIPHERTEXT_BYTES", INT2NUM(PQ_MLKEM_CIPHERTEXTBYTES));
+    rb_define_const(mPQCrypto, "ML_KEM_SHARED_SECRET_BYTES", INT2NUM(PQ_MLKEM_SHAREDSECRETBYTES));
+    rb_define_const(mPQCrypto, "HYBRID_KEM_PUBLIC_KEY_BYTES", INT2NUM(PQ_HYBRID_PUBLICKEYBYTES));
+    rb_define_const(mPQCrypto, "HYBRID_KEM_SECRET_KEY_BYTES", INT2NUM(PQ_HYBRID_SECRETKEYBYTES));
+    rb_define_const(mPQCrypto, "HYBRID_KEM_CIPHERTEXT_BYTES", INT2NUM(PQ_HYBRID_CIPHERTEXTBYTES));
+    rb_define_const(mPQCrypto, "HYBRID_KEM_SHARED_SECRET_BYTES",
+                    INT2NUM(PQ_HYBRID_SHAREDSECRETBYTES));
     rb_define_const(mPQCrypto, "KEM_PUBLIC_KEY_BYTES", INT2NUM(PQ_HYBRID_PUBLICKEYBYTES));
     rb_define_const(mPQCrypto, "KEM_SECRET_KEY_BYTES", INT2NUM(PQ_HYBRID_SECRETKEYBYTES));
     rb_define_const(mPQCrypto, "KEM_CIPHERTEXT_BYTES", INT2NUM(PQ_HYBRID_CIPHERTEXTBYTES));
@@ -1124,6 +1511,21 @@ void Init_pqcrypto_secure(void) {
     rb_define_method(cPQCryptoSession, "encrypt", pqcrypto_session_encrypt, -1);
     rb_define_method(cPQCryptoSession, "decrypt", pqcrypto_session_decrypt, -1);
 
+    rb_define_module_function(mPQCrypto, "__test_ml_kem_keypair_from_seed",
+                              pqcrypto__test_ml_kem_keypair_from_seed, 1);
+    rb_define_module_function(mPQCrypto, "__test_ml_kem_encapsulate_from_seed",
+                              pqcrypto__test_ml_kem_encapsulate_from_seed, 2);
+    rb_define_module_function(mPQCrypto, "__test_sign_keypair_from_seed",
+                              pqcrypto__test_sign_keypair_from_seed, 1);
+    rb_define_module_function(mPQCrypto, "__test_sign_from_seed", pqcrypto__test_sign_from_seed, 3);
+    rb_define_module_function(mPQCrypto, "ml_kem_keypair", pqcrypto_ml_kem_keypair, 0);
+    rb_define_module_function(mPQCrypto, "ml_kem_encapsulate", pqcrypto_ml_kem_encapsulate, 1);
+    rb_define_module_function(mPQCrypto, "ml_kem_decapsulate", pqcrypto_ml_kem_decapsulate, 2);
+    rb_define_module_function(mPQCrypto, "hybrid_kem_keypair", pqcrypto_hybrid_kem_keypair, 0);
+    rb_define_module_function(mPQCrypto, "hybrid_kem_encapsulate", pqcrypto_hybrid_kem_encapsulate,
+                              1);
+    rb_define_module_function(mPQCrypto, "hybrid_kem_decapsulate", pqcrypto_hybrid_kem_decapsulate,
+                              2);
     rb_define_module_function(mPQCrypto, "kem_keypair", pqcrypto_kem_keypair, 0);
     rb_define_module_function(mPQCrypto, "kem_encapsulate", pqcrypto_kem_encapsulate, 1);
     rb_define_module_function(mPQCrypto, "kem_decapsulate", pqcrypto_kem_decapsulate, 2);

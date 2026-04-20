@@ -16,7 +16,8 @@ rescue LoadError => original_error
   end
   existing = candidates.select { |path| File.exist?(path) }
 
-  raise LoadError, "Could not find compiled PQCrypto extension. Run: bundle exec rake vendor && bundle exec rake compile" if existing.empty?
+  raise LoadError,
+        "Could not find compiled PQCrypto extension. Run: bundle exec rake vendor && bundle exec rake compile" if existing.empty?
 
   loaded = existing.any? do |path|
     begin
@@ -33,13 +34,20 @@ end
 module PQCrypto
   SUITES = {
     kem: [:ml_kem_768].freeze,
+    hybrid_kem: [:ml_kem_768_x25519_hkdf_sha256].freeze,
     signature: [:ml_dsa_65].freeze,
   }.freeze
 
   NATIVE_EXTENSION_LOADED = true unless const_defined?(:NATIVE_EXTENSION_LOADED)
 
   class << self
-    unless private_method_defined?(:native_kem_keypair)
+    unless private_method_defined?(:native_ml_kem_keypair)
+      alias_method :native_ml_kem_keypair, :ml_kem_keypair
+      alias_method :native_ml_kem_encapsulate, :ml_kem_encapsulate
+      alias_method :native_ml_kem_decapsulate, :ml_kem_decapsulate
+      alias_method :native_hybrid_kem_keypair, :hybrid_kem_keypair
+      alias_method :native_hybrid_kem_encapsulate, :hybrid_kem_encapsulate
+      alias_method :native_hybrid_kem_decapsulate, :hybrid_kem_decapsulate
       alias_method :native_kem_keypair, :kem_keypair
       alias_method :native_kem_encapsulate, :kem_encapsulate
       alias_method :native_kem_decapsulate, :kem_decapsulate
@@ -55,8 +63,18 @@ module PQCrypto
       alias_method :native_sign_and_seal, :sign_and_seal
       alias_method :native_unseal_and_verify, :unseal_and_verify
       alias_method :native_public_key_pem, :public_key_pem
+      alias_method :native_test_ml_kem_keypair_from_seed, :__test_ml_kem_keypair_from_seed
+      alias_method :native_test_ml_kem_encapsulate_from_seed, :__test_ml_kem_encapsulate_from_seed
+      alias_method :native_test_sign_keypair_from_seed, :__test_sign_keypair_from_seed
+      alias_method :native_test_sign_from_seed, :__test_sign_from_seed
 
-      private :native_kem_keypair,
+      private :native_ml_kem_keypair,
+              :native_ml_kem_encapsulate,
+              :native_ml_kem_decapsulate,
+              :native_hybrid_kem_keypair,
+              :native_hybrid_kem_encapsulate,
+              :native_hybrid_kem_decapsulate,
+              :native_kem_keypair,
               :native_kem_encapsulate,
               :native_kem_decapsulate,
               :native_sign_keypair,
@@ -70,7 +88,17 @@ module PQCrypto
               :native_unseal,
               :native_sign_and_seal,
               :native_unseal_and_verify,
-              :native_public_key_pem
+              :native_public_key_pem,
+              :native_test_ml_kem_keypair_from_seed,
+              :native_test_ml_kem_encapsulate_from_seed,
+              :native_test_sign_keypair_from_seed,
+              :native_test_sign_from_seed,
+              :ml_kem_keypair,
+              :ml_kem_encapsulate,
+              :ml_kem_decapsulate,
+              :hybrid_kem_keypair,
+              :hybrid_kem_encapsulate,
+              :hybrid_kem_decapsulate
     end
 
     def version
@@ -89,6 +117,10 @@ module PQCrypto
       SUITES.fetch(:kem).dup
     end
 
+    def supported_hybrid_kems
+      SUITES.fetch(:hybrid_kem).dup
+    end
+
     def supported_signatures
       SUITES.fetch(:signature).dup
     end
@@ -101,7 +133,7 @@ module PQCrypto
       false
     end
 
-    # Compatibility surface
+    # Legacy compatibility surface backed by hybrid KEM.
     def kem_keypair
       native_kem_keypair
     end
@@ -141,7 +173,7 @@ module PQCrypto
       native_secure_wipe(string)
     end
 
-    # Legacy experimental protocol helpers
+    # Legacy experimental protocol helpers based on the hybrid KEM compatibility layer.
     def establish_session(public_key)
       native_establish_session(String(public_key))
     rescue ArgumentError => e
@@ -189,6 +221,32 @@ module PQCrypto
     alias_method :decapsulate, :kem_decapsulate
   end
 
+  module Testing
+    def self.ml_kem_keypair_from_seed(seed)
+      PQCrypto.send(:native_test_ml_kem_keypair_from_seed, String(seed).b)
+    rescue ArgumentError => e
+      raise InvalidKeyError, e.message
+    end
+
+    def self.ml_kem_encapsulate_from_seed(public_key, seed)
+      PQCrypto.send(:native_test_ml_kem_encapsulate_from_seed, String(public_key).b, String(seed).b)
+    rescue ArgumentError => e
+      raise InvalidKeyError, e.message
+    end
+
+    def self.ml_dsa_keypair_from_seed(seed)
+      PQCrypto.send(:native_test_sign_keypair_from_seed, String(seed).b)
+    rescue ArgumentError => e
+      raise InvalidKeyError, e.message
+    end
+
+    def self.ml_dsa_sign_from_seed(message, secret_key, seed)
+      PQCrypto.send(:native_test_sign_from_seed, String(message).b, String(secret_key).b, String(seed).b)
+    rescue ArgumentError => e
+      raise InvalidKeyError, e.message
+    end
+  end
+
   module Experimental
     def self.establish_session(public_key)
       PQCrypto.establish_session(public_key)
@@ -217,6 +275,7 @@ module PQCrypto
 end
 
 require_relative "pq_crypto/kem"
+require_relative "pq_crypto/hybrid_kem"
 require_relative "pq_crypto/signature"
 require_relative "pq_crypto/session"
 require_relative "pq_crypto/kem_keypair"

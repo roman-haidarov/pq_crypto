@@ -481,6 +481,93 @@ static int mldsa_verify(const uint8_t *sig, size_t siglen, const uint8_t *msg, s
     return PQCLEAN_MLDSA65_CLEAN_crypto_sign_verify(sig, siglen, msg, msglen, pk);
 }
 
+int pq_testing_mlkem_keypair_from_seed(uint8_t *public_key, uint8_t *secret_key,
+                                       const uint8_t *seed, size_t seed_len) {
+    uint8_t expanded_seed[64];
+    int ret;
+
+    if (!public_key || !secret_key || !seed) {
+        return PQ_ERROR_BUFFER;
+    }
+
+    if (seed_len == 64) {
+        return PQCLEAN_MLKEM768_CLEAN_crypto_kem_keypair_derand(public_key, secret_key, seed) == 0
+                   ? PQ_SUCCESS
+                   : PQ_ERROR_KEYPAIR;
+    }
+
+    if (seed_len != 32) {
+        return PQ_ERROR_BUFFER;
+    }
+
+    ret = secure_hkdf(expanded_seed, sizeof(expanded_seed), seed, seed_len, NULL, 0,
+                      (const uint8_t *)"pqcrypto-test-mlkem-keypair", 26);
+    if (ret != PQ_SUCCESS) {
+        pq_secure_wipe(expanded_seed, sizeof(expanded_seed));
+        return ret;
+    }
+
+    ret =
+        PQCLEAN_MLKEM768_CLEAN_crypto_kem_keypair_derand(public_key, secret_key, expanded_seed) == 0
+            ? PQ_SUCCESS
+            : PQ_ERROR_KEYPAIR;
+    pq_secure_wipe(expanded_seed, sizeof(expanded_seed));
+    return ret;
+}
+
+int pq_testing_mlkem_encapsulate_from_seed(uint8_t *ciphertext, uint8_t *shared_secret,
+                                           const uint8_t *public_key, const uint8_t *seed,
+                                           size_t seed_len) {
+    if (!ciphertext || !shared_secret || !public_key || !seed || seed_len != 32) {
+        return PQ_ERROR_BUFFER;
+    }
+
+    return PQCLEAN_MLKEM768_CLEAN_crypto_kem_enc_derand(ciphertext, shared_secret, public_key,
+                                                        seed) == 0
+               ? PQ_SUCCESS
+               : PQ_ERROR_ENCAPSULATE;
+}
+
+int pq_testing_mldsa_keypair_from_seed(uint8_t *public_key, uint8_t *secret_key,
+                                       const uint8_t *seed, size_t seed_len) {
+    if (!public_key || !secret_key || !seed || seed_len != 32) {
+        return PQ_ERROR_BUFFER;
+    }
+
+    return PQCLEAN_MLDSA65_CLEAN_crypto_sign_keypair_seed(public_key, secret_key, seed) == 0
+               ? PQ_SUCCESS
+               : PQ_ERROR_KEYPAIR;
+}
+
+int pq_testing_mldsa_sign_from_seed(uint8_t *signature, size_t *signature_len,
+                                    const uint8_t *message, size_t message_len,
+                                    const uint8_t *secret_key, const uint8_t *seed,
+                                    size_t seed_len) {
+    if (!signature || !signature_len || !message || !secret_key || !seed || seed_len != 32) {
+        return PQ_ERROR_BUFFER;
+    }
+
+    return PQCLEAN_MLDSA65_CLEAN_crypto_sign_signature_seed(signature, signature_len, message,
+                                                            message_len, secret_key, seed) == 0
+               ? PQ_SUCCESS
+               : PQ_ERROR_SIGN;
+}
+
+int pq_mlkem_keypair(uint8_t *public_key, uint8_t *secret_key) {
+    return mlkem_keypair(public_key, secret_key) == 0 ? PQ_SUCCESS : PQ_ERROR_KEYPAIR;
+}
+
+int pq_mlkem_encapsulate(uint8_t *ciphertext, uint8_t *shared_secret, const uint8_t *public_key) {
+    return mlkem_encapsulate(ciphertext, shared_secret, public_key) == 0 ? PQ_SUCCESS
+                                                                         : PQ_ERROR_ENCAPSULATE;
+}
+
+int pq_mlkem_decapsulate(uint8_t *shared_secret, const uint8_t *ciphertext,
+                         const uint8_t *secret_key) {
+    return mlkem_decapsulate(shared_secret, ciphertext, secret_key) == 0 ? PQ_SUCCESS
+                                                                         : PQ_ERROR_DECAPSULATE;
+}
+
 int pq_hybrid_keypair(uint8_t *public_key, uint8_t *secret_key) {
     hybrid_public_key_t *pk = (hybrid_public_key_t *)public_key;
     hybrid_secret_key_t *sk = (hybrid_secret_key_t *)secret_key;
@@ -671,6 +758,20 @@ int pq_kem_encapsulate(uint8_t *ciphertext, uint8_t *shared_secret, const uint8_
 
 int pq_kem_decapsulate(uint8_t *shared_secret, const uint8_t *ciphertext,
                        const uint8_t *secret_key) {
+    return pq_hybrid_decapsulate(shared_secret, ciphertext, secret_key);
+}
+
+int pq_hybrid_kem_keypair(uint8_t *public_key, uint8_t *secret_key) {
+    return pq_hybrid_keypair(public_key, secret_key);
+}
+
+int pq_hybrid_kem_encapsulate(uint8_t *ciphertext, uint8_t *shared_secret,
+                              const uint8_t *public_key) {
+    return pq_hybrid_encapsulate(ciphertext, shared_secret, public_key);
+}
+
+int pq_hybrid_kem_decapsulate(uint8_t *shared_secret, const uint8_t *ciphertext,
+                              const uint8_t *secret_key) {
     return pq_hybrid_decapsulate(shared_secret, ciphertext, secret_key);
 }
 
@@ -951,14 +1052,21 @@ int pq_public_key_pem(char **output, size_t *output_len, const uint8_t *public_k
 #define PQC_SERIALIZATION_TYPE_PUBLIC 0x01
 #define PQC_SERIALIZATION_TYPE_SECRET 0x02
 
-static const char PQC_OID_ML_KEM_768_X25519[] = "2.25.260242945110721168101139140490528778800";
+static const char PQC_OID_ML_KEM_768[] = "2.25.186599352125448088867056807454444238446";
+static const char PQC_OID_ML_KEM_768_X25519_HKDF_SHA256[] =
+    "2.25.260242945110721168101139140490528778800";
 static const char PQC_OID_ML_DSA_65[] = "2.25.305232938483772195555080795650659207792";
 
 static int pq_serialization_key_bytes_for_algorithm(const char *algorithm, int is_public,
                                                     size_t *expected_len) {
     if (!algorithm || !expected_len)
         return PQ_ERROR_BUFFER;
-    if (strcmp(algorithm, "ml_kem_768_x25519") == 0) {
+    if (strcmp(algorithm, "ml_kem_768") == 0) {
+        *expected_len = is_public ? PQ_MLKEM_PUBLICKEYBYTES : PQ_MLKEM_SECRETKEYBYTES;
+        return PQ_SUCCESS;
+    }
+    if (strcmp(algorithm, "ml_kem_768_x25519_hkdf_sha256") == 0 ||
+        strcmp(algorithm, "ml_kem_768_x25519") == 0) {
         *expected_len = is_public ? PQ_HYBRID_PUBLICKEYBYTES : PQ_HYBRID_SECRETKEYBYTES;
         return PQ_SUCCESS;
     }
@@ -972,8 +1080,13 @@ static int pq_serialization_key_bytes_for_algorithm(const char *algorithm, int i
 static int pq_serialization_oid_for_algorithm(const char *algorithm, const char **oid_out) {
     if (!algorithm || !oid_out)
         return PQ_ERROR_BUFFER;
-    if (strcmp(algorithm, "ml_kem_768_x25519") == 0) {
-        *oid_out = PQC_OID_ML_KEM_768_X25519;
+    if (strcmp(algorithm, "ml_kem_768") == 0) {
+        *oid_out = PQC_OID_ML_KEM_768;
+        return PQ_SUCCESS;
+    }
+    if (strcmp(algorithm, "ml_kem_768_x25519_hkdf_sha256") == 0 ||
+        strcmp(algorithm, "ml_kem_768_x25519") == 0) {
+        *oid_out = PQC_OID_ML_KEM_768_X25519_HKDF_SHA256;
         return PQ_SUCCESS;
     }
     if (strcmp(algorithm, "ml_dsa_65") == 0) {
@@ -987,9 +1100,13 @@ static int pq_serialization_algorithm_for_oid(const char *oid, size_t oid_len,
                                               const char **algorithm_out) {
     if (!oid || !algorithm_out)
         return PQ_ERROR_BUFFER;
-    if (oid_len == strlen(PQC_OID_ML_KEM_768_X25519) &&
-        memcmp(oid, PQC_OID_ML_KEM_768_X25519, oid_len) == 0) {
-        *algorithm_out = "ml_kem_768_x25519";
+    if (oid_len == strlen(PQC_OID_ML_KEM_768) && memcmp(oid, PQC_OID_ML_KEM_768, oid_len) == 0) {
+        *algorithm_out = "ml_kem_768";
+        return PQ_SUCCESS;
+    }
+    if (oid_len == strlen(PQC_OID_ML_KEM_768_X25519_HKDF_SHA256) &&
+        memcmp(oid, PQC_OID_ML_KEM_768_X25519_HKDF_SHA256, oid_len) == 0) {
+        *algorithm_out = "ml_kem_768_x25519_hkdf_sha256";
         return PQ_SUCCESS;
     }
     if (oid_len == strlen(PQC_OID_ML_DSA_65) && memcmp(oid, PQC_OID_ML_DSA_65, oid_len) == 0) {

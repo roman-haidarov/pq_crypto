@@ -1,3 +1,12 @@
+## [Unreleased]
+
+### Changed
+- Re-defined `PQCrypto::KEM` as the pure ML-KEM-768 primitive surface.
+- Added `PQCrypto::HybridKEM` as the explicit namespace for the gem's hybrid ML-KEM-768 + X25519 construction.
+- Kept the legacy top-level `PQCrypto.kem_*` compatibility methods on the hybrid path so older protocol helpers continue to work while the primitive API becomes semantically honest.
+- Split capability introspection into pure KEMs and hybrid KEMs via `supported_kems` and `supported_hybrid_kems`.
+- Updated typed primitive tests and documentation to reflect the semantic split between pure KEM and hybrid KEM.
+
 ## [0.5.1]
 
 ### Changed

@@ -34,8 +34,10 @@ require "pq_crypto"
 PQCrypto.version
 PQCrypto.backend
 PQCrypto.supported_kems
+PQCrypto.supported_hybrid_kems
 PQCrypto.supported_signatures
 PQCrypto::KEM.details(:ml_kem_768)
+PQCrypto::HybridKEM.details(:ml_kem_768_x25519_hkdf_sha256)
 PQCrypto::Signature.details(:ml_dsa_65)
 ```
 
@@ -73,9 +75,18 @@ pub = PQCrypto::Signature.public_key_from_bytes(:ml_dsa_65, sig.public_key.to_by
 sec = PQCrypto::Signature.secret_key_from_bytes(:ml_dsa_65, sig.secret_key.to_bytes)
 ```
 
-## 8. Legacy / experimental helpers
+## 8. Hybrid KEM and legacy helpers
 
-These still exist, but are no longer the recommended center of the gem:
+`PQCrypto::KEM` is now the pure ML-KEM primitive.
+The older top-level `PQCrypto.kem_*` methods remain as compatibility helpers backed by the gem's hybrid ML-KEM-768 + X25519 construction.
+
+If you need the hybrid primitive explicitly, use:
+
+```ruby
+keypair = PQCrypto::HybridKEM.generate(:ml_kem_768_x25519_hkdf_sha256)
+```
+
+These legacy/compatibility APIs still exist, but are no longer the recommended center of the gem:
 - `PQCrypto.kem_keypair`
 - `PQCrypto.sign_keypair`
 - `PQCrypto::KEMKeypair`

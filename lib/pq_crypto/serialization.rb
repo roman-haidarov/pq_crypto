@@ -3,7 +3,12 @@
 module PQCrypto
   module Serialization
     ALGORITHM_METADATA = {
-      ml_kem_768_x25519: {
+      ml_kem_768: {
+        family: :ml_kem,
+        # UUID 8c665bfa-ff8d-4d79-87f9-9dfce91f3db2
+        oid: "2.25.186599352125448088867056807454444238446",
+      }.freeze,
+      ml_kem_768_x25519_hkdf_sha256: {
         family: :ml_kem_hybrid,
         # UUID c3c8f7d4-1e6a-4b5f-9a2e-8f1d7c4b6a30
         oid: "2.25.260242945110721168101139140490528778800",
