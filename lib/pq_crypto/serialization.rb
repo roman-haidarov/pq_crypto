@@ -5,17 +5,14 @@ module PQCrypto
     ALGORITHM_METADATA = {
       ml_kem_768: {
         family: :ml_kem,
-        # UUID 8c665bfa-ff8d-4d79-87f9-9dfce91f3db2
         oid: "2.25.186599352125448088867056807454444238446",
       }.freeze,
       ml_kem_768_x25519_hkdf_sha256: {
         family: :ml_kem_hybrid,
-        # UUID c3c8f7d4-1e6a-4b5f-9a2e-8f1d7c4b6a30
         oid: "2.25.260242945110721168101139140490528778800",
       }.freeze,
       ml_dsa_65: {
         family: :ml_dsa,
-        # UUID e5a1b9c2-7d3f-4c8e-a6b1-2f5d8e9c4a70
         oid: "2.25.305232938483772195555080795650659207792",
       }.freeze,
     }.freeze
@@ -23,7 +20,7 @@ module PQCrypto
     class << self
       def algorithm_metadata(algorithm)
         metadata = ALGORITHM_METADATA[algorithm]
-        raise SerializationError, "unsupported serialization algorithm: #{algorithm.inspect}" unless metadata
+        raise SerializationError, "Unsupported serialization algorithm: #{algorithm.inspect}" unless metadata
 
         metadata
       end
@@ -36,69 +33,69 @@ module PQCrypto
         algorithm_metadata(algorithm).fetch(:family)
       end
 
-      def public_key_to_spki_der(algorithm, bytes)
-        PQCrypto.public_key_to_spki_der(algorithm, String(bytes))
-      rescue PQCrypto::Error => e
+      def public_key_to_pqc_container_der(algorithm, bytes)
+        PQCrypto.__send__(:native_public_key_to_pqc_container_der, String(algorithm), String(bytes).b)
+      rescue ArgumentError, PQCrypto::Error => e
         raise SerializationError, e.message
       end
 
-      def public_key_to_spki_pem(algorithm, bytes)
-        PQCrypto.public_key_to_spki_pem(algorithm, String(bytes))
-      rescue PQCrypto::Error => e
+      def public_key_to_pqc_container_pem(algorithm, bytes)
+        PQCrypto.__send__(:native_public_key_to_pqc_container_pem, String(algorithm), String(bytes).b)
+      rescue ArgumentError, PQCrypto::Error => e
         raise SerializationError, e.message
       end
 
-      def secret_key_to_pkcs8_der(algorithm, bytes)
-        PQCrypto.secret_key_to_pkcs8_der(algorithm, String(bytes))
-      rescue PQCrypto::Error => e
+      def secret_key_to_pqc_container_der(algorithm, bytes)
+        PQCrypto.__send__(:native_secret_key_to_pqc_container_der, String(algorithm), String(bytes).b)
+      rescue ArgumentError, PQCrypto::Error => e
         raise SerializationError, e.message
       end
 
-      def secret_key_to_pkcs8_pem(algorithm, bytes)
-        PQCrypto.secret_key_to_pkcs8_pem(algorithm, String(bytes))
-      rescue PQCrypto::Error => e
+      def secret_key_to_pqc_container_pem(algorithm, bytes)
+        PQCrypto.__send__(:native_secret_key_to_pqc_container_pem, String(algorithm), String(bytes).b)
+      rescue ArgumentError, PQCrypto::Error => e
         raise SerializationError, e.message
       end
 
-      def public_key_from_spki_der(exp_algorithm, der)
-        algorithm, bytes = PQCrypto.public_key_from_spki_der(String(der))
-        validate_algorithm_expectation!(exp_algorithm, algorithm)
+      def public_key_from_pqc_container_der(expected_algorithm, der)
+        algorithm, bytes = PQCrypto.__send__(:native_public_key_from_pqc_container_der, String(der).b)
+        validate_algorithm_expectation!(expected_algorithm, algorithm)
         [algorithm, bytes]
-      rescue PQCrypto::Error => e
+      rescue ArgumentError, PQCrypto::Error => e
         raise SerializationError, e.message
       end
 
-      def public_key_from_spki_pem(exp_algorithm, pem)
-        algorithm, bytes = PQCrypto.public_key_from_spki_pem(String(pem))
-        validate_algorithm_expectation!(exp_algorithm, algorithm)
+      def public_key_from_pqc_container_pem(expected_algorithm, pem)
+        algorithm, bytes = PQCrypto.__send__(:native_public_key_from_pqc_container_pem, String(pem).b)
+        validate_algorithm_expectation!(expected_algorithm, algorithm)
         [algorithm, bytes]
-      rescue PQCrypto::Error => e
+      rescue ArgumentError, PQCrypto::Error => e
         raise SerializationError, e.message
       end
 
-      def secret_key_from_pkcs8_der(exp_algorithm, der)
-        algorithm, bytes = PQCrypto.secret_key_from_pkcs8_der(String(der))
-        validate_algorithm_expectation!(exp_algorithm, algorithm)
+      def secret_key_from_pqc_container_der(expected_algorithm, der)
+        algorithm, bytes = PQCrypto.__send__(:native_secret_key_from_pqc_container_der, String(der).b)
+        validate_algorithm_expectation!(expected_algorithm, algorithm)
         [algorithm, bytes]
-      rescue PQCrypto::Error => e
+      rescue ArgumentError, PQCrypto::Error => e
         raise SerializationError, e.message
       end
 
-      def secret_key_from_pkcs8_pem(exp_algorithm, pem)
-        algorithm, bytes = PQCrypto.secret_key_from_pkcs8_pem(String(pem))
-        validate_algorithm_expectation!(exp_algorithm, algorithm)
+      def secret_key_from_pqc_container_pem(expected_algorithm, pem)
+        algorithm, bytes = PQCrypto.__send__(:native_secret_key_from_pqc_container_pem, String(pem).b)
+        validate_algorithm_expectation!(expected_algorithm, algorithm)
         [algorithm, bytes]
-      rescue PQCrypto::Error => e
+      rescue ArgumentError, PQCrypto::Error => e
         raise SerializationError, e.message
       end
 
       private
 
-      def validate_algorithm_expectation!(exp_algorithm, actual_algorithm)
-        return if exp_algorithm.nil? || exp_algorithm == actual_algorithm
+      def validate_algorithm_expectation!(expected_algorithm, actual_algorithm)
+        return if expected_algorithm.nil? || expected_algorithm == actual_algorithm
 
         raise SerializationError,
-              "Expected #{exp_algorithm.inspect}, got #{actual_algorithm.inspect} (serialized key algorithm mismatch)"
+              "Expected #{expected_algorithm.inspect}, got #{actual_algorithm.inspect} (serialized key algorithm mismatch)"
       end
     end
   end

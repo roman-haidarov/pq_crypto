@@ -20,67 +20,44 @@ module PQCrypto
     class << self
       def generate(algorithm = CANONICAL_ALGORITHM)
         algorithm = resolve_algorithm!(algorithm)
-        public_key, secret_key = PQCrypto.send(:native_ml_kem_keypair)
+        public_key, secret_key = PQCrypto.__send__(:native_ml_kem_keypair)
         Keypair.new(PublicKey.new(algorithm, public_key), SecretKey.new(algorithm, secret_key))
       end
 
       def public_key_from_bytes(algorithm, bytes)
-        algorithm = resolve_algorithm!(algorithm)
-        PublicKey.new(algorithm, bytes)
+        PublicKey.new(resolve_algorithm!(algorithm), bytes)
       end
 
       def secret_key_from_bytes(algorithm, bytes)
-        algorithm = resolve_algorithm!(algorithm)
-        SecretKey.new(algorithm, bytes)
+        SecretKey.new(resolve_algorithm!(algorithm), bytes)
       end
 
       def public_key_from_pqc_container_der(der, algorithm = nil)
-        resolved_algorithm, bytes = Serialization.public_key_from_spki_der(algorithm, der)
+        resolved_algorithm, bytes = Serialization.public_key_from_pqc_container_der(algorithm, der)
         PublicKey.new(resolve_algorithm!(resolved_algorithm), bytes)
       end
 
       def public_key_from_pqc_container_pem(pem, algorithm = nil)
-        resolved_algorithm, bytes = Serialization.public_key_from_spki_pem(algorithm, pem)
+        resolved_algorithm, bytes = Serialization.public_key_from_pqc_container_pem(algorithm, pem)
         PublicKey.new(resolve_algorithm!(resolved_algorithm), bytes)
       end
 
       def secret_key_from_pqc_container_der(der, algorithm = nil)
-        resolved_algorithm, bytes = Serialization.secret_key_from_pkcs8_der(algorithm, der)
+        resolved_algorithm, bytes = Serialization.secret_key_from_pqc_container_der(algorithm, der)
         SecretKey.new(resolve_algorithm!(resolved_algorithm), bytes)
       end
 
       def secret_key_from_pqc_container_pem(pem, algorithm = nil)
-        resolved_algorithm, bytes = Serialization.secret_key_from_pkcs8_pem(algorithm, pem)
+        resolved_algorithm, bytes = Serialization.secret_key_from_pqc_container_pem(algorithm, pem)
         SecretKey.new(resolve_algorithm!(resolved_algorithm), bytes)
       end
 
-      def public_key_from_spki_der(der, algorithm = nil)
-        warn_once_about_deprecated_serializer(:public_key_from_spki_der, :public_key_from_pqc_container_der)
-        public_key_from_pqc_container_der(der, algorithm)
-      end
-
-      def public_key_from_spki_pem(pem, algorithm = nil)
-        warn_once_about_deprecated_serializer(:public_key_from_spki_pem, :public_key_from_pqc_container_pem)
-        public_key_from_pqc_container_pem(pem, algorithm)
-      end
-
-      def secret_key_from_pkcs8_der(der, algorithm = nil)
-        warn_once_about_deprecated_serializer(:secret_key_from_pkcs8_der, :secret_key_from_pqc_container_der)
-        secret_key_from_pqc_container_der(der, algorithm)
-      end
-
-      def secret_key_from_pkcs8_pem(pem, algorithm = nil)
-        warn_once_about_deprecated_serializer(:secret_key_from_pkcs8_pem, :secret_key_from_pqc_container_pem)
-        secret_key_from_pqc_container_pem(pem, algorithm)
-      end
-
       def details(algorithm)
-        algorithm = resolve_algorithm!(algorithm)
-        DETAILS.fetch(algorithm).dup
+        DETAILS.fetch(resolve_algorithm!(algorithm)).dup
       end
 
       def supported
-        DETAILS.keys
+        DETAILS.keys.dup
       end
 
       private
@@ -89,18 +66,6 @@ module PQCrypto
         return algorithm if DETAILS.key?(algorithm)
 
         raise UnsupportedAlgorithmError, "Unsupported KEM algorithm: #{algorithm.inspect}"
-      end
-
-      def warn_once_about_deprecated_serializer(old_name, new_name)
-        @warned_serializers ||= {}
-        return if @warned_serializers[old_name]
-
-        @warned_serializers[old_name] = true
-        Warning.warn(
-          "[pq_crypto] #{old_name} is deprecated because the output was never real " \
-          "SPKI/PKCS#8 ASN.1 DER — it is a pq_crypto-specific container. Use " \
-          "#{new_name} to make this explicit. #{old_name} will be removed in a future release.\n",
-        )
       end
     end
 
@@ -135,25 +100,15 @@ module PQCrypto
       end
 
       def to_pqc_container_der
-        Serialization.public_key_to_spki_der(@algorithm, @bytes)
+        Serialization.public_key_to_pqc_container_der(@algorithm, @bytes)
       end
 
       def to_pqc_container_pem
-        Serialization.public_key_to_spki_pem(@algorithm, @bytes)
-      end
-
-      def to_spki_der
-        KEM.send(:warn_once_about_deprecated_serializer, :to_spki_der, :to_pqc_container_der)
-        to_pqc_container_der
-      end
-
-      def to_spki_pem
-        KEM.send(:warn_once_about_deprecated_serializer, :to_spki_pem, :to_pqc_container_pem)
-        to_pqc_container_pem
+        Serialization.public_key_to_pqc_container_pem(@algorithm, @bytes)
       end
 
       def encapsulate
-        ciphertext, shared_secret = PQCrypto.send(:native_ml_kem_encapsulate, @bytes)
+        ciphertext, shared_secret = PQCrypto.__send__(:native_ml_kem_encapsulate, @bytes)
         EncapsulationResult.new(ciphertext, shared_secret)
       rescue ArgumentError => e
         raise InvalidKeyError, e.message
@@ -196,25 +151,15 @@ module PQCrypto
       end
 
       def to_pqc_container_der
-        Serialization.secret_key_to_pkcs8_der(@algorithm, @bytes)
+        Serialization.secret_key_to_pqc_container_der(@algorithm, @bytes)
       end
 
       def to_pqc_container_pem
-        Serialization.secret_key_to_pkcs8_pem(@algorithm, @bytes)
-      end
-
-      def to_pkcs8_der
-        KEM.send(:warn_once_about_deprecated_serializer, :to_pkcs8_der, :to_pqc_container_der)
-        to_pqc_container_der
-      end
-
-      def to_pkcs8_pem
-        KEM.send(:warn_once_about_deprecated_serializer, :to_pkcs8_pem, :to_pqc_container_pem)
-        to_pqc_container_pem
+        Serialization.secret_key_to_pqc_container_pem(@algorithm, @bytes)
       end
 
       def decapsulate(ciphertext)
-        PQCrypto.send(:native_ml_kem_decapsulate, String(ciphertext), @bytes)
+        PQCrypto.__send__(:native_ml_kem_decapsulate, String(ciphertext).b, @bytes)
       rescue ArgumentError => e
         raise InvalidCiphertextError, e.message
       end

@@ -7,5 +7,4 @@ module PQCrypto
   class InvalidCiphertextError < Error; end unless const_defined?(:InvalidCiphertextError)
   class SerializationError < Error; end unless const_defined?(:SerializationError)
   class VerificationError < Error; end unless const_defined?(:VerificationError)
-  class DecryptionError < Error; end unless const_defined?(:DecryptionError)
 end

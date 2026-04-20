@@ -1,110 +1,92 @@
-# PQCrypto
+# pq_crypto
 
-> **Status:** experimental native Ruby gem for post-quantum cryptographic primitives.
->
-> `pq_crypto` is now positioned as a **primitive-first** library: key generation, encapsulation/decapsulation, signatures, raw key bytes, and capability introspection. Higher-level protocol helpers still exist for compatibility, but they are **experimental** and are no longer the core story of the gem.
+`pq_crypto` is a primitive-first Ruby gem for post-quantum cryptography.
 
-`pq_crypto` currently wraps a fixed native suite:
-- **ML-KEM-768** for key encapsulation;
-- **ML-DSA-65** for signatures;
-- **PQClean** as the post-quantum implementation source;
-- **X25519 + AES-256-GCM** only inside the gem's experimental protocol helpers.
+It currently exposes three public building blocks:
 
-## Install
+- `PQCrypto::KEM` — pure `ML-KEM-768`
+- `PQCrypto::Signature` — `ML-DSA-65`
+- `PQCrypto::HybridKEM` — an optional custom hybrid KEM that combines `ML-KEM-768` and `X25519` with transcript-bound `HKDF-SHA256`
+
+The gem is backed by vendored `PQClean` sources for `ML-KEM-768` / `ML-DSA-65` and OpenSSL for conventional primitives such as `X25519` and `HKDF-SHA256`.
+
+## Status
+
+- first public release
+- primitive-first API only
+- no protocol/session helpers in the public surface
+- serialization uses pq_crypto-specific `pqc_container_*` wrappers
+- not audited
+- not yet positioned as production-ready
+
+## Installation
+
+Add the gem to your project and compile the extension:
+
+```ruby
+# Gemfile
+gem "pq_crypto"
+```
 
 ```bash
 bundle install
-bundle exec rake vendor
 bundle exec rake compile
-bundle exec rake test
 ```
 
-The supported build path is native-only. If vendored PQClean sources are missing, the build fails explicitly.
+### Native dependencies
 
-## Primitive-first quick start
+- Ruby 3.1+
+- a C toolchain
+- OpenSSL **3.0 or later**
 
-```ruby
-require "pq_crypto"
+## Primitive API
 
-kem = PQCrypto::KEM.generate(:ml_kem_768)
-encapsulation = kem.public_key.encapsulate
-shared_secret = kem.secret_key.decapsulate(encapsulation.ciphertext)
-
-raise "mismatch" unless shared_secret == encapsulation.shared_secret
-
-signer = PQCrypto::Signature.generate(:ml_dsa_65)
-signature = signer.secret_key.sign("hello")
-verified = signer.public_key.verify("hello", signature)
-
-puts verified
-puts PQCrypto.supported_kems.inspect
-puts PQCrypto.supported_signatures.inspect
-puts PQCrypto.backend
-```
-
-## Public API direction
-
-The intended core API is:
-- `PQCrypto::KEM`
-- `PQCrypto::Signature`
-- typed public/secret key objects
-- raw-byte import/export
-- capability introspection
-
-Compatibility helpers such as `PQCrypto.kem_keypair`, `PQCrypto.sign_keypair`, and legacy wrapper classes are still available, but they are not the long-term primary surface.
-
-Important semantic note:
-- `PQCrypto::KEM` now means **pure ML-KEM** only.
-- The legacy top-level `PQCrypto.kem_*` methods still use the gem's older **hybrid ML-KEM-768 + X25519** compatibility surface.
-- The typed hybrid primitive now lives under `PQCrypto::HybridKEM`.
-
-## Supported primitive APIs
-
-### KEM
+### ML-KEM-768
 
 ```ruby
 keypair = PQCrypto::KEM.generate(:ml_kem_768)
-pub = keypair.public_key
-sec = keypair.secret_key
-
-ciphertext, shared_secret_a = pub.encapsulate_to_bytes
-shared_secret_b = sec.decapsulate(ciphertext)
+result = keypair.public_key.encapsulate
+shared_secret = keypair.secret_key.decapsulate(result.ciphertext)
 ```
 
-```ruby
-pub2 = PQCrypto::KEM.public_key_from_bytes(:ml_kem_768, pub.to_bytes)
-sec2 = PQCrypto::KEM.secret_key_from_bytes(:ml_kem_768, sec.to_bytes)
-```
-
-### Hybrid KEM (compatibility / explicit hybrid primitive)
-
-```ruby
-keypair = PQCrypto::HybridKEM.generate(:ml_kem_768_x25519_hkdf_sha256)
-pub = keypair.public_key
-sec = keypair.secret_key
-
-ciphertext, shared_secret_a = pub.encapsulate_to_bytes
-shared_secret_b = sec.decapsulate(ciphertext)
-```
-
-### Signatures
+### ML-DSA-65
 
 ```ruby
 keypair = PQCrypto::Signature.generate(:ml_dsa_65)
-pub = keypair.public_key
-sec = keypair.secret_key
-
-signature = sec.sign("message")
-puts pub.verify("message", signature)
-pub.verify!("message", signature)
+signature = keypair.secret_key.sign("hello")
+keypair.public_key.verify!("hello", signature)
 ```
+
+### Hybrid ML-KEM-768 + X25519
 
 ```ruby
-pub2 = PQCrypto::Signature.public_key_from_bytes(:ml_dsa_65, pub.to_bytes)
-sec2 = PQCrypto::Signature.secret_key_from_bytes(:ml_dsa_65, sec.to_bytes)
+keypair = PQCrypto::HybridKEM.generate(:ml_kem_768_x25519_hkdf_sha256)
+result = keypair.public_key.encapsulate
+shared_secret = keypair.secret_key.decapsulate(result.ciphertext)
 ```
 
-### Introspection
+`PQCrypto::HybridKEM` is a **custom pq_crypto construction**. It is not advertised as compatible with HPKE, TLS hybrid drafts, X-Wing, OpenSSL native PQ APIs, or any other external wire format.
+
+## Serialization
+
+Key import/export is available through pq_crypto-specific containers:
+
+- `to_pqc_container_der`
+- `to_pqc_container_pem`
+- `*_from_pqc_container_der`
+- `*_from_pqc_container_pem`
+
+Example:
+
+```ruby
+keypair = PQCrypto::KEM.generate(:ml_kem_768)
+der = keypair.public_key.to_pqc_container_der
+imported = PQCrypto::KEM.public_key_from_pqc_container_der(der)
+```
+
+These containers are **not real ASN.1 SPKI or PKCS#8**. They are intended for stable import/export inside `pq_crypto` itself and are not advertised as interoperable with external PKI tooling.
+
+## Introspection
 
 ```ruby
 PQCrypto.version
@@ -117,53 +99,37 @@ PQCrypto::HybridKEM.details(:ml_kem_768_x25519_hkdf_sha256)
 PQCrypto::Signature.details(:ml_dsa_65)
 ```
 
-## Experimental helpers
+## Testing helpers
 
-The following remain available for compatibility, but should be treated as **experimental protocol helpers**, not as the core primitive interface:
-- `PQCrypto::Session`
-- `PQCrypto::Identity`
-- `PQCrypto::Experimental.establish_session`
-- `PQCrypto::Experimental.accept_session`
-- `PQCrypto::Experimental.seal`
-- `PQCrypto::Experimental.unseal`
-- `PQCrypto::Experimental.sign_and_seal`
-- `PQCrypto::Experimental.unseal_and_verify`
+Deterministic test hooks are exposed under `PQCrypto::Testing` for regression coverage:
 
-These helpers are custom to this gem and are not advertised as interoperable with HPKE, X-Wing, OpenSSL, Go, or other PQ ecosystems.
+- `ml_kem_keypair_from_seed`
+- `ml_kem_encapsulate_from_seed`
+- `ml_dsa_keypair_from_seed`
+- `ml_dsa_sign_from_seed`
 
-## Secret wiping
+These helpers are intended for tests only.
 
-`secure_wipe` intentionally requires a mutable `String`.
+## Development
 
-```ruby
-secret = String.new("sensitive bytes")
-PQCrypto.secure_wipe(secret)
+Run the test suite with:
+
+```bash
+bundle exec rake test
 ```
 
-## What this gem is not yet
+Refresh vendored PQClean sources manually only when you intentionally update the vendor snapshot. The refresh script now has a safe pinned default and records the exact vendored snapshot in `ext/pqcrypto/vendor/.vendored`:
 
-This gem is still experimental. It is **not** yet:
-- externally audited;
-- backed by full NIST KAT coverage;
-- positioned as a production-ready secure-channel protocol;
-- an interoperability layer for HPKE/X-Wing/SPKI/PKCS#8 yet.
-
-## License
-
-MIT. See [LICENSE.txt](LICENSE.txt).
-
-
-## Serialization
-
-Primitive key objects support raw byte export/import and project-local DER/PEM containers:
-
-```ruby
-kem = PQCrypto::KEM.generate(:ml_kem_768)
-pub_der = kem.public_key.to_pqc_container_der
-sec_pem = kem.secret_key.to_pqc_container_pem
-
-imported_pub = PQCrypto::KEM.public_key_from_pqc_container_der(pub_der)
-imported_sec = PQCrypto::KEM.secret_key_from_pqc_container_pem(sec_pem)
+```bash
+bundle exec ruby script/vendor_libs.rb
 ```
 
-These DER/PEM wrappers are currently pq_crypto-specific containers intended for stable import/export inside pq_crypto. They are not yet advertised as interoperable with OpenSSL, Go, or other ecosystems. Deprecated `to_spki_*` / `to_pkcs8_*` aliases remain for compatibility only.
+To intentionally change the upstream snapshot, override all four pinning inputs together:
+
+```bash
+PQCLEAN_VERSION=<full-git-commit> \
+PQCLEAN_URL=https://github.com/PQClean/PQClean/archive/<full-git-commit>.tar.gz \
+PQCLEAN_SHA256=<archive-sha256> \
+PQCLEAN_STRIP=PQClean-<full-git-commit> \
+  bundle exec ruby script/vendor_libs.rb
+```

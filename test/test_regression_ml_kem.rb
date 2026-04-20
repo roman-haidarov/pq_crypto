@@ -3,7 +3,7 @@
 require "digest"
 require_relative "test_helper"
 
-class TestKATMLKEM < Minitest::Test
+class TestRegressionMLKEM < Minitest::Test
   KEYPAIR_SEED = ["00" * 32].pack("H*")
   ENCAPSULATION_SEED = ["11" * 32].pack("H*")
 

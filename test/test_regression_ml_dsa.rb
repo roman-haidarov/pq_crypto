@@ -3,15 +3,15 @@
 require "digest"
 require_relative "test_helper"
 
-class TestKATMLDSA < Minitest::Test
+class TestRegressionMLDSA < Minitest::Test
   KEYPAIR_SEED = ["22" * 32].pack("H*")
   SIGNING_SEED = ["33" * 32].pack("H*")
-  MESSAGE = "pq_crypto deterministic kat"
+  MESSAGE = "pq_crypto deterministic regression"
 
   EXPECTED = {
     public_key_sha256: "c1f4a9647ca87f13ac5d2fb8cfaa4d3c40f89793171e13cd2130c1c44efbc19f",
     secret_key_sha256: "e72fda582e734d36fd3a05623822d32c600ec7fd6b95da418cfcecc4a4dcaae5",
-    signature_sha256: "ce35b3dd0e2e409edb80a058a28b963f6d66c680c5bb16647c5e1766e238feab",
+    signature_sha256: "622adc2bf5a505e96687e285185342b7c1c5117b54d9e7d83889bccb54214235",
   }.freeze
 
   def test_deterministic_keypair_and_signature_match_regression_vectors

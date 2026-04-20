@@ -1,104 +1,65 @@
-# Get Started with PQCrypto
+# Getting started with pq_crypto
 
-## 1. Current direction
-
-`PQCrypto` should be approached as a **primitive-first Ruby PQ library**.
-
-The core surface is:
-- `PQCrypto::KEM`
-- `PQCrypto::Signature`
-- typed key objects
-- raw-byte import/export
-- capability introspection
-
-High-level protocol-style helpers still exist for compatibility, but they are experimental and are no longer the recommended entrypoint.
-
-## 2. Install
+## 1. Build the extension
 
 ```bash
 bundle install
-bundle exec rake vendor
 bundle exec rake compile
-bundle exec rake test
 ```
 
-## 3. Load the gem
-
-```ruby
-require "pq_crypto"
-```
-
-## 4. Check capabilities
-
-```ruby
-PQCrypto.version
-PQCrypto.backend
-PQCrypto.supported_kems
-PQCrypto.supported_hybrid_kems
-PQCrypto.supported_signatures
-PQCrypto::KEM.details(:ml_kem_768)
-PQCrypto::HybridKEM.details(:ml_kem_768_x25519_hkdf_sha256)
-PQCrypto::Signature.details(:ml_dsa_65)
-```
-
-## 5. Use KEM primitives
+## 2. Generate an ML-KEM-768 keypair
 
 ```ruby
 keypair = PQCrypto::KEM.generate(:ml_kem_768)
+```
+
+## 3. Encapsulate and decapsulate
+
+```ruby
 result = keypair.public_key.encapsulate
 shared_secret = keypair.secret_key.decapsulate(result.ciphertext)
-
-raise "mismatch" unless shared_secret == result.shared_secret
 ```
 
-## 6. Use signature primitives
-
-```ruby
-signer = PQCrypto::Signature.generate(:ml_dsa_65)
-signature = signer.secret_key.sign("hello")
-
-puts signer.public_key.verify("hello", signature)
-signer.public_key.verify!("hello", signature)
-```
-
-## 7. Import/export raw key bytes
-
-```ruby
-kem = PQCrypto::KEM.generate(:ml_kem_768)
-pub = PQCrypto::KEM.public_key_from_bytes(:ml_kem_768, kem.public_key.to_bytes)
-sec = PQCrypto::KEM.secret_key_from_bytes(:ml_kem_768, kem.secret_key.to_bytes)
-```
+## 4. Generate an ML-DSA-65 keypair
 
 ```ruby
 sig = PQCrypto::Signature.generate(:ml_dsa_65)
-pub = PQCrypto::Signature.public_key_from_bytes(:ml_dsa_65, sig.public_key.to_bytes)
-sec = PQCrypto::Signature.secret_key_from_bytes(:ml_dsa_65, sig.secret_key.to_bytes)
 ```
 
-## 8. Hybrid KEM and legacy helpers
-
-`PQCrypto::KEM` is now the pure ML-KEM primitive.
-The older top-level `PQCrypto.kem_*` methods remain as compatibility helpers backed by the gem's hybrid ML-KEM-768 + X25519 construction.
-
-If you need the hybrid primitive explicitly, use:
+## 5. Sign and verify
 
 ```ruby
-keypair = PQCrypto::HybridKEM.generate(:ml_kem_768_x25519_hkdf_sha256)
+signature = sig.secret_key.sign("message")
+sig.public_key.verify!("message", signature)
 ```
 
-These legacy/compatibility APIs still exist, but are no longer the recommended center of the gem:
-- `PQCrypto.kem_keypair`
-- `PQCrypto.sign_keypair`
-- `PQCrypto::KEMKeypair`
-- `PQCrypto::SignKeypair`
-- `PQCrypto::Session`
-- `PQCrypto::Identity`
-- `PQCrypto::Experimental.*`
+## 6. Optional hybrid KEM
 
-## 9. Experimental status
+```ruby
+hybrid = PQCrypto::HybridKEM.generate(:ml_kem_768_x25519_hkdf_sha256)
+result = hybrid.public_key.encapsulate
+shared_secret = hybrid.secret_key.decapsulate(result.ciphertext)
+```
 
-The gem remains experimental. The next major area of work is:
-- interop and serialization;
-- KAT/conformance coverage;
-- continued protocol hardening;
-- cleaner separation between primitives and optional high-level helpers.
+This hybrid mode is pq_crypto-specific and not a general interoperability format.
+
+## 7. Serialize a key
+
+```ruby
+der = keypair.public_key.to_pqc_container_der
+imported = PQCrypto::KEM.public_key_from_pqc_container_der(der)
+```
+
+## 8. Inspect supported algorithms
+
+```ruby
+PQCrypto.supported_kems
+PQCrypto.supported_hybrid_kems
+PQCrypto.supported_signatures
+```
+
+## 9. Practical notes
+
+- OpenSSL 3.0+ is required.
+- `pqc_container_*` formats are pq_crypto-specific.
+- `PQCrypto::Testing` exposes deterministic helpers only for regression tests.

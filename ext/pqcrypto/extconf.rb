@@ -12,6 +12,14 @@ $LDFLAGS << " -Wl,-no_warn_duplicate_libraries" if RbConfig::CONFIG["host_os"] =
 
 USE_SYSTEM = arg_config("--use-system-libraries") || ENV["PQCRYPTO_USE_SYSTEM_LIBRARIES"]
 
+SANITIZE = ENV["PQCRYPTO_SANITIZE"]
+
+if SANITIZE && !SANITIZE.strip.empty?
+  sanitize = SANITIZE.strip
+  $CFLAGS << " -O1 -g -fno-omit-frame-pointer -fsanitize=#{sanitize}"
+  $LDFLAGS << " -fsanitize=#{sanitize}"
+end
+
 def configure_compiler_environment
   return unless RUBY_PLATFORM.include?("darwin")
 
@@ -45,6 +53,16 @@ def configure_openssl!
   abort "openssl/evp.h is required" unless have_header("openssl/evp.h")
   abort "openssl/rand.h is required" unless have_header("openssl/rand.h")
   abort "openssl/kdf.h is required" unless have_header("openssl/kdf.h")
+
+  version_check = <<~SRC
+    #include <openssl/opensslv.h>
+    #if OPENSSL_VERSION_NUMBER < 0x30000000L
+    #error "OpenSSL 3.0 or later is required"
+    #endif
+    int main(void) { return 0; }
+  SRC
+
+  abort "OpenSSL 3.0 or later is required" unless try_compile(version_check)
 
   $CFLAGS << " -DHAVE_OPENSSL_EVP_H -DHAVE_OPENSSL_RAND_H -DHAVE_OPENSSL_KDF_H"
 end

@@ -6,8 +6,8 @@ Gem::Specification.new do |spec|
   spec.authors       = ["Roman Haydarov"]
   spec.email         = ["romanhajdarov@gmail.com"]
 
-  spec.summary       = "Experimental primitive-first post-quantum cryptography for Ruby"
-  spec.description   = "Native Ruby wrapper around ML-KEM-768 and ML-DSA-65 with a primitive-first API, typed key objects, and PQClean-backed supported builds."
+  spec.summary       = "Primitive-first post-quantum cryptography for Ruby"
+  spec.description   = "Native Ruby wrapper around ML-KEM-768, ML-DSA-65, and an optional hybrid ML-KEM-768+X25519 KEM, backed by PQClean and OpenSSL."
   spec.homepage      = "https://github.com/roman-haidarov/pq_crypto"
   spec.license       = "MIT"
   spec.required_ruby_version = ">= 3.1.0"
