@@ -62,6 +62,9 @@ static VALUE mPQCrypto;
 static VALUE ePQCryptoError;
 static VALUE ePQCryptoVerificationError;
 
+__attribute__((noreturn)) static void pq_raise_general_error(int err);
+__attribute__((noreturn)) static void pq_raise_verification_error(int err);
+
 static const char *pq_algorithm_symbol_to_cstr(VALUE algorithm) {
     ID id;
     if (SYMBOL_P(algorithm)) {
@@ -215,6 +218,210 @@ static void pq_wipe_and_free(uint8_t *buffer, size_t len) {
     }
 }
 
+static void pq_validate_bytes_argument(VALUE value, size_t expected_len, const char *what) {
+    StringValue(value);
+    if ((size_t)RSTRING_LEN(value) != expected_len) {
+        rb_raise(rb_eArgError, "Invalid %s length", what);
+    }
+}
+
+static VALUE pq_build_binary_pair(const uint8_t *first, size_t first_len, const uint8_t *second,
+                                  size_t second_len) {
+    VALUE result = rb_ary_new2(2);
+    rb_ary_push(result, pq_string_from_buffer(first, first_len));
+    rb_ary_push(result, pq_string_from_buffer(second, second_len));
+    return result;
+}
+
+static VALUE pq_build_algorithm_key_pair(const char *algorithm, const uint8_t *key,
+                                         size_t key_len) {
+    VALUE result = rb_ary_new2(2);
+    rb_ary_push(result, pq_algorithm_cstr_to_symbol(algorithm));
+    rb_ary_push(result, pq_string_from_buffer(key, key_len));
+    return result;
+}
+
+static VALUE pq_run_kem_keypair(void *(*nogvl)(void *), size_t public_key_len,
+                                size_t secret_key_len) {
+    kem_keypair_call_t call = {0};
+    VALUE result;
+
+    call.public_key = pq_alloc_buffer(public_key_len);
+    call.secret_key = pq_alloc_buffer(secret_key_len);
+
+    rb_thread_call_without_gvl(nogvl, &call, NULL, NULL);
+
+    if (call.result != PQ_SUCCESS) {
+        pq_wipe_and_free(call.secret_key, secret_key_len);
+        free(call.public_key);
+        pq_raise_general_error(call.result);
+    }
+
+    result = pq_build_binary_pair(call.public_key, public_key_len, call.secret_key, secret_key_len);
+    free(call.public_key);
+    pq_wipe_and_free(call.secret_key, secret_key_len);
+    return result;
+}
+
+static VALUE pq_run_kem_encapsulate(void *(*nogvl)(void *), VALUE public_key, size_t public_key_len,
+                                    size_t ciphertext_len, size_t shared_secret_len) {
+    kem_encapsulate_call_t call = {0};
+    VALUE result;
+    size_t copied_public_key_len = 0;
+
+    pq_validate_bytes_argument(public_key, public_key_len, "public key");
+
+    call.public_key = pq_copy_ruby_string(public_key, &copied_public_key_len);
+    call.ciphertext = pq_alloc_buffer(ciphertext_len);
+    call.shared_secret = pq_alloc_buffer(shared_secret_len);
+
+    rb_thread_call_without_gvl(nogvl, &call, NULL, NULL);
+    pq_wipe_and_free((uint8_t *)call.public_key, copied_public_key_len);
+
+    if (call.result != PQ_SUCCESS) {
+        pq_wipe_and_free(call.shared_secret, shared_secret_len);
+        free(call.ciphertext);
+        pq_raise_general_error(call.result);
+    }
+
+    result = pq_build_binary_pair(call.ciphertext, ciphertext_len, call.shared_secret,
+                                  shared_secret_len);
+    free(call.ciphertext);
+    pq_wipe_and_free(call.shared_secret, shared_secret_len);
+    return result;
+}
+
+static VALUE pq_run_kem_decapsulate(void *(*nogvl)(void *), VALUE ciphertext, size_t ciphertext_len,
+                                    VALUE secret_key, size_t secret_key_len,
+                                    size_t shared_secret_len) {
+    kem_decapsulate_call_t call = {0};
+    VALUE result;
+    size_t copied_ciphertext_len = 0;
+    size_t copied_secret_key_len = 0;
+
+    pq_validate_bytes_argument(ciphertext, ciphertext_len, "ciphertext");
+    pq_validate_bytes_argument(secret_key, secret_key_len, "secret key");
+
+    call.ciphertext = pq_copy_ruby_string(ciphertext, &copied_ciphertext_len);
+    call.secret_key = pq_copy_ruby_string(secret_key, &copied_secret_key_len);
+    call.shared_secret = pq_alloc_buffer(shared_secret_len);
+
+    rb_thread_call_without_gvl(nogvl, &call, NULL, NULL);
+    pq_wipe_and_free((uint8_t *)call.ciphertext, copied_ciphertext_len);
+    pq_wipe_and_free((uint8_t *)call.secret_key, copied_secret_key_len);
+
+    if (call.result != PQ_SUCCESS) {
+        pq_wipe_and_free(call.shared_secret, shared_secret_len);
+        pq_raise_general_error(call.result);
+    }
+
+    result = pq_string_from_buffer(call.shared_secret, shared_secret_len);
+    pq_wipe_and_free(call.shared_secret, shared_secret_len);
+    return result;
+}
+
+static VALUE pq_run_sign_keypair(void *(*nogvl)(void *), size_t public_key_len,
+                                 size_t secret_key_len) {
+    sign_keypair_call_t call = {0};
+    VALUE result;
+
+    call.public_key = pq_alloc_buffer(public_key_len);
+    call.secret_key = pq_alloc_buffer(secret_key_len);
+
+    rb_thread_call_without_gvl(nogvl, &call, NULL, NULL);
+
+    if (call.result != PQ_SUCCESS) {
+        pq_wipe_and_free(call.secret_key, secret_key_len);
+        free(call.public_key);
+        pq_raise_general_error(call.result);
+    }
+
+    result = pq_build_binary_pair(call.public_key, public_key_len, call.secret_key, secret_key_len);
+    free(call.public_key);
+    pq_wipe_and_free(call.secret_key, secret_key_len);
+    return result;
+}
+
+typedef int (*pq_export_der_fn)(uint8_t **, size_t *, const uint8_t *, size_t, const char *);
+typedef int (*pq_export_pem_fn)(char **, size_t *, const uint8_t *, size_t, const char *);
+typedef int (*pq_import_der_fn)(char **, uint8_t **, size_t *, const uint8_t *, size_t);
+typedef int (*pq_import_pem_fn)(char **, uint8_t **, size_t *, const char *, size_t);
+
+static VALUE pq_export_container_der(VALUE algorithm, VALUE key_bytes, pq_export_der_fn fn) {
+    uint8_t *out = NULL;
+    size_t out_len = 0;
+    VALUE result;
+    int ret;
+
+    StringValue(key_bytes);
+    ret = fn(&out, &out_len, (const uint8_t *)RSTRING_PTR(key_bytes),
+             (size_t)RSTRING_LEN(key_bytes), pq_algorithm_symbol_to_cstr(algorithm));
+    if (ret != PQ_SUCCESS)
+        pq_raise_general_error(ret);
+
+    result = pq_string_from_buffer(out, out_len);
+    pq_secure_wipe(out, out_len);
+    free(out);
+    return result;
+}
+
+static VALUE pq_export_container_pem(VALUE algorithm, VALUE key_bytes, pq_export_pem_fn fn) {
+    char *out = NULL;
+    size_t out_len = 0;
+    VALUE result;
+    int ret;
+
+    StringValue(key_bytes);
+    ret = fn(&out, &out_len, (const uint8_t *)RSTRING_PTR(key_bytes),
+             (size_t)RSTRING_LEN(key_bytes), pq_algorithm_symbol_to_cstr(algorithm));
+    if (ret != PQ_SUCCESS)
+        pq_raise_general_error(ret);
+
+    result = rb_utf8_str_new(out, (long)out_len);
+    pq_secure_wipe(out, out_len);
+    free(out);
+    return result;
+}
+
+static VALUE pq_import_container_der(VALUE der, pq_import_der_fn fn) {
+    char *algorithm = NULL;
+    uint8_t *key = NULL;
+    size_t key_len = 0;
+    VALUE result;
+    int ret;
+
+    StringValue(der);
+    ret =
+        fn(&algorithm, &key, &key_len, (const uint8_t *)RSTRING_PTR(der), (size_t)RSTRING_LEN(der));
+    if (ret != PQ_SUCCESS)
+        pq_raise_general_error(ret);
+
+    result = pq_build_algorithm_key_pair(algorithm, key, key_len);
+    free(algorithm);
+    pq_secure_wipe(key, key_len);
+    free(key);
+    return result;
+}
+
+static VALUE pq_import_container_pem(VALUE pem, pq_import_pem_fn fn) {
+    char *algorithm = NULL;
+    uint8_t *key = NULL;
+    size_t key_len = 0;
+    VALUE result;
+    int ret;
+
+    StringValue(pem);
+    ret = fn(&algorithm, &key, &key_len, RSTRING_PTR(pem), (size_t)RSTRING_LEN(pem));
+    if (ret != PQ_SUCCESS)
+        pq_raise_general_error(ret);
+
+    result = pq_build_algorithm_key_pair(algorithm, key, key_len);
+    free(algorithm);
+    pq_secure_wipe(key, key_len);
+    free(key);
+    return result;
+}
+
 __attribute__((noreturn)) static void pq_raise_general_error(int err) {
     switch (err) {
     case PQ_ERROR_KEYPAIR:
@@ -265,180 +472,40 @@ __attribute__((noreturn)) static void pq_raise_verification_error(int err) {
 
 static VALUE pqcrypto_ml_kem_keypair(VALUE self) {
     (void)self;
-
-    kem_keypair_call_t call = {0};
-    call.public_key = pq_alloc_buffer(PQ_MLKEM_PUBLICKEYBYTES);
-    call.secret_key = pq_alloc_buffer(PQ_MLKEM_SECRETKEYBYTES);
-
-    rb_thread_call_without_gvl(pq_ml_kem_keypair_nogvl, &call, NULL, NULL);
-
-    if (call.result != PQ_SUCCESS) {
-        pq_wipe_and_free(call.secret_key, PQ_MLKEM_SECRETKEYBYTES);
-        free(call.public_key);
-        pq_raise_general_error(call.result);
-    }
-
-    VALUE result = rb_ary_new2(2);
-    rb_ary_push(result, pq_string_from_buffer(call.public_key, PQ_MLKEM_PUBLICKEYBYTES));
-    rb_ary_push(result, pq_string_from_buffer(call.secret_key, PQ_MLKEM_SECRETKEYBYTES));
-
-    free(call.public_key);
-    pq_wipe_and_free(call.secret_key, PQ_MLKEM_SECRETKEYBYTES);
-    return result;
+    return pq_run_kem_keypair(pq_ml_kem_keypair_nogvl, PQ_MLKEM_PUBLICKEYBYTES,
+                              PQ_MLKEM_SECRETKEYBYTES);
 }
 
 static VALUE pqcrypto_ml_kem_encapsulate(VALUE self, VALUE public_key) {
     (void)self;
-    StringValue(public_key);
-
-    if ((size_t)RSTRING_LEN(public_key) != PQ_MLKEM_PUBLICKEYBYTES) {
-        rb_raise(rb_eArgError, "Invalid public key length");
-    }
-
-    kem_encapsulate_call_t call = {0};
-    size_t public_key_len = 0;
-    call.public_key = pq_copy_ruby_string(public_key, &public_key_len);
-    call.ciphertext = pq_alloc_buffer(PQ_MLKEM_CIPHERTEXTBYTES);
-    call.shared_secret = pq_alloc_buffer(PQ_MLKEM_SHAREDSECRETBYTES);
-
-    rb_thread_call_without_gvl(pq_ml_kem_encapsulate_nogvl, &call, NULL, NULL);
-    pq_wipe_and_free((uint8_t *)call.public_key, public_key_len);
-
-    if (call.result != PQ_SUCCESS) {
-        pq_wipe_and_free(call.shared_secret, PQ_MLKEM_SHAREDSECRETBYTES);
-        free(call.ciphertext);
-        pq_raise_general_error(call.result);
-    }
-
-    VALUE result = rb_ary_new2(2);
-    rb_ary_push(result, pq_string_from_buffer(call.ciphertext, PQ_MLKEM_CIPHERTEXTBYTES));
-    rb_ary_push(result, pq_string_from_buffer(call.shared_secret, PQ_MLKEM_SHAREDSECRETBYTES));
-
-    free(call.ciphertext);
-    pq_wipe_and_free(call.shared_secret, PQ_MLKEM_SHAREDSECRETBYTES);
-    return result;
+    return pq_run_kem_encapsulate(pq_ml_kem_encapsulate_nogvl, public_key, PQ_MLKEM_PUBLICKEYBYTES,
+                                  PQ_MLKEM_CIPHERTEXTBYTES, PQ_MLKEM_SHAREDSECRETBYTES);
 }
 
 static VALUE pqcrypto_ml_kem_decapsulate(VALUE self, VALUE ciphertext, VALUE secret_key) {
     (void)self;
-    StringValue(ciphertext);
-    StringValue(secret_key);
-
-    if ((size_t)RSTRING_LEN(ciphertext) != PQ_MLKEM_CIPHERTEXTBYTES) {
-        rb_raise(rb_eArgError, "Invalid ciphertext length");
-    }
-    if ((size_t)RSTRING_LEN(secret_key) != PQ_MLKEM_SECRETKEYBYTES) {
-        rb_raise(rb_eArgError, "Invalid secret key length");
-    }
-
-    kem_decapsulate_call_t call = {0};
-    size_t ciphertext_len = 0;
-    size_t secret_key_len = 0;
-    call.ciphertext = pq_copy_ruby_string(ciphertext, &ciphertext_len);
-    call.secret_key = pq_copy_ruby_string(secret_key, &secret_key_len);
-    call.shared_secret = pq_alloc_buffer(PQ_MLKEM_SHAREDSECRETBYTES);
-
-    rb_thread_call_without_gvl(pq_ml_kem_decapsulate_nogvl, &call, NULL, NULL);
-    pq_wipe_and_free((uint8_t *)call.ciphertext, ciphertext_len);
-    pq_wipe_and_free((uint8_t *)call.secret_key, secret_key_len);
-
-    if (call.result != PQ_SUCCESS) {
-        pq_wipe_and_free(call.shared_secret, PQ_MLKEM_SHAREDSECRETBYTES);
-        pq_raise_general_error(call.result);
-    }
-
-    VALUE result = pq_string_from_buffer(call.shared_secret, PQ_MLKEM_SHAREDSECRETBYTES);
-    pq_wipe_and_free(call.shared_secret, PQ_MLKEM_SHAREDSECRETBYTES);
-    return result;
+    return pq_run_kem_decapsulate(pq_ml_kem_decapsulate_nogvl, ciphertext, PQ_MLKEM_CIPHERTEXTBYTES,
+                                  secret_key, PQ_MLKEM_SECRETKEYBYTES, PQ_MLKEM_SHAREDSECRETBYTES);
 }
 
 static VALUE pqcrypto_hybrid_kem_keypair(VALUE self) {
     (void)self;
-
-    kem_keypair_call_t call = {0};
-    call.public_key = pq_alloc_buffer(PQ_HYBRID_PUBLICKEYBYTES);
-    call.secret_key = pq_alloc_buffer(PQ_HYBRID_SECRETKEYBYTES);
-
-    rb_thread_call_without_gvl(pq_hybrid_kem_keypair_nogvl, &call, NULL, NULL);
-
-    if (call.result != PQ_SUCCESS) {
-        pq_wipe_and_free(call.secret_key, PQ_HYBRID_SECRETKEYBYTES);
-        free(call.public_key);
-        pq_raise_general_error(call.result);
-    }
-
-    VALUE result = rb_ary_new2(2);
-    rb_ary_push(result, pq_string_from_buffer(call.public_key, PQ_HYBRID_PUBLICKEYBYTES));
-    rb_ary_push(result, pq_string_from_buffer(call.secret_key, PQ_HYBRID_SECRETKEYBYTES));
-
-    free(call.public_key);
-    pq_wipe_and_free(call.secret_key, PQ_HYBRID_SECRETKEYBYTES);
-    return result;
+    return pq_run_kem_keypair(pq_hybrid_kem_keypair_nogvl, PQ_HYBRID_PUBLICKEYBYTES,
+                              PQ_HYBRID_SECRETKEYBYTES);
 }
 
 static VALUE pqcrypto_hybrid_kem_encapsulate(VALUE self, VALUE public_key) {
     (void)self;
-    StringValue(public_key);
-
-    if ((size_t)RSTRING_LEN(public_key) != PQ_HYBRID_PUBLICKEYBYTES) {
-        rb_raise(rb_eArgError, "Invalid public key length");
-    }
-
-    kem_encapsulate_call_t call = {0};
-    size_t public_key_len = 0;
-    call.public_key = pq_copy_ruby_string(public_key, &public_key_len);
-    call.ciphertext = pq_alloc_buffer(PQ_HYBRID_CIPHERTEXTBYTES);
-    call.shared_secret = pq_alloc_buffer(PQ_HYBRID_SHAREDSECRETBYTES);
-
-    rb_thread_call_without_gvl(pq_hybrid_kem_encapsulate_nogvl, &call, NULL, NULL);
-    pq_wipe_and_free((uint8_t *)call.public_key, public_key_len);
-
-    if (call.result != PQ_SUCCESS) {
-        pq_wipe_and_free(call.shared_secret, PQ_HYBRID_SHAREDSECRETBYTES);
-        free(call.ciphertext);
-        pq_raise_general_error(call.result);
-    }
-
-    VALUE result = rb_ary_new2(2);
-    rb_ary_push(result, pq_string_from_buffer(call.ciphertext, PQ_HYBRID_CIPHERTEXTBYTES));
-    rb_ary_push(result, pq_string_from_buffer(call.shared_secret, PQ_HYBRID_SHAREDSECRETBYTES));
-
-    free(call.ciphertext);
-    pq_wipe_and_free(call.shared_secret, PQ_HYBRID_SHAREDSECRETBYTES);
-    return result;
+    return pq_run_kem_encapsulate(pq_hybrid_kem_encapsulate_nogvl, public_key,
+                                  PQ_HYBRID_PUBLICKEYBYTES, PQ_HYBRID_CIPHERTEXTBYTES,
+                                  PQ_HYBRID_SHAREDSECRETBYTES);
 }
 
 static VALUE pqcrypto_hybrid_kem_decapsulate(VALUE self, VALUE ciphertext, VALUE secret_key) {
     (void)self;
-    StringValue(ciphertext);
-    StringValue(secret_key);
-
-    if ((size_t)RSTRING_LEN(ciphertext) != PQ_HYBRID_CIPHERTEXTBYTES) {
-        rb_raise(rb_eArgError, "Invalid ciphertext length");
-    }
-    if ((size_t)RSTRING_LEN(secret_key) != PQ_HYBRID_SECRETKEYBYTES) {
-        rb_raise(rb_eArgError, "Invalid secret key length");
-    }
-
-    kem_decapsulate_call_t call = {0};
-    size_t ciphertext_len = 0;
-    size_t secret_key_len = 0;
-    call.ciphertext = pq_copy_ruby_string(ciphertext, &ciphertext_len);
-    call.secret_key = pq_copy_ruby_string(secret_key, &secret_key_len);
-    call.shared_secret = pq_alloc_buffer(PQ_HYBRID_SHAREDSECRETBYTES);
-
-    rb_thread_call_without_gvl(pq_hybrid_kem_decapsulate_nogvl, &call, NULL, NULL);
-    pq_wipe_and_free((uint8_t *)call.ciphertext, ciphertext_len);
-    pq_wipe_and_free((uint8_t *)call.secret_key, secret_key_len);
-
-    if (call.result != PQ_SUCCESS) {
-        pq_wipe_and_free(call.shared_secret, PQ_HYBRID_SHAREDSECRETBYTES);
-        pq_raise_general_error(call.result);
-    }
-
-    VALUE result = pq_string_from_buffer(call.shared_secret, PQ_HYBRID_SHAREDSECRETBYTES);
-    pq_wipe_and_free(call.shared_secret, PQ_HYBRID_SHAREDSECRETBYTES);
-    return result;
+    return pq_run_kem_decapsulate(pq_hybrid_kem_decapsulate_nogvl, ciphertext,
+                                  PQ_HYBRID_CIPHERTEXTBYTES, secret_key, PQ_HYBRID_SECRETKEYBYTES,
+                                  PQ_HYBRID_SHAREDSECRETBYTES);
 }
 
 static VALUE pqcrypto__test_ml_kem_keypair_from_seed(VALUE self, VALUE seed) {
@@ -476,12 +543,9 @@ static VALUE pqcrypto__test_ml_kem_keypair_from_seed(VALUE self, VALUE seed) {
 
 static VALUE pqcrypto__test_ml_kem_encapsulate_from_seed(VALUE self, VALUE public_key, VALUE seed) {
     (void)self;
-    StringValue(public_key);
+    pq_validate_bytes_argument(public_key, PQ_MLKEM_PUBLICKEYBYTES, "public key");
     StringValue(seed);
 
-    if ((size_t)RSTRING_LEN(public_key) != PQ_MLKEM_PUBLICKEYBYTES) {
-        rb_raise(rb_eArgError, "Invalid public key length");
-    }
     if ((size_t)RSTRING_LEN(seed) != 32) {
         rb_raise(rb_eArgError, "Deterministic test seed must be 32 bytes");
     }
@@ -550,12 +614,9 @@ static VALUE pqcrypto__test_sign_keypair_from_seed(VALUE self, VALUE seed) {
 static VALUE pqcrypto__test_sign_from_seed(VALUE self, VALUE message, VALUE secret_key,
                                            VALUE seed) {
     (void)self;
-    StringValue(secret_key);
+    pq_validate_bytes_argument(secret_key, PQ_MLDSA_SECRETKEYBYTES, "secret key");
     StringValue(seed);
 
-    if ((size_t)RSTRING_LEN(secret_key) != PQ_MLDSA_SECRETKEYBYTES) {
-        rb_raise(rb_eArgError, "Invalid secret key length");
-    }
     if ((size_t)RSTRING_LEN(seed) != 32) {
         rb_raise(rb_eArgError, "Deterministic test seed must be 32 bytes");
     }
@@ -588,35 +649,13 @@ static VALUE pqcrypto__test_sign_from_seed(VALUE self, VALUE message, VALUE secr
 
 static VALUE pqcrypto_sign_keypair(VALUE self) {
     (void)self;
-
-    sign_keypair_call_t call = {0};
-    call.public_key = pq_alloc_buffer(PQ_MLDSA_PUBLICKEYBYTES);
-    call.secret_key = pq_alloc_buffer(PQ_MLDSA_SECRETKEYBYTES);
-
-    rb_thread_call_without_gvl(pq_sign_keypair_nogvl, &call, NULL, NULL);
-
-    if (call.result != PQ_SUCCESS) {
-        pq_wipe_and_free(call.secret_key, PQ_MLDSA_SECRETKEYBYTES);
-        free(call.public_key);
-        pq_raise_general_error(call.result);
-    }
-
-    VALUE result = rb_ary_new2(2);
-    rb_ary_push(result, pq_string_from_buffer(call.public_key, PQ_MLDSA_PUBLICKEYBYTES));
-    rb_ary_push(result, pq_string_from_buffer(call.secret_key, PQ_MLDSA_SECRETKEYBYTES));
-
-    free(call.public_key);
-    pq_wipe_and_free(call.secret_key, PQ_MLDSA_SECRETKEYBYTES);
-    return result;
+    return pq_run_sign_keypair(pq_sign_keypair_nogvl, PQ_MLDSA_PUBLICKEYBYTES,
+                               PQ_MLDSA_SECRETKEYBYTES);
 }
 
 static VALUE pqcrypto_sign(VALUE self, VALUE message, VALUE secret_key) {
     (void)self;
-    StringValue(secret_key);
-
-    if ((size_t)RSTRING_LEN(secret_key) != PQ_MLDSA_SECRETKEYBYTES) {
-        rb_raise(rb_eArgError, "Invalid secret key length");
-    }
+    pq_validate_bytes_argument(secret_key, PQ_MLDSA_SECRETKEYBYTES, "secret key");
 
     sign_call_t call = {0};
     size_t secret_key_len = 0;
@@ -643,11 +682,7 @@ static VALUE pqcrypto_sign(VALUE self, VALUE message, VALUE secret_key) {
 static VALUE pqcrypto_verify(VALUE self, VALUE message, VALUE signature, VALUE public_key) {
     (void)self;
     StringValue(signature);
-    StringValue(public_key);
-
-    if ((size_t)RSTRING_LEN(public_key) != PQ_MLDSA_PUBLICKEYBYTES) {
-        rb_raise(rb_eArgError, "Invalid public key length");
-    }
+    pq_validate_bytes_argument(public_key, PQ_MLDSA_PUBLICKEYBYTES, "public key");
 
     verify_call_t call = {0};
     size_t public_key_len = 0;
@@ -700,146 +735,46 @@ static void define_constants(void) {
 
 static VALUE pqcrypto_public_key_to_pqc_container_der(VALUE self, VALUE algorithm,
                                                       VALUE key_bytes) {
-    uint8_t *out = NULL;
-    size_t out_len = 0;
-    VALUE result;
-    StringValue(key_bytes);
-    int ret = pq_public_key_to_pqc_container_der(
-        &out, &out_len, (const uint8_t *)RSTRING_PTR(key_bytes), (size_t)RSTRING_LEN(key_bytes),
-        pq_algorithm_symbol_to_cstr(algorithm));
-    if (ret != PQ_SUCCESS)
-        pq_raise_general_error(ret);
-    result = pq_string_from_buffer(out, out_len);
-    pq_secure_wipe(out, out_len);
-    free(out);
-    return result;
+    (void)self;
+    return pq_export_container_der(algorithm, key_bytes, pq_public_key_to_pqc_container_der);
 }
 
 static VALUE pqcrypto_public_key_to_pqc_container_pem(VALUE self, VALUE algorithm,
                                                       VALUE key_bytes) {
-    char *out = NULL;
-    size_t out_len = 0;
-    VALUE result;
-    StringValue(key_bytes);
-    int ret = pq_public_key_to_pqc_container_pem(
-        &out, &out_len, (const uint8_t *)RSTRING_PTR(key_bytes), (size_t)RSTRING_LEN(key_bytes),
-        pq_algorithm_symbol_to_cstr(algorithm));
-    if (ret != PQ_SUCCESS)
-        pq_raise_general_error(ret);
-    result = rb_utf8_str_new(out, (long)out_len);
-    pq_secure_wipe(out, out_len);
-    free(out);
-    return result;
+    (void)self;
+    return pq_export_container_pem(algorithm, key_bytes, pq_public_key_to_pqc_container_pem);
 }
 
 static VALUE pqcrypto_secret_key_to_pqc_container_der(VALUE self, VALUE algorithm,
                                                       VALUE key_bytes) {
-    uint8_t *out = NULL;
-    size_t out_len = 0;
-    VALUE result;
-    StringValue(key_bytes);
-    int ret = pq_secret_key_to_pqc_container_der(
-        &out, &out_len, (const uint8_t *)RSTRING_PTR(key_bytes), (size_t)RSTRING_LEN(key_bytes),
-        pq_algorithm_symbol_to_cstr(algorithm));
-    if (ret != PQ_SUCCESS)
-        pq_raise_general_error(ret);
-    result = pq_string_from_buffer(out, out_len);
-    pq_secure_wipe(out, out_len);
-    free(out);
-    return result;
+    (void)self;
+    return pq_export_container_der(algorithm, key_bytes, pq_secret_key_to_pqc_container_der);
 }
 
 static VALUE pqcrypto_secret_key_to_pqc_container_pem(VALUE self, VALUE algorithm,
                                                       VALUE key_bytes) {
-    char *out = NULL;
-    size_t out_len = 0;
-    VALUE result;
-    StringValue(key_bytes);
-    int ret = pq_secret_key_to_pqc_container_pem(
-        &out, &out_len, (const uint8_t *)RSTRING_PTR(key_bytes), (size_t)RSTRING_LEN(key_bytes),
-        pq_algorithm_symbol_to_cstr(algorithm));
-    if (ret != PQ_SUCCESS)
-        pq_raise_general_error(ret);
-    result = rb_utf8_str_new(out, (long)out_len);
-    pq_secure_wipe(out, out_len);
-    free(out);
-    return result;
+    (void)self;
+    return pq_export_container_pem(algorithm, key_bytes, pq_secret_key_to_pqc_container_pem);
 }
 
 static VALUE pqcrypto_public_key_from_pqc_container_der(VALUE self, VALUE der) {
-    char *algorithm = NULL;
-    uint8_t *key = NULL;
-    size_t key_len = 0;
-    VALUE ary;
-    StringValue(der);
-    int ret = pq_public_key_from_pqc_container_der(
-        &algorithm, &key, &key_len, (const uint8_t *)RSTRING_PTR(der), (size_t)RSTRING_LEN(der));
-    if (ret != PQ_SUCCESS)
-        pq_raise_general_error(ret);
-    ary = rb_ary_new_capa(2);
-    rb_ary_push(ary, pq_algorithm_cstr_to_symbol(algorithm));
-    rb_ary_push(ary, pq_string_from_buffer(key, key_len));
-    free(algorithm);
-    pq_secure_wipe(key, key_len);
-    free(key);
-    return ary;
+    (void)self;
+    return pq_import_container_der(der, pq_public_key_from_pqc_container_der);
 }
 
 static VALUE pqcrypto_public_key_from_pqc_container_pem(VALUE self, VALUE pem) {
-    char *algorithm = NULL;
-    uint8_t *key = NULL;
-    size_t key_len = 0;
-    VALUE ary;
-    StringValue(pem);
-    int ret = pq_public_key_from_pqc_container_pem(&algorithm, &key, &key_len, RSTRING_PTR(pem),
-                                                   (size_t)RSTRING_LEN(pem));
-    if (ret != PQ_SUCCESS)
-        pq_raise_general_error(ret);
-    ary = rb_ary_new_capa(2);
-    rb_ary_push(ary, pq_algorithm_cstr_to_symbol(algorithm));
-    rb_ary_push(ary, pq_string_from_buffer(key, key_len));
-    free(algorithm);
-    pq_secure_wipe(key, key_len);
-    free(key);
-    return ary;
+    (void)self;
+    return pq_import_container_pem(pem, pq_public_key_from_pqc_container_pem);
 }
 
 static VALUE pqcrypto_secret_key_from_pqc_container_der(VALUE self, VALUE der) {
-    char *algorithm = NULL;
-    uint8_t *key = NULL;
-    size_t key_len = 0;
-    VALUE ary;
-    StringValue(der);
-    int ret = pq_secret_key_from_pqc_container_der(
-        &algorithm, &key, &key_len, (const uint8_t *)RSTRING_PTR(der), (size_t)RSTRING_LEN(der));
-    if (ret != PQ_SUCCESS)
-        pq_raise_general_error(ret);
-    ary = rb_ary_new_capa(2);
-    rb_ary_push(ary, pq_algorithm_cstr_to_symbol(algorithm));
-    rb_ary_push(ary, pq_string_from_buffer(key, key_len));
-    free(algorithm);
-    pq_secure_wipe(key, key_len);
-    free(key);
-    return ary;
+    (void)self;
+    return pq_import_container_der(der, pq_secret_key_from_pqc_container_der);
 }
 
 static VALUE pqcrypto_secret_key_from_pqc_container_pem(VALUE self, VALUE pem) {
-    char *algorithm = NULL;
-    uint8_t *key = NULL;
-    size_t key_len = 0;
-    VALUE ary;
-    StringValue(pem);
-    int ret = pq_secret_key_from_pqc_container_pem(&algorithm, &key, &key_len, RSTRING_PTR(pem),
-                                                   (size_t)RSTRING_LEN(pem));
-    if (ret != PQ_SUCCESS)
-        pq_raise_general_error(ret);
-    ary = rb_ary_new_capa(2);
-    rb_ary_push(ary, pq_algorithm_cstr_to_symbol(algorithm));
-    rb_ary_push(ary, pq_string_from_buffer(key, key_len));
-    free(algorithm);
-    pq_secure_wipe(key, key_len);
-    free(key);
-    return ary;
+    (void)self;
+    return pq_import_container_pem(pem, pq_secret_key_from_pqc_container_pem);
 }
 
 void Init_pqcrypto_secure(void) {

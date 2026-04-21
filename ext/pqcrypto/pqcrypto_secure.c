@@ -705,69 +705,60 @@ static const char PQC_OID_ML_KEM_768[] = "2.25.186599352125448088867056807454444
 static const char PQC_OID_ML_KEM_768_X25519_HKDF_SHA256[] =
     "2.25.260242945110721168101139140490528778800";
 static const char PQC_OID_ML_DSA_65[] = "2.25.305232938483772195555080795650659207792";
+static const char PQC_PUBLIC_KEY_PEM_LABEL[] = "PQC PUBLIC KEY CONTAINER";
+static const char PQC_PRIVATE_KEY_PEM_LABEL[] = "PQC PRIVATE KEY CONTAINER";
 
-static int pq_serialization_key_bytes_for_algorithm(const char *algorithm, int is_public,
-                                                    size_t *expected_len) {
-    if (!algorithm || !expected_len)
-        return PQ_ERROR_BUFFER;
-    if (strcmp(algorithm, "ml_kem_768") == 0) {
-        *expected_len = is_public ? PQ_MLKEM_PUBLICKEYBYTES : PQ_MLKEM_SECRETKEYBYTES;
-        return PQ_SUCCESS;
+typedef struct {
+    const char *algorithm;
+    const char *oid;
+    size_t public_key_len;
+    size_t secret_key_len;
+} pq_serialization_algorithm_t;
+
+static const pq_serialization_algorithm_t PQC_SERIALIZATION_ALGORITHMS[] = {
+    {"ml_kem_768", PQC_OID_ML_KEM_768, PQ_MLKEM_PUBLICKEYBYTES, PQ_MLKEM_SECRETKEYBYTES},
+    {"ml_kem_768_x25519_hkdf_sha256", PQC_OID_ML_KEM_768_X25519_HKDF_SHA256,
+     PQ_HYBRID_PUBLICKEYBYTES, PQ_HYBRID_SECRETKEYBYTES},
+    {"ml_dsa_65", PQC_OID_ML_DSA_65, MLDSA_PUBLICKEYBYTES, MLDSA_SECRETKEYBYTES},
+};
+
+static const pq_serialization_algorithm_t *pq_find_serialization_algorithm(const char *algorithm) {
+    size_t i;
+
+    if (!algorithm)
+        return NULL;
+
+    for (i = 0; i < sizeof(PQC_SERIALIZATION_ALGORITHMS) / sizeof(PQC_SERIALIZATION_ALGORITHMS[0]);
+         ++i) {
+        if (strcmp(algorithm, PQC_SERIALIZATION_ALGORITHMS[i].algorithm) == 0)
+            return &PQC_SERIALIZATION_ALGORITHMS[i];
     }
-    if (strcmp(algorithm, "ml_kem_768_x25519_hkdf_sha256") == 0) {
-        *expected_len = is_public ? PQ_HYBRID_PUBLICKEYBYTES : PQ_HYBRID_SECRETKEYBYTES;
-        return PQ_SUCCESS;
-    }
-    if (strcmp(algorithm, "ml_dsa_65") == 0) {
-        *expected_len = is_public ? MLDSA_PUBLICKEYBYTES : MLDSA_SECRETKEYBYTES;
-        return PQ_SUCCESS;
-    }
-    return PQ_ERROR_BUFFER;
+
+    return NULL;
 }
 
-static int pq_serialization_oid_for_algorithm(const char *algorithm, const char **oid_out) {
-    if (!algorithm || !oid_out)
-        return PQ_ERROR_BUFFER;
-    if (strcmp(algorithm, "ml_kem_768") == 0) {
-        *oid_out = PQC_OID_ML_KEM_768;
-        return PQ_SUCCESS;
-    }
-    if (strcmp(algorithm, "ml_kem_768_x25519_hkdf_sha256") == 0) {
-        *oid_out = PQC_OID_ML_KEM_768_X25519_HKDF_SHA256;
-        return PQ_SUCCESS;
-    }
-    if (strcmp(algorithm, "ml_dsa_65") == 0) {
-        *oid_out = PQC_OID_ML_DSA_65;
-        return PQ_SUCCESS;
-    }
-    return PQ_ERROR_BUFFER;
-}
+static const pq_serialization_algorithm_t *pq_find_serialization_algorithm_by_oid(const char *oid,
+                                                                                  size_t oid_len) {
+    size_t i;
 
-static int pq_serialization_algorithm_for_oid(const char *oid, size_t oid_len,
-                                              const char **algorithm_out) {
-    if (!oid || !algorithm_out)
-        return PQ_ERROR_BUFFER;
-    if (oid_len == strlen(PQC_OID_ML_KEM_768) && memcmp(oid, PQC_OID_ML_KEM_768, oid_len) == 0) {
-        *algorithm_out = "ml_kem_768";
-        return PQ_SUCCESS;
+    if (!oid)
+        return NULL;
+
+    for (i = 0; i < sizeof(PQC_SERIALIZATION_ALGORITHMS) / sizeof(PQC_SERIALIZATION_ALGORITHMS[0]);
+         ++i) {
+        const pq_serialization_algorithm_t *entry = &PQC_SERIALIZATION_ALGORITHMS[i];
+        if (oid_len == strlen(entry->oid) && memcmp(oid, entry->oid, oid_len) == 0)
+            return entry;
     }
-    if (oid_len == strlen(PQC_OID_ML_KEM_768_X25519_HKDF_SHA256) &&
-        memcmp(oid, PQC_OID_ML_KEM_768_X25519_HKDF_SHA256, oid_len) == 0) {
-        *algorithm_out = "ml_kem_768_x25519_hkdf_sha256";
-        return PQ_SUCCESS;
-    }
-    if (oid_len == strlen(PQC_OID_ML_DSA_65) && memcmp(oid, PQC_OID_ML_DSA_65, oid_len) == 0) {
-        *algorithm_out = "ml_dsa_65";
-        return PQ_SUCCESS;
-    }
-    return PQ_ERROR_BUFFER;
+
+    return NULL;
 }
 
 static int pq_encode_serialized_key(uint8_t **output, size_t *output_len, uint8_t type,
                                     const uint8_t *key_bytes, size_t key_len,
                                     const char *algorithm) {
-    const char *oid = NULL;
-    size_t expected_len = 0;
+    const pq_serialization_algorithm_t *entry;
+    size_t expected_len;
     size_t oid_len;
     size_t total_len = 0;
     uint8_t *buf;
@@ -779,15 +770,16 @@ static int pq_encode_serialized_key(uint8_t **output, size_t *output_len, uint8_
     *output = NULL;
     *output_len = 0;
 
-    ret = pq_serialization_key_bytes_for_algorithm(algorithm, type == PQC_SERIALIZATION_TYPE_PUBLIC,
-                                                   &expected_len);
-    if (ret != PQ_SUCCESS || key_len != expected_len)
+    entry = pq_find_serialization_algorithm(algorithm);
+    if (!entry)
         return PQ_ERROR_BUFFER;
-    ret = pq_serialization_oid_for_algorithm(algorithm, &oid);
-    if (ret != PQ_SUCCESS)
-        return ret;
 
-    oid_len = strlen(oid);
+    expected_len =
+        (type == PQC_SERIALIZATION_TYPE_PUBLIC) ? entry->public_key_len : entry->secret_key_len;
+    if (key_len != expected_len)
+        return PQ_ERROR_BUFFER;
+
+    oid_len = strlen(entry->oid);
     if (oid_len == 0 || oid_len > UINT16_MAX)
         return PQ_ERROR_BUFFER;
     if (key_len > UINT32_MAX)
@@ -821,7 +813,7 @@ static int pq_encode_serialized_key(uint8_t **output, size_t *output_len, uint8_
     buf[5] = type;
     buf[6] = (uint8_t)((oid_len >> 8) & 0xFF);
     buf[7] = (uint8_t)(oid_len & 0xFF);
-    memcpy(buf + 8, oid, oid_len);
+    memcpy(buf + 8, entry->oid, oid_len);
     buf[8 + oid_len + 0] = (uint8_t)((key_len >> 24) & 0xFF);
     buf[8 + oid_len + 1] = (uint8_t)((key_len >> 16) & 0xFF);
     buf[8 + oid_len + 2] = (uint8_t)((key_len >> 8) & 0xFF);
@@ -837,12 +829,11 @@ static int pq_decode_serialized_key(const uint8_t *input, size_t input_len, uint
                                     char **algorithm_out, uint8_t **key_out, size_t *key_len_out) {
     uint16_t oid_len;
     uint32_t key_len;
-    const char *algorithm = NULL;
+    const pq_serialization_algorithm_t *entry;
     size_t offset;
     size_t expected_len = 0;
     uint8_t *key_copy = NULL;
     char *algorithm_copy = NULL;
-    int ret;
 
     if (!input || !algorithm_out || !key_out || !key_len_out)
         return PQ_ERROR_BUFFER;
@@ -866,18 +857,18 @@ static int pq_decode_serialized_key(const uint8_t *input, size_t input_len, uint
     offset = 8;
     if (input_len < offset || input_len - offset < (size_t)oid_len + 4)
         return PQ_ERROR_BUFFER;
-    ret = pq_serialization_algorithm_for_oid((const char *)(input + offset), oid_len, &algorithm);
-    if (ret != PQ_SUCCESS)
-        return ret;
+    entry = pq_find_serialization_algorithm_by_oid((const char *)(input + offset), oid_len);
+    if (!entry)
+        return PQ_ERROR_BUFFER;
     offset += oid_len;
     key_len = ((uint32_t)input[offset + 0] << 24) | ((uint32_t)input[offset + 1] << 16) |
               ((uint32_t)input[offset + 2] << 8) | (uint32_t)input[offset + 3];
     offset += 4;
     if (input_len < offset || input_len - offset != (size_t)key_len)
         return PQ_ERROR_BUFFER;
-    ret = pq_serialization_key_bytes_for_algorithm(
-        algorithm, expected_type == PQC_SERIALIZATION_TYPE_PUBLIC, &expected_len);
-    if (ret != PQ_SUCCESS || (size_t)key_len != expected_len)
+    expected_len = (expected_type == PQC_SERIALIZATION_TYPE_PUBLIC) ? entry->public_key_len
+                                                                    : entry->secret_key_len;
+    if ((size_t)key_len != expected_len)
         return PQ_ERROR_BUFFER;
 
     key_copy = malloc((size_t)key_len);
@@ -886,14 +877,14 @@ static int pq_decode_serialized_key(const uint8_t *input, size_t input_len, uint
     memcpy(key_copy, input + offset, (size_t)key_len);
 
     {
-        size_t algorithm_len = strlen(algorithm);
+        size_t algorithm_len = strlen(entry->algorithm);
         algorithm_copy = malloc(algorithm_len + 1);
         if (!algorithm_copy) {
             pq_secure_wipe(key_copy, (size_t)key_len);
             free(key_copy);
             return PQ_ERROR_NOMEM;
         }
-        memcpy(algorithm_copy, algorithm, algorithm_len + 1);
+        memcpy(algorithm_copy, entry->algorithm, algorithm_len + 1);
     }
 
     *algorithm_out = algorithm_copy;
@@ -1104,7 +1095,7 @@ int pq_public_key_to_pqc_container_pem(char **output, size_t *output_len, const 
     ret = pq_public_key_to_pqc_container_der(&der, &der_len, public_key, public_key_len, algorithm);
     if (ret != PQ_SUCCESS)
         return ret;
-    ret = pq_der_to_pem("PQC PUBLIC KEY CONTAINER", der, der_len, output, output_len);
+    ret = pq_der_to_pem(PQC_PUBLIC_KEY_PEM_LABEL, der, der_len, output, output_len);
     pq_secure_wipe(der, der_len);
     free(der);
     return ret;
@@ -1125,7 +1116,7 @@ int pq_secret_key_to_pqc_container_pem(char **output, size_t *output_len, const 
     ret = pq_secret_key_to_pqc_container_der(&der, &der_len, secret_key, secret_key_len, algorithm);
     if (ret != PQ_SUCCESS)
         return ret;
-    ret = pq_der_to_pem("PQC PRIVATE KEY CONTAINER", der, der_len, output, output_len);
+    ret = pq_der_to_pem(PQC_PRIVATE_KEY_PEM_LABEL, der, der_len, output, output_len);
     pq_secure_wipe(der, der_len);
     free(der);
     return ret;
@@ -1143,7 +1134,7 @@ int pq_public_key_from_pqc_container_pem(char **algorithm_out, uint8_t **key_out
     uint8_t *der = NULL;
     size_t der_len = 0;
     int ret;
-    ret = pq_pem_to_der("PQC PUBLIC KEY CONTAINER", input, input_len, &der, &der_len);
+    ret = pq_pem_to_der(PQC_PUBLIC_KEY_PEM_LABEL, input, input_len, &der, &der_len);
     if (ret != PQ_SUCCESS)
         return ret;
     ret = pq_public_key_from_pqc_container_der(algorithm_out, key_out, key_len_out, der, der_len);
@@ -1164,7 +1155,7 @@ int pq_secret_key_from_pqc_container_pem(char **algorithm_out, uint8_t **key_out
     uint8_t *der = NULL;
     size_t der_len = 0;
     int ret;
-    ret = pq_pem_to_der("PQC PRIVATE KEY CONTAINER", input, input_len, &der, &der_len);
+    ret = pq_pem_to_der(PQC_PRIVATE_KEY_PEM_LABEL, input, input_len, &der, &der_len);
     if (ret != PQ_SUCCESS)
         return ret;
     ret = pq_secret_key_from_pqc_container_der(algorithm_out, key_out, key_len_out, der, der_len);
