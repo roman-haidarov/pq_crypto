@@ -10,7 +10,7 @@ Gem::Specification.new do |spec|
   spec.description   = "Native Ruby wrapper around ML-KEM-768, ML-DSA-65, and an optional hybrid ML-KEM-768+X25519 KEM, backed by PQClean and OpenSSL."
   spec.homepage      = "https://github.com/roman-haidarov/pq_crypto"
   spec.license       = "MIT"
-  spec.required_ruby_version = ">= 3.1.0"
+  spec.required_ruby_version = Gem::Requirement.new(">= 3.4.0.a")
 
   spec.metadata["homepage_uri"]    = spec.homepage
   spec.metadata["source_code_uri"] = spec.homepage
