@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.2.0]
+
+### Changed
+
+- Raised the minimum supported Ruby to the 3.4 series.
+- Switched `PQCrypto::Signature::SecretKey#sign` and `PQCrypto::Signature::PublicKey#verify` to Ruby 3.4's scheduler-aware `rb_nogvl(..., RB_NOGVL_OFFLOAD_SAFE)` path.
+- Left the faster KEM and key-generation operations on the existing lower-overhead no-GVL path.
+- Removed gem-specific scheduler configuration; runtime behavior now follows the active Ruby Fiber scheduler automatically.
+
+### Testing
+
+- Added Async integration tests that verify sibling `task.async` work keeps making progress while `sign` and `verify` run under an Async worker-pool-enabled reactor.
+- Updated CI to target the supported Ruby 3.4 series.
+
 ## [0.1.0]
 
 Initial public release.
