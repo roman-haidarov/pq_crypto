@@ -664,7 +664,7 @@ static VALUE pqcrypto_sign(VALUE self, VALUE message, VALUE secret_key) {
     call.signature = pq_alloc_buffer(PQ_MLDSA_BYTES);
     call.message = pq_copy_ruby_string(message, &call.message_len);
 
-    rb_thread_call_without_gvl(pq_sign_nogvl, &call, NULL, NULL);
+    rb_nogvl(pq_sign_nogvl, &call, NULL, NULL, RB_NOGVL_OFFLOAD_SAFE);
 
     pq_wipe_and_free(call.message, call.message_len);
     pq_wipe_and_free((uint8_t *)call.secret_key, secret_key_len);
@@ -692,7 +692,7 @@ static VALUE pqcrypto_verify(VALUE self, VALUE message, VALUE signature, VALUE p
     call.signature_len = signature_len;
     call.message = pq_copy_ruby_string(message, &call.message_len);
 
-    rb_thread_call_without_gvl(pq_verify_nogvl, &call, NULL, NULL);
+    rb_nogvl(pq_verify_nogvl, &call, NULL, NULL, RB_NOGVL_OFFLOAD_SAFE);
 
     pq_wipe_and_free(call.message, call.message_len);
     pq_wipe_and_free((uint8_t *)call.public_key, public_key_len);

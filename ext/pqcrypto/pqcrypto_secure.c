@@ -1165,5 +1165,5 @@ int pq_secret_key_from_pqc_container_pem(char **algorithm_out, uint8_t **key_out
 }
 
 const char *pq_version(void) {
-    return "0.1.0";
+    return "0.2.0";
 }

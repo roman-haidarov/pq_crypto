@@ -35,9 +35,47 @@ bundle exec rake compile
 
 ### Native dependencies
 
-- Ruby 3.1+
+- Ruby 3.4.x
 - a C toolchain
 - OpenSSL **3.0 or later**
+
+## Async / Fiber scheduler support
+
+`pq_crypto` does not require any gem-specific Async configuration. On Ruby 3.4, `sign` and `verify` use Ruby's scheduler-aware `rb_nogvl(..., RB_NOGVL_OFFLOAD_SAFE)` path automatically.
+
+That means:
+
+- without a Fiber scheduler, these methods fall back to the ordinary no-GVL behavior;
+- with a scheduler that implements `blocking_operation_wait` (for example `Async` with a worker pool), the blocking native work can be moved off the event loop.
+
+This integration is intentionally limited to `sign` and `verify`; the faster primitive operations keep the lower-overhead path.
+
+Example with `Async`:
+
+```ruby
+require "async"
+require "pq_crypto"
+
+keypair = PQCrypto::Signature.generate(:ml_dsa_65)
+message = "hello" * 100_000
+
+reactor = Async::Reactor.new(worker_pool: true)
+root = reactor.async do |task|
+  task.async do
+    signature = keypair.secret_key.sign(message)
+    keypair.public_key.verify(message, signature)
+  end
+
+  task.async do
+    sleep 0.01
+    puts "event loop stayed responsive"
+  end
+end
+
+reactor.run
+root.wait
+reactor.close
+```
 
 ## Primitive API
 
