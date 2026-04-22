@@ -4,8 +4,8 @@ require_relative "test_helper"
 
 class TestPQCrypto < Minitest::Test
   def test_version_constant
-    assert_equal "0.1.0", PQCrypto::VERSION
-    assert_equal "0.1.0", PQCrypto.version
+    assert_equal "0.2.0", PQCrypto::VERSION
+    assert_equal "0.2.0", PQCrypto.version
   end
 
   def test_backend_is_native_pqclean
