@@ -140,9 +140,34 @@ class TestPQCryptoPrimitiveAPI < Minitest::Test
     assert_equal :ml_kem, kem[:family]
     assert_match(/\A2\.25\./, kem[:oid])
     assert_equal :ml_kem_hybrid, hybrid[:family]
-    assert_match(/\A2\.25\./, hybrid[:oid])
+    assert_equal "1.3.6.1.4.1.62253.25722", hybrid[:oid]
     assert_equal :ml_dsa, sig[:family]
     assert_match(/\A2\.25\./, sig[:oid])
+  end
+
+
+
+  def test_secret_key_inspect_does_not_leak_key_material
+    kem = PQCrypto::KEM.generate(:ml_kem_768).secret_key
+    hybrid = PQCrypto::HybridKEM.generate(:ml_kem_768_x25519_xwing).secret_key
+    sig = PQCrypto::Signature.generate(:ml_dsa_65).secret_key
+
+    [kem, hybrid, sig].each do |secret_key|
+      raw_hex = secret_key.to_bytes.unpack1("H*")
+      inspected = secret_key.inspect
+
+      refute_includes inspected, "@bytes"
+      refute_includes inspected, raw_hex
+      refute_respond_to secret_key, :fingerprint
+    end
+  end
+
+  def test_encapsulation_result_inspect_does_not_leak_shared_secret
+    result = PQCrypto::KEM.generate(:ml_kem_768).public_key.encapsulate
+    inspected = result.inspect
+
+    refute_includes inspected, result.shared_secret.unpack1("H*")
+    refute_includes inspected, "@shared_secret"
   end
 
   def test_unsupported_algorithm_errors

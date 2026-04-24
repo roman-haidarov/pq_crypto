@@ -13,8 +13,8 @@ It exposes three public building blocks:
 The gem is backed by vendored `PQClean` sources for `ML-KEM-768` /
 `ML-DSA-65` and by OpenSSL for `X25519` and `SHA3-256`. Every piece of
 conventional-crypto functionality goes through standard library calls
-(`EVP_*`, `RAND_bytes`, `CRYPTO_memcmp`, streaming `EVP_Encode*` /
-`EVP_Decode*`) — nothing roll-your-own where a library primitive exists.
+(`EVP_*`, `RAND_bytes`, `CRYPTO_memcmp`, `BIO_f_base64`) — nothing
+roll-your-own where a library primitive exists.
 
 ## Status
 
@@ -42,7 +42,7 @@ bundle exec rake compile
 
 - Ruby 3.4.x
 - a C toolchain with C11 support (for `_Static_assert` / `_Thread_local`)
-- OpenSSL **3.0 or later** with SHA3-256 available (default provider)
+- OpenSSL **3.0 or later** with SHA3-256 and SHAKE256 available (default provider)
 
 ## Async / Fiber scheduler support
 
@@ -120,14 +120,16 @@ result = keypair.public_key.encapsulate
 shared_secret = keypair.secret_key.decapsulate(result.ciphertext)
 ```
 
-The combiner is exactly:
+The implementation follows draft-10 key expansion: the X-Wing secret
+decapsulation key is a 32-byte seed expanded with SHAKE256 into ML-KEM
+and X25519 private material. The combiner is exactly:
 
 ```
-ss = SHA3-256( "\.//^\" || ss_M || ss_X || ct_X || pk_X )
+ss = SHA3-256( ss_M || ss_X || ct_X || pk_X || "\.//^\" )
 ```
 
-as specified by `draft-connolly-cfrg-xwing-kem`. See `SECURITY.md` for
-audit status and interoperability caveats.
+as specified by `draft-connolly-cfrg-xwing-kem-10`. See `SECURITY.md`
+for audit status and interoperability caveats.
 
 ## Serialization
 
@@ -171,6 +173,12 @@ key.wipe!                  # scrub the key's internal copy
 `==` on `PublicKey` / `SecretKey` instances uses OpenSSL
 `CRYPTO_memcmp` through a `PQCrypto.ct_equals` helper so comparisons
 do not leak timing information about a prefix match.
+
+Secret key `inspect` output is intentionally redacted and secret key
+objects do not expose a public `fingerprint` method. `wipe!` remains
+best-effort only: it clears the current Ruby string buffer owned by the
+key object, not every possible copy made by Ruby, OpenSSL, serialization,
+logging, or the garbage collector.
 
 ## Introspection
 

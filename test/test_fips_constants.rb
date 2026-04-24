@@ -12,7 +12,7 @@ class TestFIPSConstants < Minitest::Test
 
   def test_hybrid_kem_sizes
     assert_equal 1216, PQCrypto::HYBRID_KEM_PUBLIC_KEY_BYTES
-    assert_equal 2432, PQCrypto::HYBRID_KEM_SECRET_KEY_BYTES
+    assert_equal 32, PQCrypto::HYBRID_KEM_SECRET_KEY_BYTES
     assert_equal 1120, PQCrypto::HYBRID_KEM_CIPHERTEXT_BYTES
     assert_equal 32, PQCrypto::HYBRID_KEM_SHARED_SECRET_BYTES
   end

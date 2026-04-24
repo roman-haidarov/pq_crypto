@@ -99,6 +99,32 @@ cleanup:
     return ret;
 }
 
+static int x25519_public_from_private(uint8_t *pk, const uint8_t *sk) {
+    EVP_PKEY *pkey = NULL;
+    size_t pklen = X25519_PUBLICKEYBYTES;
+    int ret = PQ_ERROR_KEYPAIR;
+
+    if (!pk || !sk) {
+        return PQ_ERROR_BUFFER;
+    }
+
+    pkey = EVP_PKEY_new_raw_private_key(EVP_PKEY_X25519, NULL, sk, X25519_SECRETKEYBYTES);
+    if (!pkey)
+        goto cleanup;
+
+    if (EVP_PKEY_get_raw_public_key(pkey, pk, &pklen) <= 0)
+        goto cleanup;
+    if (pklen != X25519_PUBLICKEYBYTES)
+        goto cleanup;
+
+    ret = PQ_SUCCESS;
+
+cleanup:
+    if (pkey)
+        EVP_PKEY_free(pkey);
+    return ret;
+}
+
 static int x25519_shared_secret(uint8_t *shared, const uint8_t *their_pk, const uint8_t *my_sk) {
     EVP_PKEY_CTX *ctx = NULL;
     EVP_PKEY *pkey = NULL;
@@ -159,8 +185,6 @@ static int xwing_combiner(uint8_t shared_secret[HYBRID_SHAREDSECRETBYTES],
 
     if (EVP_DigestInit_ex(ctx, EVP_sha3_256(), NULL) != 1)
         goto cleanup;
-    if (EVP_DigestUpdate(ctx, XWING_LABEL, sizeof(XWING_LABEL)) != 1)
-        goto cleanup;
     if (EVP_DigestUpdate(ctx, ss_M, MLKEM_SHAREDSECRETBYTES) != 1)
         goto cleanup;
     if (EVP_DigestUpdate(ctx, ss_X, X25519_SHAREDSECRETBYTES) != 1)
@@ -168,6 +192,8 @@ static int xwing_combiner(uint8_t shared_secret[HYBRID_SHAREDSECRETBYTES],
     if (EVP_DigestUpdate(ctx, ct_X, X25519_PUBLICKEYBYTES) != 1)
         goto cleanup;
     if (EVP_DigestUpdate(ctx, pk_X, X25519_PUBLICKEYBYTES) != 1)
+        goto cleanup;
+    if (EVP_DigestUpdate(ctx, XWING_LABEL, sizeof(XWING_LABEL)) != 1)
         goto cleanup;
     if (EVP_DigestFinal_ex(ctx, shared_secret, &out_len) != 1)
         goto cleanup;
@@ -178,6 +204,55 @@ static int xwing_combiner(uint8_t shared_secret[HYBRID_SHAREDSECRETBYTES],
 
 cleanup:
     EVP_MD_CTX_free(ctx);
+    return ret;
+}
+
+static int xwing_expand_secret_key(hybrid_expanded_secret_key_t *expanded_key,
+                                   const uint8_t seed[HYBRID_SECRETKEYBYTES]) {
+    EVP_MD_CTX *ctx = NULL;
+    uint8_t expanded[XWING_EXPANDEDBYTES];
+    int ret = PQ_ERROR_OPENSSL;
+
+    if (!expanded_key || !seed) {
+        return PQ_ERROR_BUFFER;
+    }
+
+    memset(expanded_key, 0, sizeof(*expanded_key));
+    memset(expanded, 0, sizeof(expanded));
+
+    ctx = EVP_MD_CTX_new();
+    if (!ctx)
+        goto cleanup;
+
+    if (EVP_DigestInit_ex(ctx, EVP_shake256(), NULL) != 1)
+        goto cleanup;
+    if (EVP_DigestUpdate(ctx, seed, HYBRID_SECRETKEYBYTES) != 1)
+        goto cleanup;
+    if (EVP_DigestFinalXOF(ctx, expanded, sizeof(expanded)) != 1)
+        goto cleanup;
+
+    ret = PQCLEAN_MLKEM768_CLEAN_crypto_kem_keypair_derand(expanded_key->mlkem_pk,
+                                                           expanded_key->mlkem_sk, expanded);
+    if (ret != 0) {
+        ret = PQ_ERROR_KEYPAIR;
+        goto cleanup;
+    }
+
+    memcpy(expanded_key->x25519_sk, expanded + 64, X25519_SECRETKEYBYTES);
+    ret = x25519_public_from_private(expanded_key->x25519_pk, expanded_key->x25519_sk);
+    if (ret != PQ_SUCCESS) {
+        goto cleanup;
+    }
+
+    ret = PQ_SUCCESS;
+
+cleanup:
+    if (ctx)
+        EVP_MD_CTX_free(ctx);
+    pq_secure_wipe(expanded, sizeof(expanded));
+    if (ret != PQ_SUCCESS && expanded_key) {
+        pq_secure_wipe(expanded_key, sizeof(*expanded_key));
+    }
     return ret;
 }
 
@@ -278,35 +353,36 @@ int pq_testing_mldsa_sign_from_seed(uint8_t *signature, size_t *signature_len,
 
 int pq_hybrid_kem_keypair(uint8_t *public_key, uint8_t *secret_key) {
     hybrid_public_key_t pk;
-    hybrid_secret_key_t sk;
-    int ret;
+    hybrid_expanded_secret_key_t expanded;
+    uint8_t seed[HYBRID_SECRETKEYBYTES];
+    int ret = PQ_SUCCESS;
 
     if (!public_key || !secret_key) {
         return PQ_ERROR_BUFFER;
     }
 
     memset(&pk, 0, sizeof(pk));
-    memset(&sk, 0, sizeof(sk));
+    memset(&expanded, 0, sizeof(expanded));
+    memset(seed, 0, sizeof(seed));
 
-    ret = PQCLEAN_MLKEM768_CLEAN_crypto_kem_keypair(pk.mlkem_pk, sk.mlkem_sk) == 0
-              ? PQ_SUCCESS
-              : PQ_ERROR_KEYPAIR;
+    if (RAND_bytes(seed, sizeof(seed)) != 1) {
+        ret = PQ_ERROR_RANDOM;
+        goto cleanup;
+    }
+
+    ret = xwing_expand_secret_key(&expanded, seed);
     if (ret != PQ_SUCCESS) {
         goto cleanup;
     }
 
-    ret = x25519_keypair(pk.x25519_pk, sk.x25519_sk);
-    if (ret != PQ_SUCCESS) {
-        goto cleanup;
-    }
-
+    memcpy(pk.mlkem_pk, expanded.mlkem_pk, MLKEM_PUBLICKEYBYTES);
+    memcpy(pk.x25519_pk, expanded.x25519_pk, X25519_PUBLICKEYBYTES);
     memcpy(public_key, &pk, HYBRID_PUBLICKEYBYTES);
-    memcpy(secret_key, &sk, HYBRID_SECRETKEYBYTES);
+    memcpy(secret_key, seed, HYBRID_SECRETKEYBYTES);
 
 cleanup:
-    pq_secure_wipe(&sk, sizeof(sk));
-
-    pq_secure_wipe(&pk, sizeof(pk));
+    pq_secure_wipe(seed, sizeof(seed));
+    pq_secure_wipe(&expanded, sizeof(expanded));
     return ret;
 }
 
@@ -357,20 +433,15 @@ cleanup:
     pq_secure_wipe(mlkem_ss, sizeof(mlkem_ss));
     pq_secure_wipe(x25519_ss, sizeof(x25519_ss));
     pq_secure_wipe(x25519_ephemeral_sk, sizeof(x25519_ephemeral_sk));
-    pq_secure_wipe(&pk, sizeof(pk));
-    pq_secure_wipe(&ct, sizeof(ct));
     return ret;
 }
 
 int pq_hybrid_kem_decapsulate(uint8_t *shared_secret, const uint8_t *ciphertext,
                               const uint8_t *secret_key) {
     hybrid_ciphertext_t ct;
-    hybrid_secret_key_t sk;
-    uint8_t recipient_x25519_pk[X25519_PUBLICKEYBYTES];
+    hybrid_expanded_secret_key_t expanded;
     uint8_t mlkem_ss[MLKEM_SHAREDSECRETBYTES];
     uint8_t x25519_ss[X25519_SHAREDSECRETBYTES];
-    EVP_PKEY *pkey = NULL;
-    size_t pklen = X25519_PUBLICKEYBYTES;
     int ret = PQ_SUCCESS;
 
     if (!shared_secret || !ciphertext || !secret_key) {
@@ -378,44 +449,34 @@ int pq_hybrid_kem_decapsulate(uint8_t *shared_secret, const uint8_t *ciphertext,
     }
 
     memcpy(&ct, ciphertext, HYBRID_CIPHERTEXTBYTES);
-    memcpy(&sk, secret_key, HYBRID_SECRETKEYBYTES);
-    memset(recipient_x25519_pk, 0, sizeof(recipient_x25519_pk));
+    memset(&expanded, 0, sizeof(expanded));
     memset(mlkem_ss, 0, sizeof(mlkem_ss));
     memset(x25519_ss, 0, sizeof(x25519_ss));
 
-    if (PQCLEAN_MLKEM768_CLEAN_crypto_kem_dec(mlkem_ss, ct.mlkem_ct, sk.mlkem_sk) != 0) {
-        ret = PQ_ERROR_DECAPSULATE;
-        goto cleanup;
-    }
-
-    ret = x25519_shared_secret(x25519_ss, ct.x25519_ephemeral, sk.x25519_sk);
+    ret = xwing_expand_secret_key(&expanded, secret_key);
     if (ret != PQ_SUCCESS) {
         ret = PQ_ERROR_DECAPSULATE;
         goto cleanup;
     }
 
-    pkey = EVP_PKEY_new_raw_private_key(EVP_PKEY_X25519, NULL, sk.x25519_sk, X25519_SECRETKEYBYTES);
-    if (!pkey) {
-        ret = PQ_ERROR_DECAPSULATE;
-        goto cleanup;
-    }
-    if (EVP_PKEY_get_raw_public_key(pkey, recipient_x25519_pk, &pklen) <= 0 ||
-        pklen != X25519_PUBLICKEYBYTES) {
+    if (PQCLEAN_MLKEM768_CLEAN_crypto_kem_dec(mlkem_ss, ct.mlkem_ct, expanded.mlkem_sk) != 0) {
         ret = PQ_ERROR_DECAPSULATE;
         goto cleanup;
     }
 
-    ret = xwing_combiner(shared_secret, mlkem_ss, x25519_ss, ct.x25519_ephemeral,
-                         recipient_x25519_pk);
+    ret = x25519_shared_secret(x25519_ss, ct.x25519_ephemeral, expanded.x25519_sk);
+    if (ret != PQ_SUCCESS) {
+        ret = PQ_ERROR_DECAPSULATE;
+        goto cleanup;
+    }
+
+    ret =
+        xwing_combiner(shared_secret, mlkem_ss, x25519_ss, ct.x25519_ephemeral, expanded.x25519_pk);
 
 cleanup:
-    if (pkey)
-        EVP_PKEY_free(pkey);
-    pq_secure_wipe(recipient_x25519_pk, sizeof(recipient_x25519_pk));
     pq_secure_wipe(mlkem_ss, sizeof(mlkem_ss));
     pq_secure_wipe(x25519_ss, sizeof(x25519_ss));
-    pq_secure_wipe(&ct, sizeof(ct));
-    pq_secure_wipe(&sk, sizeof(sk));
+    pq_secure_wipe(&expanded, sizeof(expanded));
     return ret;
 }
 
@@ -429,8 +490,7 @@ cleanup:
 
 static const char PQC_OID_ML_KEM_768[] = "2.25.186599352125448088867056807454444238446";
 
-static const char PQC_OID_ML_KEM_768_X25519_XWING[] =
-    "2.25.318532651283923671095712569430174917109";
+static const char PQC_OID_ML_KEM_768_X25519_XWING[] = "1.3.6.1.4.1.62253.25722";
 static const char PQC_OID_ML_DSA_65[] = "2.25.305232938483772195555080795650659207792";
 static const char PQC_PUBLIC_KEY_PEM_LABEL[] = "PQC PUBLIC KEY CONTAINER";
 static const char PQC_PRIVATE_KEY_PEM_LABEL[] = "PQC PRIVATE KEY CONTAINER";

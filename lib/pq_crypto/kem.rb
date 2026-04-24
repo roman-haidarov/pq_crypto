@@ -184,11 +184,11 @@ module PQCrypto
       alias eql? ==
 
       def hash
-        fingerprint.hash
+        object_id.hash
       end
 
-      def fingerprint
-        Digest::SHA256.digest(@bytes)
+      def inspect
+        "#<#{self.class}:0x#{object_id.to_s(16)} algorithm=#{algorithm.inspect}>"
       end
 
       private
@@ -205,6 +205,10 @@ module PQCrypto
       def initialize(ciphertext, shared_secret)
         @ciphertext = String(ciphertext).b
         @shared_secret = String(shared_secret).b
+      end
+
+      def inspect
+        "#<#{self.class}:0x#{object_id.to_s(16)} ciphertext_bytes=#{@ciphertext.bytesize} shared_secret_bytes=#{@shared_secret.bytesize}>"
       end
     end
   end

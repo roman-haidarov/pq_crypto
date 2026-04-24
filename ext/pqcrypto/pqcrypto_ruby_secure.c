@@ -8,6 +8,10 @@
 
 #include "pqcrypto_secure.h"
 
+#ifndef RB_NOGVL_OFFLOAD_SAFE
+#define RB_NOGVL_OFFLOAD_SAFE 0
+#endif
+
 typedef struct {
     int result;
     uint8_t *public_key;

@@ -43,6 +43,9 @@ result = hybrid.public_key.encapsulate
 shared_secret = hybrid.secret_key.decapsulate(result.ciphertext)
 ```
 
+The raw X-Wing secret key exported by this API is the draft-10 32-byte
+decapsulation seed, not the expanded ML-KEM/X25519 private material.
+
 The hybrid mode follows `draft-connolly-cfrg-xwing-kem`. See
 `SECURITY.md` for audit status.
 

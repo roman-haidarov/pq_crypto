@@ -3,7 +3,7 @@
 
 require "mkmf"
 
-$CFLAGS << " -std=c99 -Wall -Wextra -O2"
+$CFLAGS << " -std=c11 -Wall -Wextra -O2"
 $CFLAGS << " -fstack-protector-strong -D_FORTIFY_SOURCE=2"
 VENDOR_ONLY_CFLAGS = "-Wno-unused-parameter -Wno-unused-function -Wno-strict-prototypes -Wno-pedantic -Wno-c23-extensions -Wno-undef"
 
@@ -15,6 +15,7 @@ SANITIZE = ENV["PQCRYPTO_SANITIZE"]
 
 if SANITIZE && !SANITIZE.strip.empty?
   sanitize = SANITIZE.strip
+  $CFLAGS.gsub!(/\s-D_FORTIFY_SOURCE=\d+/, "")
   $CFLAGS << " -O1 -g -fno-omit-frame-pointer -fsanitize=#{sanitize}"
   $LDFLAGS << " -fsanitize=#{sanitize}"
 end
@@ -71,6 +72,15 @@ def configure_openssl!
     }
   SRC
   abort "OpenSSL SHA3-256 is required (X-Wing combiner)" unless try_compile(sha3_check)
+
+  shake_check = <<~SRC
+    #include <openssl/evp.h>
+    int main(void) {
+        const EVP_MD *md = EVP_shake256();
+        return md == NULL ? 1 : 0;
+    }
+  SRC
+  abort "OpenSSL SHAKE256 is required (X-Wing key expansion)" unless try_compile(shake_check)
 
   $CFLAGS << " -DHAVE_OPENSSL_EVP_H -DHAVE_OPENSSL_RAND_H"
 end
