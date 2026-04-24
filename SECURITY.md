@@ -2,7 +2,7 @@
 
 ## Scope of the public API
 
-`pq_crypto` 0.3.0 exposes a primitive-first public surface:
+`pq_crypto` exposes a primitive-first public surface:
 
 - `PQCrypto::KEM` (`ML-KEM-768`)
 - `PQCrypto::Signature` (`ML-DSA-65`)
@@ -29,23 +29,25 @@ gem.
 ### HybridKEM
 
 `PQCrypto::HybridKEM` implements the **X-Wing** construction from
-[`draft-connolly-cfrg-xwing-kem`](https://datatracker.ietf.org/doc/draft-connolly-cfrg-xwing-kem/):
+[`draft-connolly-cfrg-xwing-kem-10`](https://datatracker.ietf.org/doc/draft-connolly-cfrg-xwing-kem/).
 
-    ss = SHA3-256( XWingLabel || ss_M || ss_X || ct_X || pk_X )
+The X-Wing secret decapsulation key is a 32-byte seed. It is expanded
+with SHAKE256 into the ML-KEM-768 and X25519 private material used
+internally for decapsulation. The public key and ciphertext are the
+fixed-length concatenations specified by the draft.
 
-where `XWingLabel = "\.//^\"` (6 ASCII bytes). The hybrid public key,
-secret key, and ciphertext are the byte concatenations of the ML-KEM
-and X25519 halves exactly as specified by X-Wing.
+    ss = SHA3-256( ss_M || ss_X || ct_X || pk_X || XWingLabel )
+
+where `XWingLabel = "\.//^\"` (6 ASCII bytes).
 
 X-Wing as specified has a proof of classical IND-CCA security under
 the strong Diffie-Hellman assumption for X25519 (in the ROM), and
 post-quantum IND-CCA security in the standard model assuming ML-KEM-768
 is IND-CCA secure and SHA3-256 behaves as a PRF.
 
-This gem is **not** yet part of a cross-language X-Wing interop test
-suite; wire-format claims for this release are limited to "follows the
-X-Wing draft as of version 10." External interoperability should be
-verified against the reference implementation before relying on it.
+This gem is intended to match the X-Wing draft as of version 10. External
+interoperability should still be verified against the reference
+implementation before relying on it.
 
 ### Deterministic test hooks
 
@@ -68,16 +70,16 @@ They are:
 - not real PKCS#8
 - not advertised as interoperable with OpenSSL, Go, Java, or PKI tooling
 
-The OIDs embedded in these containers are project-local UUID-derived
-OIDs under `2.25.*`. They are part of pq_crypto's own serialized
-container schema, not external interoperability identifiers.
+The `pqc_container_*` envelope itself is project-specific. ML-KEM and
+ML-DSA currently use project-local UUID-derived OIDs under `2.25.*`.
+Hybrid X-Wing uses the draft X-Wing OID `1.3.6.1.4.1.62253.25722`.
 
 The hybrid OID used by 0.2.0
-(`2.25.260242945110721168101139140490528778800`) is retired in 0.3.0
-because the combiner semantics changed (0.2.0 used an ad-hoc
-HKDF-SHA256 combiner; 0.3.0 uses X-Wing / SHA3-256). The new hybrid
-OID is `2.25.318532651283923671095712569430174917109`. A 0.2.0 hybrid
-container is rejected at decode time in 0.3.0.
+(`2.25.260242945110721168101139140490528778800`) is retired. The
+intermediate 0.3.0 project-local hybrid OID
+(`2.25.318532651283923671095712569430174917109`) is also retired in
+favor of the draft X-Wing OID. Older hybrid containers are rejected at
+decode time.
 
 ## Memory wiping
 
@@ -98,9 +100,19 @@ OpenSSL is used for:
 - `SHA3-256` (X-Wing combiner, via `EVP_sha3_256`)
 - `RAND_bytes` (production entropy source for `randombytes()`)
 - `CRYPTO_memcmp` (constant-time comparison used by `PQCrypto.ct_equals`)
-- Base64 encode/decode for PEM via the streaming `EVP_Encode*` /
-  `EVP_Decode*` API, which rejects invalid base64 rather than treating
-  it as zeros.
+- Base64 encode/decode for PEM via OpenSSL `BIO_f_base64`, with strict
+  header/footer framing and trailing-garbage checks.
+
+## Secret key display and wiping
+
+Secret key objects redact `inspect` output and intentionally do not expose
+a public `fingerprint` method. This avoids accidental logging of raw secret
+bytes or stable secret-derived identifiers.
+
+`wipe!` is best-effort only. It wipes the current Ruby string buffer held
+by the key object; it cannot guarantee erasure of copies made by Ruby,
+OpenSSL, native wrapper buffers, serialization, logging, crash dumps, or
+the garbage collector.
 
 ## Threading
 

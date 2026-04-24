@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.3.1] — 2026-04-24
+
+### Fixed — X-Wing draft-10 compatibility
+
+- Changed `:ml_kem_768_x25519_xwing` secret keys to the draft-10 32-byte
+  X-Wing decapsulation seed and derive ML-KEM/X25519 private material with
+  SHAKE256 during key generation and decapsulation.
+- Corrected the X-Wing combiner transcript to
+  `ss = SHA3-256( ss_M || ss_X || ct_X || pk_X || XWingLabel )`.
+- Updated the hybrid serialization OID to the X-Wing draft OID
+  `1.3.6.1.4.1.62253.25722`.
+- Redacted key `inspect` output, removed public secret-key fingerprints,
+  improved native extension load diagnostics, switched the extension build
+  flag to C11, and aligned docs with the implementation.
+
 ## [0.3.0] — 2026-04-24
 
 **Breaking release.** Hybrid KEM keys, ciphertexts, and `pqc_container_*`
@@ -9,17 +24,14 @@ and ML-DSA-65 material is unaffected.
 ### Changed — hybrid KEM (breaking)
 
 - Replaced the 0.2.0 ad-hoc `HKDF-SHA256`-with-double-transcript combiner
-  with the **X-Wing** construction from
-  [draft-connolly-cfrg-xwing-kem](https://datatracker.ietf.org/doc/draft-connolly-cfrg-xwing-kem/):
-  `ss = SHA3-256( XWingLabel || ss_M || ss_X || ct_X || pk_X )`, where
-  `XWingLabel` is the 6-byte ASCII string `\.//^\`.
+  with a SHA3-256 X-Wing-inspired combiner. This was later corrected in
+  `0.3.1` to match draft-10 transcript order and 32-byte secret keys.
 - Renamed the hybrid algorithm symbol
   `:ml_kem_768_x25519_hkdf_sha256` → `:ml_kem_768_x25519_xwing`.
 - Retired the 0.2.0 project-local hybrid OID
-  (`2.25.260242945110721168101139140490528778800`). The new OID
-  (`2.25.318532651283923671095712569430174917109`) identifies the X-Wing
-  combiner. `pqc_container_*` blobs carry the new OID; decoding a 0.2.0
-  hybrid container now fails fast with `SerializationError`.
+  (`2.25.260242945110721168101139140490528778800`). 0.3.0 used
+  `2.25.318532651283923671095712569430174917109`; this was later replaced
+  in `0.3.1` by the X-Wing draft OID.
 
 ### Changed — native code hygiene
 
@@ -39,9 +51,8 @@ and ML-DSA-65 material is unaffected.
   `hybrid_public_key_t`, `hybrid_secret_key_t`, and
   `hybrid_ciphertext_t` so any future change that introduces padding
   fails at compile time rather than silently shifting byte offsets.
-- Migrated PEM codec from `EVP_EncodeBlock` / `EVP_DecodeBlock` to the
-  streaming `EVP_EncodeUpdate` / `EVP_DecodeUpdate` API, which rejects
-  invalid base64 characters rather than treating them as zeros.
+- Migrated PEM codec to OpenSSL `BIO_f_base64` with stricter PEM
+  header/footer framing and trailing-garbage checks.
 - Deleted the entire internal HKDF and SHA-256 helper paths that 0.2.0
   used for its combiner; the X-Wing combiner is a single SHA3-256
   invocation through `EVP_DigestUpdate`.
@@ -61,9 +72,9 @@ and ML-DSA-65 material is unaffected.
   `CRYPTO_memcmp` through a new `PQCrypto.ct_equals` native helper, so
   key equality checks no longer leak timing information about a
   prefix-match.
-- `SecretKey#hash` (and `PublicKey#hash` for symmetry) now hash a
-  SHA-256 fingerprint of the bytes instead of the raw bytes, and a
-  public `#fingerprint` method is exposed.
+- `PublicKey#hash` and `SecretKey#hash` now hash a SHA-256 fingerprint
+  of the bytes instead of the raw bytes. The public secret-key fingerprint
+  method is removed in `0.3.1` to reduce accidental logging risk.
 - Native entrypoints and their `native_*` aliases are installed once via
   the new `PQCrypto::NativeBindings` module instead of the ad-hoc
   `unless method_defined?` guards on the singleton.
@@ -72,7 +83,8 @@ and ML-DSA-65 material is unaffected.
 
 ### Changed — packaging
 
-- `required_ruby_version` from `">= 3.4.0.a"` to `">= 3.4"`.
+- Intended to change `required_ruby_version` from `">= 3.4.0.a"` to
+  `">= 3.4"`; the gemspec is aligned in `0.3.1`.
 - Version bumped to `0.3.0`.
 - `VerificationError` class is still defined (and still raised by
   `verify!`) for backward compatibility, but the native `verify`

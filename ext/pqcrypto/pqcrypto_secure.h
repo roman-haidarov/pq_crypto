@@ -23,9 +23,11 @@
 #define X25519_PUBLICKEYBYTES    32
 #define X25519_SECRETKEYBYTES    32
 #define X25519_SHAREDSECRETBYTES 32
+#define XWING_SEEDBYTES          32
+#define XWING_EXPANDEDBYTES      96
 
 #define HYBRID_PUBLICKEYBYTES    (MLKEM_PUBLICKEYBYTES + X25519_PUBLICKEYBYTES)
-#define HYBRID_SECRETKEYBYTES    (MLKEM_SECRETKEYBYTES + X25519_SECRETKEYBYTES)
+#define HYBRID_SECRETKEYBYTES    XWING_SEEDBYTES
 #define HYBRID_CIPHERTEXTBYTES   (MLKEM_CIPHERTEXTBYTES + X25519_PUBLICKEYBYTES)
 #define HYBRID_SHAREDSECRETBYTES 32
 
@@ -49,9 +51,15 @@ typedef struct {
 } hybrid_public_key_t;
 
 typedef struct {
+    uint8_t seed[XWING_SEEDBYTES];
+} hybrid_secret_key_t;
+
+typedef struct {
     uint8_t mlkem_sk[MLKEM_SECRETKEYBYTES];
     uint8_t x25519_sk[X25519_SECRETKEYBYTES];
-} hybrid_secret_key_t;
+    uint8_t mlkem_pk[MLKEM_PUBLICKEYBYTES];
+    uint8_t x25519_pk[X25519_PUBLICKEYBYTES];
+} hybrid_expanded_secret_key_t;
 
 typedef struct {
     uint8_t mlkem_ct[MLKEM_CIPHERTEXTBYTES];

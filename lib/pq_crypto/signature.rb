@@ -188,11 +188,11 @@ module PQCrypto
       alias eql? ==
 
       def hash
-        fingerprint.hash
+        object_id.hash
       end
 
-      def fingerprint
-        Digest::SHA256.digest(@bytes)
+      def inspect
+        "#<#{self.class}:0x#{object_id.to_s(16)} algorithm=#{algorithm.inspect}>"
       end
 
       private

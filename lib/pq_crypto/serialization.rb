@@ -9,7 +9,7 @@ module PQCrypto
       }.freeze,
       ml_kem_768_x25519_xwing: {
         family: :ml_kem_hybrid,
-        oid: "2.25.318532651283923671095712569430174917109",
+        oid: "1.3.6.1.4.1.62253.25722",
       }.freeze,
       ml_dsa_65: {
         family: :ml_dsa,
