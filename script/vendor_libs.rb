@@ -120,7 +120,6 @@ end
 def verify_checksum!(archive, expected_sha256)
   actual = Digest::SHA256.file(archive).hexdigest
   abort "SHA256 mismatch: expected #{expected_sha256}, got #{actual}" unless actual == expected_sha256
-
   actual
 end
 

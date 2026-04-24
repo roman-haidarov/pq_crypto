@@ -15,9 +15,9 @@ class TestPQCryptoPrimitiveAPI < Minitest::Test
   end
 
   def test_hybrid_kem_details
-    details = PQCrypto::HybridKEM.details(:ml_kem_768_x25519_hkdf_sha256)
+    details = PQCrypto::HybridKEM.details(:ml_kem_768_x25519_xwing)
 
-    assert_equal :ml_kem_768_x25519_hkdf_sha256, details[:name]
+    assert_equal :ml_kem_768_x25519_xwing, details[:name]
     assert_equal :ml_kem_hybrid, details[:family]
     assert_equal PQCrypto::HYBRID_KEM_PUBLIC_KEY_BYTES, details[:public_key_bytes]
     assert_equal PQCrypto::HYBRID_KEM_SECRET_KEY_BYTES, details[:secret_key_bytes]
@@ -45,7 +45,7 @@ class TestPQCryptoPrimitiveAPI < Minitest::Test
   end
 
   def test_hybrid_kem_roundtrip_with_typed_api
-    keypair = PQCrypto::HybridKEM.generate(:ml_kem_768_x25519_hkdf_sha256)
+    keypair = PQCrypto::HybridKEM.generate(:ml_kem_768_x25519_xwing)
     result = keypair.public_key.encapsulate
     shared_secret = keypair.secret_key.decapsulate(result.ciphertext)
 
@@ -72,9 +72,9 @@ class TestPQCryptoPrimitiveAPI < Minitest::Test
   end
 
   def test_hybrid_kem_import_export_raw_bytes
-    keypair = PQCrypto::HybridKEM.generate(:ml_kem_768_x25519_hkdf_sha256)
-    imported_pub = PQCrypto::HybridKEM.public_key_from_bytes(:ml_kem_768_x25519_hkdf_sha256, keypair.public_key.to_bytes)
-    imported_sec = PQCrypto::HybridKEM.secret_key_from_bytes(:ml_kem_768_x25519_hkdf_sha256, keypair.secret_key.to_bytes)
+    keypair = PQCrypto::HybridKEM.generate(:ml_kem_768_x25519_xwing)
+    imported_pub = PQCrypto::HybridKEM.public_key_from_bytes(:ml_kem_768_x25519_xwing, keypair.public_key.to_bytes)
+    imported_sec = PQCrypto::HybridKEM.secret_key_from_bytes(:ml_kem_768_x25519_xwing, keypair.secret_key.to_bytes)
     result = imported_pub.encapsulate
 
     assert_equal result.shared_secret, imported_sec.decapsulate(result.ciphertext)
@@ -101,7 +101,7 @@ class TestPQCryptoPrimitiveAPI < Minitest::Test
   end
 
   def test_hybrid_kem_pqc_container_roundtrip
-    keypair = PQCrypto::HybridKEM.generate(:ml_kem_768_x25519_hkdf_sha256)
+    keypair = PQCrypto::HybridKEM.generate(:ml_kem_768_x25519_xwing)
     pub_der = keypair.public_key.to_pqc_container_der
     sec_der = keypair.secret_key.to_pqc_container_der
     imported_pub = PQCrypto::HybridKEM.public_key_from_pqc_container_der(pub_der)
@@ -134,7 +134,7 @@ class TestPQCryptoPrimitiveAPI < Minitest::Test
 
   def test_details_expose_family_and_oid
     kem = PQCrypto::KEM.details(:ml_kem_768)
-    hybrid = PQCrypto::HybridKEM.details(:ml_kem_768_x25519_hkdf_sha256)
+    hybrid = PQCrypto::HybridKEM.details(:ml_kem_768_x25519_xwing)
     sig = PQCrypto::Signature.details(:ml_dsa_65)
 
     assert_equal :ml_kem, kem[:family]

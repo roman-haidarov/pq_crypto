@@ -7,9 +7,9 @@ module PQCrypto
         family: :ml_kem,
         oid: "2.25.186599352125448088867056807454444238446",
       }.freeze,
-      ml_kem_768_x25519_hkdf_sha256: {
+      ml_kem_768_x25519_xwing: {
         family: :ml_kem_hybrid,
-        oid: "2.25.260242945110721168101139140490528778800",
+        oid: "2.25.318532651283923671095712569430174917109",
       }.freeze,
       ml_dsa_65: {
         family: :ml_dsa,

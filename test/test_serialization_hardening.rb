@@ -78,7 +78,7 @@ class TestPQCryptoSerializationHardening < Minitest::Test
   end
 
   def test_rejects_pem_with_embedded_nul_in_body
-    keypair = PQCrypto::HybridKEM.generate(:ml_kem_768_x25519_hkdf_sha256)
+    keypair = PQCrypto::HybridKEM.generate(:ml_kem_768_x25519_xwing)
     pem = keypair.public_key.to_pqc_container_pem.sub("\n-----END", "\0\n-----END")
 
     assert_raises(PQCrypto::SerializationError) do

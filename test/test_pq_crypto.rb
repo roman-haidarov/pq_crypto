@@ -4,8 +4,8 @@ require_relative "test_helper"
 
 class TestPQCrypto < Minitest::Test
   def test_version_constant
-    assert_equal "0.2.0", PQCrypto::VERSION
-    assert_equal "0.2.0", PQCrypto.version
+    assert_equal "0.3.0", PQCrypto::VERSION
+    assert_equal "0.3.0", PQCrypto.version
   end
 
   def test_backend_is_native_pqclean
@@ -15,7 +15,7 @@ class TestPQCrypto < Minitest::Test
 
   def test_supported_algorithm_lists
     assert_equal [:ml_kem_768], PQCrypto.supported_kems
-    assert_equal [:ml_kem_768_x25519_hkdf_sha256], PQCrypto.supported_hybrid_kems
+    assert_equal [:ml_kem_768_x25519_xwing], PQCrypto.supported_hybrid_kems
     assert_equal [:ml_dsa_65], PQCrypto.supported_signatures
   end
 

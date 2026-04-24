@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "digest"
+
 module PQCrypto
   module KEM
     CANONICAL_ALGORITHM = :ml_kem_768
@@ -120,13 +122,18 @@ module PQCrypto
       end
 
       def ==(other)
-        other.is_a?(PublicKey) && other.algorithm == algorithm && other.to_bytes == @bytes
+        return false unless other.is_a?(PublicKey) && other.algorithm == algorithm
+        PQCrypto.__send__(:native_ct_equals, other.to_bytes, @bytes)
       end
 
       alias eql? ==
 
       def hash
-        [self.class, algorithm, @bytes].hash
+        fingerprint.hash
+      end
+
+      def fingerprint
+        Digest::SHA256.digest(@bytes)
       end
 
       private
@@ -170,13 +177,18 @@ module PQCrypto
       end
 
       def ==(other)
-        other.is_a?(SecretKey) && other.algorithm == algorithm && other.to_bytes == @bytes
+        return false unless other.is_a?(SecretKey) && other.algorithm == algorithm
+        PQCrypto.__send__(:native_ct_equals, other.to_bytes, @bytes)
       end
 
       alias eql? ==
 
       def hash
-        [self.class, algorithm, @bytes].hash
+        fingerprint.hash
+      end
+
+      def fingerprint
+        Digest::SHA256.digest(@bytes)
       end
 
       private

@@ -5,8 +5,7 @@ require "mkmf"
 
 $CFLAGS << " -std=c99 -Wall -Wextra -O2"
 $CFLAGS << " -fstack-protector-strong -D_FORTIFY_SOURCE=2"
-$CFLAGS << " -Wno-c23-extensions -Wno-strict-prototypes -Wno-pedantic"
-$CFLAGS << " -Wno-unused-parameter -Wno-unused-function"
+VENDOR_ONLY_CFLAGS = "-Wno-unused-parameter -Wno-unused-function -Wno-strict-prototypes -Wno-pedantic -Wno-c23-extensions -Wno-undef"
 
 $LDFLAGS << " -Wl,-no_warn_duplicate_libraries" if RbConfig::CONFIG["host_os"] =~ /darwin/
 
@@ -52,7 +51,7 @@ def configure_openssl!
   abort "OpenSSL libssl is required" unless have_library("ssl")
   abort "openssl/evp.h is required" unless have_header("openssl/evp.h")
   abort "openssl/rand.h is required" unless have_header("openssl/rand.h")
-  abort "openssl/kdf.h is required" unless have_header("openssl/kdf.h")
+  abort "openssl/crypto.h is required" unless have_header("openssl/crypto.h")
 
   version_check = <<~SRC
     #include <openssl/opensslv.h>
@@ -64,7 +63,16 @@ def configure_openssl!
 
   abort "OpenSSL 3.0 or later is required" unless try_compile(version_check)
 
-  $CFLAGS << " -DHAVE_OPENSSL_EVP_H -DHAVE_OPENSSL_RAND_H -DHAVE_OPENSSL_KDF_H"
+  sha3_check = <<~SRC
+    #include <openssl/evp.h>
+    int main(void) {
+        const EVP_MD *md = EVP_sha3_256();
+        return md == NULL ? 1 : 0;
+    }
+  SRC
+  abort "OpenSSL SHA3-256 is required (X-Wing combiner)" unless try_compile(sha3_check)
+
+  $CFLAGS << " -DHAVE_OPENSSL_EVP_H -DHAVE_OPENSSL_RAND_H"
 end
 
 def configure_pqclean(vendor_dir)
@@ -82,7 +90,7 @@ def configure_pqclean(vendor_dir)
 
   mlkem_sources = Dir.glob(File.join(mlkem_dir, "*.c")).sort
   mldsa_sources = Dir.glob(File.join(mldsa_dir, "*.c")).sort
-  common_sources = %w[fips202.c sha2.c sp800-185.c randombytes.c].map { |name| File.join(common_dir, name) }
+  common_sources = %w[fips202.c sha2.c sp800-185.c].map { |name| File.join(common_dir, name) }
 
   source_groups = [
     ["pqclean_mlkem", mlkem_sources],
@@ -92,7 +100,7 @@ def configure_pqclean(vendor_dir)
 
   return nil unless source_groups.all? { |_, sources| sources.all? { |path| File.exist?(path) } }
 
-  $CFLAGS << " -DHAVE_PQCLEAN -Wno-undef"
+  $CFLAGS << " -DHAVE_PQCLEAN"
   include_dirs.each { |dir| $CPPFLAGS << " -I#{dir}" }
 
   {
@@ -117,7 +125,7 @@ def inject_pqclean_sources!(pqclean_config)
       build_rules << <<~RULE
         #{object}: #{source}
         	$(ECHO) compiling #{source}
-        	$(Q) $(CC) $(INCFLAGS) $(CPPFLAGS) $(CFLAGS) $(COUTFLAG)$@ -c $(CSRCFLAG)$<
+        	$(Q) $(CC) $(INCFLAGS) $(CPPFLAGS) $(CFLAGS) #{VENDOR_ONLY_CFLAGS} $(COUTFLAG)$@ -c $(CSRCFLAG)$<
       RULE
     end
   end
@@ -138,9 +146,6 @@ def inject_pqclean_sources!(pqclean_config)
   File.write("Makefile", makefile)
 end
 
-have_func("getrandom", "sys/random.h")
-have_func("arc4random_buf", "stdlib.h")
-
 vendor_dir = USE_SYSTEM ? nil : find_vendor_dir
 
 puts
@@ -149,7 +154,7 @@ configure_openssl!
 pqclean_config = configure_pqclean(vendor_dir)
 puts "OpenSSL: system"
 abort "PQClean vendored sources are required. Run: bundle exec rake vendor" unless pqclean_config
-puts "PQClean: vendored"
+puts "PQClean: vendored (randombytes overridden by pq_randombytes.c)"
 puts "Output: pqcrypto/pqcrypto_secure"
 puts "===================================="
 

@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "digest"
+
 module PQCrypto
   module Signature
     CANONICAL_ALGORITHM = :ml_dsa_65
@@ -18,47 +20,47 @@ module PQCrypto
 
     class << self
       def generate(algorithm = CANONICAL_ALGORITHM)
-        validate_algorithm!(algorithm)
+        resolve_algorithm!(algorithm)
         public_key, secret_key = PQCrypto.__send__(:native_sign_keypair)
         Keypair.new(PublicKey.new(algorithm, public_key), SecretKey.new(algorithm, secret_key))
       end
 
       def public_key_from_bytes(algorithm, bytes)
-        validate_algorithm!(algorithm)
+        resolve_algorithm!(algorithm)
         PublicKey.new(algorithm, bytes)
       end
 
       def secret_key_from_bytes(algorithm, bytes)
-        validate_algorithm!(algorithm)
+        resolve_algorithm!(algorithm)
         SecretKey.new(algorithm, bytes)
       end
 
       def public_key_from_pqc_container_der(der, algorithm = nil)
         resolved_algorithm, bytes = Serialization.public_key_from_pqc_container_der(algorithm, der)
-        validate_algorithm!(resolved_algorithm)
+        resolve_algorithm!(resolved_algorithm)
         PublicKey.new(resolved_algorithm, bytes)
       end
 
       def public_key_from_pqc_container_pem(pem, algorithm = nil)
         resolved_algorithm, bytes = Serialization.public_key_from_pqc_container_pem(algorithm, pem)
-        validate_algorithm!(resolved_algorithm)
+        resolve_algorithm!(resolved_algorithm)
         PublicKey.new(resolved_algorithm, bytes)
       end
 
       def secret_key_from_pqc_container_der(der, algorithm = nil)
         resolved_algorithm, bytes = Serialization.secret_key_from_pqc_container_der(algorithm, der)
-        validate_algorithm!(resolved_algorithm)
+        resolve_algorithm!(resolved_algorithm)
         SecretKey.new(resolved_algorithm, bytes)
       end
 
       def secret_key_from_pqc_container_pem(pem, algorithm = nil)
         resolved_algorithm, bytes = Serialization.secret_key_from_pqc_container_pem(algorithm, pem)
-        validate_algorithm!(resolved_algorithm)
+        resolve_algorithm!(resolved_algorithm)
         SecretKey.new(resolved_algorithm, bytes)
       end
 
       def details(algorithm)
-        DETAILS.fetch(validate_algorithm!(algorithm)).dup
+        DETAILS.fetch(resolve_algorithm!(algorithm)).dup
       end
 
       def supported
@@ -67,7 +69,7 @@ module PQCrypto
 
       private
 
-      def validate_algorithm!(algorithm)
+      def resolve_algorithm!(algorithm)
         return algorithm if DETAILS.key?(algorithm)
 
         raise UnsupportedAlgorithmError, "Unsupported signature algorithm: #{algorithm.inspect}"
@@ -114,27 +116,28 @@ module PQCrypto
 
       def verify(message, signature)
         PQCrypto.__send__(:native_verify, String(message).b, String(signature).b, @bytes)
-      rescue PQCrypto::VerificationError
-        false
       rescue ArgumentError => e
         raise InvalidKeyError, e.message
       end
 
       def verify!(message, signature)
-        ok = verify(message, signature)
-        raise PQCrypto::VerificationError, "Verification failed" unless ok
-
+        raise PQCrypto::VerificationError, "Verification failed" unless verify(message, signature)
         true
       end
 
       def ==(other)
-        other.is_a?(PublicKey) && other.algorithm == algorithm && other.to_bytes == @bytes
+        return false unless other.is_a?(PublicKey) && other.algorithm == algorithm
+        PQCrypto.__send__(:native_ct_equals, other.to_bytes, @bytes)
       end
 
       alias eql? ==
 
       def hash
-        [self.class, algorithm, @bytes].hash
+        fingerprint.hash
+      end
+
+      def fingerprint
+        Digest::SHA256.digest(@bytes)
       end
 
       private
@@ -178,13 +181,18 @@ module PQCrypto
       end
 
       def ==(other)
-        other.is_a?(SecretKey) && other.algorithm == algorithm && other.to_bytes == @bytes
+        return false unless other.is_a?(SecretKey) && other.algorithm == algorithm
+        PQCrypto.__send__(:native_ct_equals, other.to_bytes, @bytes)
       end
 
       alias eql? ==
 
       def hash
-        [self.class, algorithm, @bytes].hash
+        fingerprint.hash
+      end
+
+      def fingerprint
+        Digest::SHA256.digest(@bytes)
       end
 
       private
