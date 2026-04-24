@@ -58,6 +58,15 @@ typedef struct {
     uint8_t x25519_ephemeral[X25519_PUBLICKEYBYTES];
 } hybrid_ciphertext_t;
 
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
+_Static_assert(sizeof(hybrid_public_key_t) == HYBRID_PUBLICKEYBYTES,
+               "hybrid_public_key_t layout must be packed");
+_Static_assert(sizeof(hybrid_secret_key_t) == HYBRID_SECRETKEYBYTES,
+               "hybrid_secret_key_t layout must be packed");
+_Static_assert(sizeof(hybrid_ciphertext_t) == HYBRID_CIPHERTEXTBYTES,
+               "hybrid_ciphertext_t layout must be packed");
+#endif
+
 void pq_secure_wipe(void *ptr, size_t len);
 
 int pq_mlkem_keypair(uint8_t *public_key, uint8_t *secret_key);
@@ -96,8 +105,6 @@ int pq_secret_key_from_pqc_container_pem(char **algorithm_out, uint8_t **key_out
                                           size_t *key_len_out, const char *input,
                                           size_t input_len);
 
-
-/* Test-only deterministic hooks for regression harness. */
 int pq_testing_mlkem_keypair_from_seed(uint8_t *public_key, uint8_t *secret_key,
                                        const uint8_t *seed, size_t seed_len);
 int pq_testing_mlkem_encapsulate_from_seed(uint8_t *ciphertext, uint8_t *shared_secret,
@@ -109,6 +116,10 @@ int pq_testing_mldsa_sign_from_seed(uint8_t *signature, size_t *signature_len,
                                     const uint8_t *message, size_t message_len,
                                     const uint8_t *secret_key, const uint8_t *seed,
                                     size_t seed_len);
+
+void pq_testing_set_seed(const uint8_t *seed, size_t len);
+void pq_testing_clear_seed(void);
+int pq_testing_seed_active(void);
 
 const char *pq_version(void);
 

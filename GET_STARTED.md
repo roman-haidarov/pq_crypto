@@ -30,18 +30,21 @@ sig = PQCrypto::Signature.generate(:ml_dsa_65)
 
 ```ruby
 signature = sig.secret_key.sign("message")
+
+sig.public_key.verify("message", signature)
 sig.public_key.verify!("message", signature)
 ```
 
-## 6. Optional hybrid KEM
+## 6. Hybrid KEM (X-Wing)
 
 ```ruby
-hybrid = PQCrypto::HybridKEM.generate(:ml_kem_768_x25519_hkdf_sha256)
+hybrid = PQCrypto::HybridKEM.generate(:ml_kem_768_x25519_xwing)
 result = hybrid.public_key.encapsulate
 shared_secret = hybrid.secret_key.decapsulate(result.ciphertext)
 ```
 
-This hybrid mode is pq_crypto-specific and not a general interoperability format.
+The hybrid mode follows `draft-connolly-cfrg-xwing-kem`. See
+`SECURITY.md` for audit status.
 
 ## 7. Serialize a key
 
@@ -50,16 +53,20 @@ der = keypair.public_key.to_pqc_container_der
 imported = PQCrypto::KEM.public_key_from_pqc_container_der(der)
 ```
 
+`pqc_container_*` formats are pq_crypto-specific.
+
 ## 8. Inspect supported algorithms
 
 ```ruby
-PQCrypto.supported_kems
-PQCrypto.supported_hybrid_kems
-PQCrypto.supported_signatures
+PQCrypto.supported_kems           # => [:ml_kem_768]
+PQCrypto.supported_hybrid_kems    # => [:ml_kem_768_x25519_xwing]
+PQCrypto.supported_signatures     # => [:ml_dsa_65]
 ```
 
 ## 9. Practical notes
 
-- OpenSSL 3.0+ is required.
-- `pqc_container_*` formats are pq_crypto-specific.
-- `PQCrypto::Testing` exposes deterministic helpers only for regression tests.
+- OpenSSL 3.0+ with SHA3-256 is required.
+- `PQCrypto::Testing` exposes deterministic helpers only for
+  regression tests.
+- Key equality uses constant-time comparison. `#hash` returns a
+  hash derived from a SHA-256 fingerprint, not the raw bytes.

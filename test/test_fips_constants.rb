@@ -35,7 +35,7 @@ class TestFIPSConstants < Minitest::Test
 
   def test_hybrid_kem_roundtrip_stability
     10.times do
-      keypair = PQCrypto::HybridKEM.generate(:ml_kem_768_x25519_hkdf_sha256)
+      keypair = PQCrypto::HybridKEM.generate(:ml_kem_768_x25519_xwing)
       result = keypair.public_key.encapsulate
       shared_secret = keypair.secret_key.decapsulate(result.ciphertext)
       assert_equal result.shared_secret, shared_secret

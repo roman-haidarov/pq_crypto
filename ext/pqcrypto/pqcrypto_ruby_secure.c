@@ -4,6 +4,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <openssl/crypto.h>
+
 #include "pqcrypto_secure.h"
 
 typedef struct {
@@ -63,7 +65,6 @@ static VALUE ePQCryptoError;
 static VALUE ePQCryptoVerificationError;
 
 __attribute__((noreturn)) static void pq_raise_general_error(int err);
-__attribute__((noreturn)) static void pq_raise_verification_error(int err);
 
 static const char *pq_algorithm_symbol_to_cstr(VALUE algorithm) {
     ID id;
@@ -75,8 +76,8 @@ static const char *pq_algorithm_symbol_to_cstr(VALUE algorithm) {
     }
     if (id == rb_intern("ml_kem_768"))
         return "ml_kem_768";
-    if (id == rb_intern("ml_kem_768_x25519_hkdf_sha256"))
-        return "ml_kem_768_x25519_hkdf_sha256";
+    if (id == rb_intern("ml_kem_768_x25519_xwing"))
+        return "ml_kem_768_x25519_xwing";
     if (id == rb_intern("ml_dsa_65"))
         return "ml_dsa_65";
     rb_raise(rb_eArgError, "Unsupported serialization algorithm");
@@ -85,8 +86,8 @@ static const char *pq_algorithm_symbol_to_cstr(VALUE algorithm) {
 static VALUE pq_algorithm_cstr_to_symbol(const char *algorithm) {
     if (strcmp(algorithm, "ml_kem_768") == 0)
         return ID2SYM(rb_intern("ml_kem_768"));
-    if (strcmp(algorithm, "ml_kem_768_x25519_hkdf_sha256") == 0)
-        return ID2SYM(rb_intern("ml_kem_768_x25519_hkdf_sha256"));
+    if (strcmp(algorithm, "ml_kem_768_x25519_xwing") == 0)
+        return ID2SYM(rb_intern("ml_kem_768_x25519_xwing"));
     if (strcmp(algorithm, "ml_dsa_65") == 0)
         return ID2SYM(rb_intern("ml_dsa_65"));
     rb_raise(rb_eArgError, "Unsupported serialization algorithm");
@@ -460,16 +461,6 @@ __attribute__((noreturn)) static void pq_raise_general_error(int err) {
     }
 }
 
-__attribute__((noreturn)) static void pq_raise_verification_error(int err) {
-    switch (err) {
-    case PQ_ERROR_VERIFY:
-        rb_raise(ePQCryptoVerificationError, "Verification failed");
-        break;
-    default:
-        pq_raise_general_error(err);
-    }
-}
-
 static VALUE pqcrypto_ml_kem_keypair(VALUE self) {
     (void)self;
     return pq_run_kem_keypair(pq_ml_kem_keypair_nogvl, PQ_MLKEM_PUBLICKEYBYTES,
@@ -512,8 +503,8 @@ static VALUE pqcrypto__test_ml_kem_keypair_from_seed(VALUE self, VALUE seed) {
     (void)self;
     StringValue(seed);
 
-    if ((size_t)RSTRING_LEN(seed) != 32 && (size_t)RSTRING_LEN(seed) != 64) {
-        rb_raise(rb_eArgError, "Deterministic ML-KEM test seed must be 32 or 64 bytes");
+    if ((size_t)RSTRING_LEN(seed) != 64) {
+        rb_raise(rb_eArgError, "Deterministic ML-KEM test seed must be 64 bytes (FIPS 203 d||z)");
     }
 
     kem_keypair_call_t call = {0};
@@ -698,11 +689,29 @@ static VALUE pqcrypto_verify(VALUE self, VALUE message, VALUE signature, VALUE p
     pq_wipe_and_free((uint8_t *)call.public_key, public_key_len);
     pq_wipe_and_free((uint8_t *)call.signature, signature_len);
 
-    if (call.result != PQ_SUCCESS) {
-        pq_raise_verification_error(call.result);
+    if (call.result == PQ_SUCCESS) {
+        return Qtrue;
     }
+    if (call.result == PQ_ERROR_VERIFY) {
+        return Qfalse;
+    }
+    pq_raise_general_error(call.result);
+}
 
-    return Qtrue;
+static VALUE pqcrypto_ct_equals(VALUE self, VALUE a, VALUE b) {
+    (void)self;
+    StringValue(a);
+    StringValue(b);
+    if (RSTRING_LEN(a) != RSTRING_LEN(b)) {
+        return Qfalse;
+    }
+    if (RSTRING_LEN(a) == 0) {
+        return Qtrue;
+    }
+    if (CRYPTO_memcmp(RSTRING_PTR(a), RSTRING_PTR(b), (size_t)RSTRING_LEN(a)) == 0) {
+        return Qtrue;
+    }
+    return Qfalse;
 }
 
 static VALUE pqcrypto_secure_wipe(VALUE self, VALUE str) {
@@ -780,6 +789,7 @@ static VALUE pqcrypto_secret_key_from_pqc_container_pem(VALUE self, VALUE pem) {
 void Init_pqcrypto_secure(void) {
     mPQCrypto = rb_define_module("PQCrypto");
     ePQCryptoError = rb_define_class_under(mPQCrypto, "Error", rb_eStandardError);
+
     ePQCryptoVerificationError =
         rb_define_class_under(mPQCrypto, "VerificationError", ePQCryptoError);
 
@@ -801,6 +811,7 @@ void Init_pqcrypto_secure(void) {
     rb_define_module_function(mPQCrypto, "sign_keypair", pqcrypto_sign_keypair, 0);
     rb_define_module_function(mPQCrypto, "sign", pqcrypto_sign, 2);
     rb_define_module_function(mPQCrypto, "verify", pqcrypto_verify, 3);
+    rb_define_module_function(mPQCrypto, "ct_equals", pqcrypto_ct_equals, 2);
     rb_define_module_function(mPQCrypto, "secure_wipe", pqcrypto_secure_wipe, 1);
     rb_define_module_function(mPQCrypto, "version", pqcrypto_version, 0);
     rb_define_module_function(mPQCrypto, "public_key_to_pqc_container_der",

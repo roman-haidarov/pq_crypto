@@ -2,7 +2,7 @@
 
 module PQCrypto
   module HybridKEM
-    CANONICAL_ALGORITHM = :ml_kem_768_x25519_hkdf_sha256
+    CANONICAL_ALGORITHM = :ml_kem_768_x25519_xwing
 
     DETAILS = {
       CANONICAL_ALGORITHM => {
@@ -13,7 +13,7 @@ module PQCrypto
         secret_key_bytes: HYBRID_KEM_SECRET_KEY_BYTES,
         ciphertext_bytes: HYBRID_KEM_CIPHERTEXT_BYTES,
         shared_secret_bytes: HYBRID_KEM_SHARED_SECRET_BYTES,
-        description: "Hybrid KEM: ML-KEM-768 + X25519 combined via transcript-bound HKDF-SHA256.",
+        description: "Hybrid KEM: ML-KEM-768 + X25519 combined via X-Wing SHA3-256 combiner (draft-connolly-cfrg-xwing-kem).",
       }.freeze,
     }.freeze
 
