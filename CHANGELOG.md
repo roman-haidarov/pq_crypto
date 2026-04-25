@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.3.2] — 2026-04-25
+
+### Added — streaming ML-DSA for large inputs
+
+- Added `PQCrypto::Signature::SecretKey#sign_io(io, chunk_size: 1 << 20, context: "".b)`.
+- Added `PQCrypto::Signature::PublicKey#verify_io(io, signature, chunk_size: 1 << 20, context: "".b)` and `verify_io!`.
+- Implemented streaming pure ML-DSA through an internal FIPS 204 ExternalMu path. Existing one-shot `sign` / `verify` semantics are unchanged; no public `sign_mu` / `verify_mu` API is exposed.
+
+### Notes
+
+- Streaming is primarily for large IO inputs and lower peak memory pressure. It is not a HashML-DSA/prehash speed mode; CPU cost is still dominated by SHAKE/Keccak.
+- Default empty-context streaming signatures interoperate with the existing one-shot `verify(message, signature)` API. Non-empty `context:` must be supplied again during `verify_io`.
+
 ## [0.3.1] — 2026-04-24
 
 ### Fixed — X-Wing draft-10 compatibility

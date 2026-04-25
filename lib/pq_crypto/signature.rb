@@ -74,6 +74,95 @@ module PQCrypto
 
         raise UnsupportedAlgorithmError, "Unsupported signature algorithm: #{algorithm.inspect}"
       end
+
+      def _streaming_sign(secret_key, io, chunk_size, context)
+        validate_chunk_size!(chunk_size)
+        validate_context!(context)
+        validate_io!(io)
+
+        sk_bytes = secret_key.__send__(:bytes_for_native)
+        begin
+          tr = PQCrypto.__send__(:_native_mldsa_extract_tr, sk_bytes)
+        rescue ArgumentError => e
+          raise InvalidKeyError, e.message
+        end
+
+        builder = PQCrypto.__send__(:_native_mldsa_mu_builder_new, tr, context.b)
+        builder_consumed = false
+        mu = nil
+        begin
+          _drain_io_into_builder(io, builder, chunk_size)
+          mu = PQCrypto.__send__(:_native_mldsa_mu_builder_finalize, builder)
+          builder_consumed = true
+          PQCrypto.__send__(:_native_mldsa_sign_mu, mu, sk_bytes)
+        ensure
+          PQCrypto.__send__(:_native_mldsa_mu_builder_release, builder) unless builder_consumed
+          PQCrypto.secure_wipe(tr) if tr && !tr.frozen?
+          PQCrypto.secure_wipe(mu) if mu && !mu.frozen?
+        end
+      end
+
+      def _streaming_verify(public_key, io, signature, chunk_size, context)
+        validate_chunk_size!(chunk_size)
+        validate_context!(context)
+        validate_io!(io)
+
+        pk_bytes = public_key.__send__(:bytes_for_native)
+        begin
+          tr = PQCrypto.__send__(:_native_mldsa_compute_tr, pk_bytes)
+        rescue ArgumentError => e
+          raise InvalidKeyError, e.message
+        end
+
+        builder = PQCrypto.__send__(:_native_mldsa_mu_builder_new, tr, context.b)
+        builder_consumed = false
+        mu = nil
+        sig_bytes = String(signature).b
+        begin
+          _drain_io_into_builder(io, builder, chunk_size)
+          mu = PQCrypto.__send__(:_native_mldsa_mu_builder_finalize, builder)
+          builder_consumed = true
+          PQCrypto.__send__(:_native_mldsa_verify_mu, mu, sig_bytes, pk_bytes)
+        ensure
+          PQCrypto.__send__(:_native_mldsa_mu_builder_release, builder) unless builder_consumed
+
+          PQCrypto.secure_wipe(tr) if tr && !tr.frozen?
+          PQCrypto.secure_wipe(mu) if mu && !mu.frozen?
+        end
+      end
+
+      def _drain_io_into_builder(io, builder, chunk_size)
+        buffer = String.new(capacity: chunk_size).b
+        loop do
+          result = io.read(chunk_size, buffer)
+          break if result.nil?
+
+          chunk = result.equal?(buffer) ? buffer : result
+          chunk_bytes = chunk.encoding == Encoding::BINARY ? chunk : chunk.b
+          break if chunk_bytes.bytesize.zero?
+
+          PQCrypto.__send__(:_native_mldsa_mu_builder_update, builder, chunk_bytes)
+        end
+      end
+
+      def validate_io!(io)
+        unless io.respond_to?(:read)
+          raise ArgumentError, "io must respond to #read"
+        end
+      end
+
+      def validate_chunk_size!(chunk_size)
+        unless chunk_size.is_a?(Integer) && chunk_size > 0
+          raise ArgumentError, "chunk_size must be a positive Integer"
+        end
+      end
+
+      def validate_context!(context)
+        ctx = String(context).b
+        if ctx.bytesize > 255
+          raise ArgumentError, "context must be at most 255 bytes (FIPS 204)"
+        end
+      end
     end
 
     class Keypair
@@ -125,6 +214,17 @@ module PQCrypto
         true
       end
 
+      def verify_io(io, signature, chunk_size: 1 << 20, context: "".b)
+        Signature.send(:_streaming_verify, self, io, signature, chunk_size, context)
+      end
+
+      def verify_io!(io, signature, chunk_size: 1 << 20, context: "".b)
+        unless verify_io(io, signature, chunk_size: chunk_size, context: context)
+          raise PQCrypto::VerificationError, "Verification failed"
+        end
+        true
+      end
+
       def ==(other)
         return false unless other.is_a?(PublicKey) && other.algorithm == algorithm
         PQCrypto.__send__(:native_ct_equals, other.to_bytes, @bytes)
@@ -141,6 +241,10 @@ module PQCrypto
       end
 
       private
+
+      def bytes_for_native
+        @bytes
+      end
 
       def validate_length!
         expected = Signature.details(@algorithm).fetch(:public_key_bytes)
@@ -175,6 +279,10 @@ module PQCrypto
         raise InvalidKeyError, e.message
       end
 
+      def sign_io(io, chunk_size: 1 << 20, context: "".b)
+        Signature.send(:_streaming_sign, self, io, chunk_size, context)
+      end
+
       def wipe!
         PQCrypto.secure_wipe(@bytes)
         self
@@ -196,6 +304,10 @@ module PQCrypto
       end
 
       private
+
+      def bytes_for_native
+        @bytes
+      end
 
       def validate_length!
         expected = Signature.details(@algorithm).fetch(:secret_key_bytes)

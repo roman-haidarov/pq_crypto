@@ -144,6 +144,22 @@ const char *pq_version(void);
 #define PQ_MLDSA_PUBLICKEYBYTES MLDSA_PUBLICKEYBYTES
 #define PQ_MLDSA_SECRETKEYBYTES MLDSA_SECRETKEYBYTES
 #define PQ_MLDSA_BYTES          MLDSA_BYTES
+#define PQ_MLDSA_MUBYTES        64
+#define PQ_MLDSA_TRBYTES        64
+
+int pq_mldsa_extract_tr_from_secret_key(uint8_t *tr_out, const uint8_t *secret_key);
+int pq_mldsa_compute_tr_from_public_key(uint8_t *tr_out, const uint8_t *public_key);
+
+int pq_sign_mu(uint8_t *signature, size_t *signature_len,
+               const uint8_t *mu, const uint8_t *secret_key);
+int pq_verify_mu(const uint8_t *signature, size_t signature_len,
+                 const uint8_t *mu, const uint8_t *public_key);
+void *pq_mu_builder_new(void);
+int pq_mu_builder_init(void *state, const uint8_t *tr,
+                       const uint8_t *ctx, size_t ctxlen);
+int pq_mu_builder_absorb(void *state, const uint8_t *chunk, size_t chunk_len);
+int pq_mu_builder_finalize(void *state, uint8_t *mu_out);
+void pq_mu_builder_release(void *state);
 
 int pq_hybrid_kem_keypair(uint8_t *public_key, uint8_t *secret_key);
 int pq_hybrid_kem_encapsulate(uint8_t *ciphertext, uint8_t *shared_secret,

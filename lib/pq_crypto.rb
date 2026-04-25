@@ -69,6 +69,17 @@ module PQCrypto
       __test_sign_from_seed
     ].freeze
 
+    EXTERNAL_MU_METHODS = %i[
+      _native_mldsa_extract_tr
+      _native_mldsa_compute_tr
+      _native_mldsa_mu_builder_new
+      _native_mldsa_mu_builder_update
+      _native_mldsa_mu_builder_finalize
+      _native_mldsa_mu_builder_release
+      _native_mldsa_sign_mu
+      _native_mldsa_verify_mu
+    ].freeze
+
     class << PQCrypto
       NativeBindings::NATIVE_METHODS.each do |name|
         alias_name = :"native_#{name.to_s.sub(/\A__/, '')}"
@@ -78,6 +89,7 @@ module PQCrypto
 
       private(*NativeBindings::NATIVE_METHODS)
       private(*NativeBindings::NATIVE_METHODS.map { |n| :"native_#{n.to_s.sub(/\A__/, '')}" })
+      private(*NativeBindings::EXTERNAL_MU_METHODS)
     end
   end
 

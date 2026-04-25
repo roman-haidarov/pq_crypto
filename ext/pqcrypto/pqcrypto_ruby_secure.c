@@ -223,6 +223,10 @@ static void pq_wipe_and_free(uint8_t *buffer, size_t len) {
     }
 }
 
+static void pq_free_buffer(uint8_t *buffer) {
+    free(buffer);
+}
+
 static void pq_validate_bytes_argument(VALUE value, size_t expected_len, const char *what) {
     StringValue(value);
     if ((size_t)RSTRING_LEN(value) != expected_len) {
@@ -628,17 +632,17 @@ static VALUE pqcrypto__test_sign_from_seed(VALUE self, VALUE message, VALUE secr
 
     rb_thread_call_without_gvl(pq_testing_sign_nogvl, &call, NULL, NULL);
 
-    pq_wipe_and_free(call.message, call.message_len);
+    pq_free_buffer(call.message);
     pq_wipe_and_free((uint8_t *)call.secret_key, secret_key_len);
     pq_wipe_and_free((uint8_t *)call.seed, call.seed_len);
 
     if (call.result != PQ_SUCCESS) {
-        pq_wipe_and_free(call.signature, PQ_MLDSA_BYTES);
+        pq_free_buffer(call.signature);
         pq_raise_general_error(call.result);
     }
 
     VALUE result = pq_string_from_buffer(call.signature, call.signature_len);
-    pq_wipe_and_free(call.signature, PQ_MLDSA_BYTES);
+    pq_free_buffer(call.signature);
     return result;
 }
 
@@ -661,16 +665,16 @@ static VALUE pqcrypto_sign(VALUE self, VALUE message, VALUE secret_key) {
 
     rb_nogvl(pq_sign_nogvl, &call, NULL, NULL, RB_NOGVL_OFFLOAD_SAFE);
 
-    pq_wipe_and_free(call.message, call.message_len);
+    pq_free_buffer(call.message);
     pq_wipe_and_free((uint8_t *)call.secret_key, secret_key_len);
 
     if (call.result != PQ_SUCCESS) {
-        pq_wipe_and_free(call.signature, PQ_MLDSA_BYTES);
+        pq_free_buffer(call.signature);
         pq_raise_general_error(call.result);
     }
 
     VALUE result = pq_string_from_buffer(call.signature, call.signature_len);
-    free(call.signature);
+    pq_free_buffer(call.signature);
     return result;
 }
 
@@ -689,9 +693,9 @@ static VALUE pqcrypto_verify(VALUE self, VALUE message, VALUE signature, VALUE p
 
     rb_nogvl(pq_verify_nogvl, &call, NULL, NULL, RB_NOGVL_OFFLOAD_SAFE);
 
-    pq_wipe_and_free(call.message, call.message_len);
-    pq_wipe_and_free((uint8_t *)call.public_key, public_key_len);
-    pq_wipe_and_free((uint8_t *)call.signature, signature_len);
+    pq_free_buffer(call.message);
+    pq_free_buffer((uint8_t *)call.public_key);
+    pq_free_buffer((uint8_t *)call.signature);
 
     if (call.result == PQ_SUCCESS) {
         return Qtrue;
@@ -729,6 +733,282 @@ static VALUE pqcrypto_secure_wipe(VALUE self, VALUE str) {
 static VALUE pqcrypto_version(VALUE self) {
     (void)self;
     return rb_str_new_cstr(pq_version());
+}
+
+typedef struct {
+    void *builder;
+} mu_builder_wrapper_t;
+
+typedef struct {
+    int result;
+    void *builder;
+    const uint8_t *chunk;
+    size_t chunk_len;
+} mu_absorb_call_t;
+
+typedef struct {
+    int result;
+    void *builder;
+    uint8_t *mu_out;
+} mu_finalize_call_t;
+
+typedef struct {
+    int result;
+    uint8_t *signature;
+    size_t signature_len;
+    const uint8_t *mu;
+    const uint8_t *secret_key;
+} sign_mu_call_t;
+
+typedef struct {
+    int result;
+    const uint8_t *signature;
+    size_t signature_len;
+    const uint8_t *mu;
+    const uint8_t *public_key;
+} verify_mu_call_t;
+
+static void mu_builder_wrapper_free(void *ptr) {
+    mu_builder_wrapper_t *wrapper = (mu_builder_wrapper_t *)ptr;
+    if (wrapper == NULL) {
+        return;
+    }
+    if (wrapper->builder != NULL) {
+        pq_mu_builder_release(wrapper->builder);
+        wrapper->builder = NULL;
+    }
+    xfree(wrapper);
+}
+
+static size_t mu_builder_wrapper_size(const void *ptr) {
+    (void)ptr;
+    return sizeof(mu_builder_wrapper_t);
+}
+
+static const rb_data_type_t mu_builder_data_type = {
+    "PQCrypto::MLDSA::MuBuilder",
+    {NULL, mu_builder_wrapper_free, mu_builder_wrapper_size},
+    NULL,
+    NULL,
+    RUBY_TYPED_FREE_IMMEDIATELY};
+
+static mu_builder_wrapper_t *mu_builder_unwrap(VALUE obj) {
+    mu_builder_wrapper_t *wrapper;
+    TypedData_Get_Struct(obj, mu_builder_wrapper_t, &mu_builder_data_type, wrapper);
+    if (wrapper == NULL || wrapper->builder == NULL) {
+        rb_raise(ePQCryptoError, "mu builder used after release");
+    }
+    return wrapper;
+}
+
+static VALUE pqcrypto__native_mldsa_extract_tr(VALUE self, VALUE secret_key) {
+    (void)self;
+    pq_validate_bytes_argument(secret_key, PQ_MLDSA_SECRETKEYBYTES, "secret key");
+
+    uint8_t tr[PQ_MLDSA_TRBYTES];
+    int rc = pq_mldsa_extract_tr_from_secret_key(tr, (const uint8_t *)RSTRING_PTR(secret_key));
+    if (rc != PQ_SUCCESS) {
+        pq_secure_wipe(tr, sizeof(tr));
+        pq_raise_general_error(rc);
+    }
+    VALUE result = pq_string_from_buffer(tr, sizeof(tr));
+    pq_secure_wipe(tr, sizeof(tr));
+    return result;
+}
+
+static VALUE pqcrypto__native_mldsa_compute_tr(VALUE self, VALUE public_key) {
+    (void)self;
+    pq_validate_bytes_argument(public_key, PQ_MLDSA_PUBLICKEYBYTES, "public key");
+
+    uint8_t tr[PQ_MLDSA_TRBYTES];
+    int rc = pq_mldsa_compute_tr_from_public_key(tr, (const uint8_t *)RSTRING_PTR(public_key));
+    if (rc != PQ_SUCCESS) {
+        pq_raise_general_error(rc);
+    }
+    return pq_string_from_buffer(tr, sizeof(tr));
+}
+
+static VALUE pqcrypto__native_mldsa_mu_builder_new(VALUE self, VALUE tr, VALUE ctx) {
+    (void)self;
+    pq_validate_bytes_argument(tr, PQ_MLDSA_TRBYTES, "tr");
+    StringValue(ctx);
+
+    size_t ctxlen = (size_t)RSTRING_LEN(ctx);
+    if (ctxlen > 255) {
+        rb_raise(rb_eArgError, "ML-DSA context length must be <= 255 bytes");
+    }
+
+    void *builder = pq_mu_builder_new();
+    if (builder == NULL) {
+        rb_raise(rb_eNoMemError, "Memory allocation failed (mu builder)");
+    }
+
+    int rc = pq_mu_builder_init(builder, (const uint8_t *)RSTRING_PTR(tr),
+                                (const uint8_t *)RSTRING_PTR(ctx), ctxlen);
+    if (rc != PQ_SUCCESS) {
+        pq_mu_builder_release(builder);
+        pq_raise_general_error(rc);
+    }
+
+    mu_builder_wrapper_t *wrapper;
+    VALUE obj =
+        TypedData_Make_Struct(rb_cObject, mu_builder_wrapper_t, &mu_builder_data_type, wrapper);
+    wrapper->builder = builder;
+    return obj;
+}
+
+static void *pq_mu_absorb_nogvl(void *arg) {
+    mu_absorb_call_t *call = (mu_absorb_call_t *)arg;
+    call->result = pq_mu_builder_absorb(call->builder, call->chunk, call->chunk_len);
+    return NULL;
+}
+
+static VALUE pqcrypto__native_mldsa_mu_builder_update(VALUE self, VALUE builder_obj, VALUE chunk) {
+    (void)self;
+    mu_builder_wrapper_t *wrapper = mu_builder_unwrap(builder_obj);
+    StringValue(chunk);
+
+    size_t chunk_len = (size_t)RSTRING_LEN(chunk);
+    if (chunk_len == 0) {
+        return Qnil;
+    }
+
+    uint8_t *copy = pq_alloc_buffer(chunk_len);
+    memcpy(copy, RSTRING_PTR(chunk), chunk_len);
+
+    mu_absorb_call_t call = {0};
+    call.builder = wrapper->builder;
+    call.chunk = copy;
+    call.chunk_len = chunk_len;
+
+    rb_nogvl(pq_mu_absorb_nogvl, &call, NULL, NULL, RB_NOGVL_OFFLOAD_SAFE);
+    free(copy);
+
+    if (call.result != PQ_SUCCESS) {
+        pq_raise_general_error(call.result);
+    }
+    return Qnil;
+}
+
+static void *pq_mu_finalize_nogvl(void *arg) {
+    mu_finalize_call_t *call = (mu_finalize_call_t *)arg;
+    call->result = pq_mu_builder_finalize(call->builder, call->mu_out);
+    return NULL;
+}
+
+static VALUE pqcrypto__native_mldsa_mu_builder_finalize(VALUE self, VALUE builder_obj) {
+    (void)self;
+    mu_builder_wrapper_t *wrapper = mu_builder_unwrap(builder_obj);
+
+    uint8_t mu[PQ_MLDSA_MUBYTES];
+
+    mu_finalize_call_t call = {0};
+    call.builder = wrapper->builder;
+    call.mu_out = mu;
+
+    rb_nogvl(pq_mu_finalize_nogvl, &call, NULL, NULL, RB_NOGVL_OFFLOAD_SAFE);
+
+    if (call.result != PQ_SUCCESS) {
+        pq_mu_builder_release(wrapper->builder);
+    }
+    wrapper->builder = NULL;
+
+    if (call.result != PQ_SUCCESS) {
+        pq_secure_wipe(mu, sizeof(mu));
+        pq_raise_general_error(call.result);
+    }
+
+    VALUE result = pq_string_from_buffer(mu, sizeof(mu));
+    pq_secure_wipe(mu, sizeof(mu));
+    return result;
+}
+
+static VALUE pqcrypto__native_mldsa_mu_builder_release(VALUE self, VALUE builder_obj) {
+    (void)self;
+    mu_builder_wrapper_t *wrapper;
+    TypedData_Get_Struct(builder_obj, mu_builder_wrapper_t, &mu_builder_data_type, wrapper);
+    if (wrapper != NULL && wrapper->builder != NULL) {
+        pq_mu_builder_release(wrapper->builder);
+        wrapper->builder = NULL;
+    }
+    return Qnil;
+}
+
+static void *pq_sign_mu_nogvl(void *arg) {
+    sign_mu_call_t *call = (sign_mu_call_t *)arg;
+    call->result = pq_sign_mu(call->signature, &call->signature_len, call->mu, call->secret_key);
+    return NULL;
+}
+
+static VALUE pqcrypto__native_mldsa_sign_mu(VALUE self, VALUE mu, VALUE secret_key) {
+    (void)self;
+    pq_validate_bytes_argument(mu, PQ_MLDSA_MUBYTES, "mu");
+    pq_validate_bytes_argument(secret_key, PQ_MLDSA_SECRETKEYBYTES, "secret key");
+
+    sign_mu_call_t call = {0};
+    size_t secret_key_len = 0;
+    size_t mu_len = 0;
+    uint8_t *mu_copy = pq_copy_ruby_string(mu, &mu_len);
+    uint8_t *sk_copy = pq_copy_ruby_string(secret_key, &secret_key_len);
+
+    call.mu = mu_copy;
+    call.secret_key = sk_copy;
+    call.signature_len = PQ_MLDSA_BYTES;
+    call.signature = pq_alloc_buffer(PQ_MLDSA_BYTES);
+
+    rb_nogvl(pq_sign_mu_nogvl, &call, NULL, NULL, RB_NOGVL_OFFLOAD_SAFE);
+
+    pq_wipe_and_free(mu_copy, mu_len);
+    pq_wipe_and_free(sk_copy, secret_key_len);
+
+    if (call.result != PQ_SUCCESS) {
+        pq_free_buffer(call.signature);
+        pq_raise_general_error(call.result);
+    }
+
+    VALUE result = pq_string_from_buffer(call.signature, call.signature_len);
+    pq_free_buffer(call.signature);
+    return result;
+}
+
+static void *pq_verify_mu_nogvl(void *arg) {
+    verify_mu_call_t *call = (verify_mu_call_t *)arg;
+    call->result = pq_verify_mu(call->signature, call->signature_len, call->mu, call->public_key);
+    return NULL;
+}
+
+static VALUE pqcrypto__native_mldsa_verify_mu(VALUE self, VALUE mu, VALUE signature,
+                                              VALUE public_key) {
+    (void)self;
+    StringValue(signature);
+    pq_validate_bytes_argument(mu, PQ_MLDSA_MUBYTES, "mu");
+    pq_validate_bytes_argument(public_key, PQ_MLDSA_PUBLICKEYBYTES, "public key");
+
+    verify_mu_call_t call = {0};
+    size_t public_key_len = 0;
+    size_t signature_len = 0;
+    size_t mu_len = 0;
+    uint8_t *mu_copy = pq_copy_ruby_string(mu, &mu_len);
+    uint8_t *pk_copy = pq_copy_ruby_string(public_key, &public_key_len);
+    uint8_t *sig_copy = pq_copy_ruby_string(signature, &signature_len);
+
+    call.mu = mu_copy;
+    call.public_key = pk_copy;
+    call.signature = sig_copy;
+    call.signature_len = signature_len;
+
+    rb_nogvl(pq_verify_mu_nogvl, &call, NULL, NULL, RB_NOGVL_OFFLOAD_SAFE);
+    pq_wipe_and_free(mu_copy, mu_len);
+    pq_free_buffer(pk_copy);
+    pq_free_buffer(sig_copy);
+
+    if (call.result == PQ_SUCCESS) {
+        return Qtrue;
+    }
+    if (call.result == PQ_ERROR_VERIFY) {
+        return Qfalse;
+    }
+    pq_raise_general_error(call.result);
 }
 
 static void define_constants(void) {
@@ -834,6 +1114,22 @@ void Init_pqcrypto_secure(void) {
                               pqcrypto_secret_key_from_pqc_container_der, 1);
     rb_define_module_function(mPQCrypto, "secret_key_from_pqc_container_pem",
                               pqcrypto_secret_key_from_pqc_container_pem, 1);
+    rb_define_module_function(mPQCrypto, "_native_mldsa_extract_tr",
+                              pqcrypto__native_mldsa_extract_tr, 1);
+    rb_define_module_function(mPQCrypto, "_native_mldsa_compute_tr",
+                              pqcrypto__native_mldsa_compute_tr, 1);
+    rb_define_module_function(mPQCrypto, "_native_mldsa_mu_builder_new",
+                              pqcrypto__native_mldsa_mu_builder_new, 2);
+    rb_define_module_function(mPQCrypto, "_native_mldsa_mu_builder_update",
+                              pqcrypto__native_mldsa_mu_builder_update, 2);
+    rb_define_module_function(mPQCrypto, "_native_mldsa_mu_builder_finalize",
+                              pqcrypto__native_mldsa_mu_builder_finalize, 1);
+    rb_define_module_function(mPQCrypto, "_native_mldsa_mu_builder_release",
+                              pqcrypto__native_mldsa_mu_builder_release, 1);
+    rb_define_module_function(mPQCrypto, "_native_mldsa_sign_mu", pqcrypto__native_mldsa_sign_mu,
+                              2);
+    rb_define_module_function(mPQCrypto, "_native_mldsa_verify_mu",
+                              pqcrypto__native_mldsa_verify_mu, 3);
 
     define_constants();
 }
