@@ -20,6 +20,7 @@ roll-your-own where a library primitive exists.
 
 - primitive-first API only
 - no protocol/session helpers in the public surface
+- streaming ML-DSA signing/verification is available for large IO inputs
 - serialization uses pq_crypto-specific `pqc_container_*` wrappers
 - not audited
 - not yet positioned as production-ready
@@ -43,6 +44,20 @@ bundle exec rake compile
 - Ruby 3.4.x
 - a C toolchain with C11 support (for `_Static_assert` / `_Thread_local`)
 - OpenSSL **3.0 or later** with SHA3-256 and SHAKE256 available (default provider)
+
+### Build-time Keccak backend
+
+The default build uses PQClean's scalar `common/fips202.c` backend:
+
+```bash
+PQCRYPTO_KECCAK_BACKEND=clean bundle exec rake compile
+```
+
+`PQCRYPTO_KECCAK_BACKEND=xkcp` is reserved for a separately vendored,
+reviewed, `fips202.h`-compatible XKCP adapter. If requested without that
+adapter, the build aborts instead of silently falling back to `clean`.
+This avoids mixing OpenSSL EVP SHAKE state with PQClean SHAKE state and
+keeps output-byte compatibility explicit.
 
 ## Async / Fiber scheduler support
 
@@ -100,6 +115,8 @@ shared_secret = keypair.secret_key.decapsulate(result.ciphertext)
 
 ### ML-DSA-65
 
+One-shot signing keeps the existing API:
+
 ```ruby
 keypair = PQCrypto::Signature.generate(:ml_dsa_65)
 signature = keypair.secret_key.sign("hello")
@@ -107,6 +124,36 @@ signature = keypair.secret_key.sign("hello")
 keypair.public_key.verify("hello", signature)    # => true / false
 keypair.public_key.verify!("hello", signature)   # raises on mismatch
 ```
+
+For large inputs, use streaming IO so the message does not need to be
+materialized as one Ruby string:
+
+```ruby
+signature = File.open("document.bin", "rb") do |io|
+  keypair.secret_key.sign_io(io, chunk_size: 1 << 20)
+end
+
+ok = File.open("document.bin", "rb") do |io|
+  keypair.public_key.verify_io(io, signature, chunk_size: 1 << 20)
+end
+```
+
+`sign_io` / `verify_io` use pure ML-DSA with an internal FIPS 204
+ExternalMu flow. They are not HashML-DSA/prehash shortcuts and do not
+expose public `sign_mu` / `verify_mu` APIs. With the default empty
+context, streaming signatures verify with `verify(message, signature)`
+and one-shot signatures verify with `verify_io(io, signature)`.
+
+Optional context is supported and must match on verify:
+
+```ruby
+ctx = "invoice-v1".b
+signature = File.open("document.bin", "rb") { |io| keypair.secret_key.sign_io(io, context: ctx) }
+ok = File.open("document.bin", "rb") { |io| keypair.public_key.verify_io(io, signature, context: ctx) }
+```
+
+`chunk_size` must be positive. `context` is limited to 255 bytes by
+FIPS 204. `verify_io!` raises `PQCrypto::VerificationError` on mismatch.
 
 Note: `verify` returns a plain boolean for normal outcomes. `verify!`
 raises `PQCrypto::VerificationError` when the signature does not

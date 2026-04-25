@@ -35,6 +35,29 @@ sig.public_key.verify("message", signature)
 sig.public_key.verify!("message", signature)
 ```
 
+For large files, use streaming ML-DSA:
+
+```ruby
+signature = File.open("document.bin", "rb") do |io|
+  sig.secret_key.sign_io(io, chunk_size: 1 << 20)
+end
+
+ok = File.open("document.bin", "rb") do |io|
+  sig.public_key.verify_io(io, signature, chunk_size: 1 << 20)
+end
+```
+
+With an optional context:
+
+```ruby
+ctx = "document-v1".b
+signature = File.open("document.bin", "rb") { |io| sig.secret_key.sign_io(io, context: ctx) }
+ok = File.open("document.bin", "rb") { |io| sig.public_key.verify_io(io, signature, context: ctx) }
+```
+
+`sign_io` / `verify_io` are pure ML-DSA streaming helpers, not prehash
+shortcuts. `verify_io!` raises on mismatch.
+
 ## 6. Hybrid KEM (X-Wing)
 
 ```ruby

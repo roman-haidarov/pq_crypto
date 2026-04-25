@@ -11,6 +11,9 @@ $LDFLAGS << " -Wl,-no_warn_duplicate_libraries" if RbConfig::CONFIG["host_os"] =
 
 USE_SYSTEM = arg_config("--use-system-libraries") || ENV["PQCRYPTO_USE_SYSTEM_LIBRARIES"]
 
+KECCAK_BACKEND = (ENV["PQCRYPTO_KECCAK_BACKEND"] || "clean").strip.downcase
+SUPPORTED_KECCAK_BACKENDS = %w[clean xkcp].freeze
+
 SANITIZE = ENV["PQCRYPTO_SANITIZE"]
 
 if SANITIZE && !SANITIZE.strip.empty?
@@ -85,6 +88,41 @@ def configure_openssl!
   $CFLAGS << " -DHAVE_OPENSSL_EVP_H -DHAVE_OPENSSL_RAND_H"
 end
 
+def configure_keccak_backend(vendor_dir, common_dir)
+  abort "Unsupported PQCRYPTO_KECCAK_BACKEND=#{KECCAK_BACKEND.inspect}. Supported: #{SUPPORTED_KECCAK_BACKENDS.join(", ")}" unless SUPPORTED_KECCAK_BACKENDS.include?(KECCAK_BACKEND)
+
+  case KECCAK_BACKEND
+  when "clean"
+    {
+      name: "clean",
+      include_dirs: [],
+      source_group: ["pqclean_common", [File.join(common_dir, "fips202.c")]]
+    }
+  when "xkcp"
+    # The optimized backend must provide the same fips202.h-compatible API as
+    # PQClean's common/fips202.c. Do not substitute OpenSSL EVP SHAKE here: the
+    # PQClean SHAKE state layout is part of the ML-KEM/ML-DSA call graph.
+    xkcp_dir = File.join(vendor_dir, "xkcp")
+    adapter_source = File.join(xkcp_dir, "pqclean_fips202_xkcp.c")
+
+    abort <<~MSG unless File.exist?(adapter_source)
+      PQCRYPTO_KECCAK_BACKEND=xkcp was requested, but no reviewed XKCP adapter was found.
+
+      Expected:
+        #{adapter_source}
+
+      Refusing to fall back silently to the clean backend. Vendor a fips202.h-compatible
+      XKCP adapter first, then run the full SHAKE-dependent KAT/regression test matrix.
+    MSG
+
+    {
+      name: "xkcp",
+      include_dirs: [xkcp_dir],
+      source_group: ["xkcp_keccak", [adapter_source]]
+    }
+  end
+end
+
 def configure_pqclean(vendor_dir)
   return nil unless vendor_dir
 
@@ -95,17 +133,20 @@ def configure_pqclean(vendor_dir)
   mldsa_dir = File.join(pqclean_dir, "crypto_sign", "ml-dsa-65", "clean")
   common_dir = File.join(pqclean_dir, "common")
 
-  include_dirs = [mlkem_dir, mldsa_dir, common_dir]
+  keccak_config = configure_keccak_backend(vendor_dir, common_dir)
+
+  include_dirs = [mlkem_dir, mldsa_dir, common_dir, *keccak_config[:include_dirs]]
   return nil unless include_dirs.all? { |dir| Dir.exist?(dir) }
 
   mlkem_sources = Dir.glob(File.join(mlkem_dir, "*.c")).sort
   mldsa_sources = Dir.glob(File.join(mldsa_dir, "*.c")).sort
-  common_sources = %w[fips202.c sha2.c sp800-185.c].map { |name| File.join(common_dir, name) }
+  common_sources = %w[sha2.c sp800-185.c].map { |name| File.join(common_dir, name) }
 
   source_groups = [
     ["pqclean_mlkem", mlkem_sources],
     ["pqclean_mldsa", mldsa_sources],
-    ["pqclean_common", common_sources]
+    ["pqclean_common", common_sources],
+    keccak_config[:source_group]
   ]
 
   return nil unless source_groups.all? { |_, sources| sources.all? { |path| File.exist?(path) } }
@@ -115,6 +156,7 @@ def configure_pqclean(vendor_dir)
 
   {
     include_dirs: include_dirs,
+    keccak_backend: keccak_config[:name],
     source_groups: source_groups
   }
 end
@@ -165,6 +207,7 @@ pqclean_config = configure_pqclean(vendor_dir)
 puts "OpenSSL: system"
 abort "PQClean vendored sources are required. Run: bundle exec rake vendor" unless pqclean_config
 puts "PQClean: vendored (randombytes overridden by pq_randombytes.c)"
+puts "Keccak backend: #{pqclean_config[:keccak_backend]}"
 puts "Output: pqcrypto/pqcrypto_secure"
 puts "===================================="
 
