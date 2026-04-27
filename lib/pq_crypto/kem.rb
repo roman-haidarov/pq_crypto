@@ -43,6 +43,18 @@ module PQCrypto
         SecretKey.new(resolve_algorithm!(resolved_algorithm), bytes)
       end
 
+      def public_key_from_spki_der(der, algorithm: nil)
+        resolved_algorithm, bytes = SPKI.decode_der(der)
+        validate_algorithm_match!(algorithm, resolved_algorithm) if algorithm
+        PublicKey.new(resolve_algorithm!(resolved_algorithm), bytes)
+      end
+
+      def public_key_from_spki_pem(pem, algorithm: nil)
+        resolved_algorithm, bytes = SPKI.decode_pem(pem)
+        validate_algorithm_match!(algorithm, resolved_algorithm) if algorithm
+        PublicKey.new(resolve_algorithm!(resolved_algorithm), bytes)
+      end
+
       def details(algorithm)
         DETAILS.fetch(resolve_algorithm!(algorithm)).dup
       end
@@ -57,6 +69,16 @@ module PQCrypto
         return algorithm if DETAILS.key?(algorithm)
 
         raise UnsupportedAlgorithmError, "Unsupported KEM algorithm: #{algorithm.inspect}"
+      end
+
+      def validate_algorithm_match!(expected_algorithm, actual_algorithm)
+        expected = resolve_algorithm!(expected_algorithm)
+        return if expected == actual_algorithm
+
+        raise SerializationError,
+              "Expected #{expected.inspect}, got #{actual_algorithm.inspect} (SPKI key algorithm mismatch)"
+      rescue UnsupportedAlgorithmError => e
+        raise SerializationError, e.message
       end
     end
 
@@ -96,6 +118,14 @@ module PQCrypto
 
       def to_pqc_container_pem
         Serialization.public_key_to_pqc_container_pem(@algorithm, @bytes)
+      end
+
+      def to_spki_der
+        SPKI.encode_der(@algorithm, @bytes)
+      end
+
+      def to_spki_pem
+        SPKI.encode_pem(@algorithm, @bytes)
       end
 
       def encapsulate
