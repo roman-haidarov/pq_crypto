@@ -1,12 +1,10 @@
 # frozen_string_literal: true
 
-require "rbconfig"
-require_relative "pq_crypto/version"
-require_relative "pq_crypto/errors"
-
 begin
-  require "pqcrypto/pqcrypto_secure"
+  require "pqcrypto/pqcrypto_secure" # native extension first
 rescue LoadError => original_error
+  require "rbconfig"
+
   ext_dir = File.expand_path("pqcrypto", __dir__)
   extensions = [".#{RbConfig::CONFIG.fetch('DLEXT')}", ".bundle", ".so"].uniq
   search_dirs = [ext_dir, File.join(ext_dir, "pqcrypto")].uniq
@@ -30,13 +28,19 @@ rescue LoadError => original_error
   raise original_error unless loaded
 end
 
+require_relative "pq_crypto/errors"
+require_relative "pq_crypto/version"
+require_relative "pq_crypto/algorithm_registry"
 require_relative "pq_crypto/serialization"
+require_relative "pq_crypto/kem"
+require_relative "pq_crypto/signature"
+require_relative "pq_crypto/hybrid_kem"
 
 module PQCrypto
   SUITES = {
-    kem: [:ml_kem_768].freeze,
-    hybrid_kem: [:ml_kem_768_x25519_xwing].freeze,
-    signature: [:ml_dsa_65].freeze,
+    kem: AlgorithmRegistry.supported_kems,
+    hybrid_kem: AlgorithmRegistry.supported_hybrid_kems,
+    signature: AlgorithmRegistry.supported_signatures,
   }.freeze
 
   NATIVE_EXTENSION_LOADED = true
@@ -153,6 +157,3 @@ module PQCrypto
   end
 end
 
-require_relative "pq_crypto/kem"
-require_relative "pq_crypto/hybrid_kem"
-require_relative "pq_crypto/signature"

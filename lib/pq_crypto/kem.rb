@@ -6,18 +6,7 @@ module PQCrypto
   module KEM
     CANONICAL_ALGORITHM = :ml_kem_768
 
-    DETAILS = {
-      CANONICAL_ALGORITHM => {
-        name: CANONICAL_ALGORITHM,
-        family: Serialization.algorithm_to_family(CANONICAL_ALGORITHM),
-        oid: Serialization.algorithm_to_oid(CANONICAL_ALGORITHM),
-        public_key_bytes: ML_KEM_PUBLIC_KEY_BYTES,
-        secret_key_bytes: ML_KEM_SECRET_KEY_BYTES,
-        ciphertext_bytes: ML_KEM_CIPHERTEXT_BYTES,
-        shared_secret_bytes: ML_KEM_SHARED_SECRET_BYTES,
-        description: "Pure ML-KEM-768 primitive (FIPS 203).",
-      }.freeze,
-    }.freeze
+    DETAILS = AlgorithmRegistry.details_for_family(:ml_kem).freeze
 
     class << self
       def generate(algorithm = CANONICAL_ALGORITHM)

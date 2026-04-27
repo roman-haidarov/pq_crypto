@@ -6,17 +6,7 @@ module PQCrypto
   module Signature
     CANONICAL_ALGORITHM = :ml_dsa_65
 
-    DETAILS = {
-      CANONICAL_ALGORITHM => {
-        name: CANONICAL_ALGORITHM,
-        family: Serialization.algorithm_to_family(CANONICAL_ALGORITHM),
-        oid: Serialization.algorithm_to_oid(CANONICAL_ALGORITHM),
-        public_key_bytes: SIGN_PUBLIC_KEY_BYTES,
-        secret_key_bytes: SIGN_SECRET_KEY_BYTES,
-        signature_bytes: SIGN_BYTES,
-        description: "ML-DSA-65 signature primitive (FIPS 204).",
-      }.freeze,
-    }.freeze
+    DETAILS = AlgorithmRegistry.details_for_family(:ml_dsa).freeze
 
     class << self
       def generate(algorithm = CANONICAL_ALGORITHM)
