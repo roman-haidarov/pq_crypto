@@ -43,6 +43,26 @@ module PQCrypto
         SecretKey.new(resolve_algorithm!(resolved_algorithm), bytes)
       end
 
+      def secret_key_from_pkcs8_der(der)
+        algorithm, format, material = PKCS8.decode_der(der)
+        unless format == :expanded
+          raise SerializationError,
+                "Imported PKCS#8 has format #{format.inspect}; support arrives in Patch 2c"
+        end
+
+        SecretKey.new(resolve_algorithm!(algorithm), material)
+      end
+
+      def secret_key_from_pkcs8_pem(pem)
+        algorithm, format, material = PKCS8.decode_pem(pem)
+        unless format == :expanded
+          raise SerializationError,
+                "Imported PKCS#8 has format #{format.inspect}; support arrives in Patch 2c"
+        end
+
+        SecretKey.new(resolve_algorithm!(algorithm), material)
+      end
+
       def public_key_from_spki_der(der, algorithm: nil)
         resolved_algorithm, bytes = SPKI.decode_der(der)
         validate_algorithm_match!(algorithm, resolved_algorithm) if algorithm
@@ -182,6 +202,22 @@ module PQCrypto
 
       def to_pqc_container_pem
         Serialization.secret_key_to_pqc_container_pem(@algorithm, @bytes)
+      end
+
+      def to_pkcs8_der(format: :expanded)
+        unless format == :expanded
+          raise SerializationError, "PKCS#8 #{format.inspect} format requires Patch 2c"
+        end
+
+        PKCS8.encode_der(@algorithm, @bytes, format: :expanded)
+      end
+
+      def to_pkcs8_pem(format: :expanded)
+        unless format == :expanded
+          raise SerializationError, "PKCS#8 #{format.inspect} format requires Patch 2c"
+        end
+
+        PKCS8.encode_pem(@algorithm, @bytes, format: :expanded)
       end
 
       def decapsulate(ciphertext)

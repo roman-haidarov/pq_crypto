@@ -177,13 +177,9 @@ class TestPQCryptoPrimitiveAPI < Minitest::Test
   end
 
   def test_unsupported_asn1_key_aliases_are_absent
-    keypair = PQCrypto::KEM.generate(:ml_kem_768)
-    refute_respond_to keypair.secret_key, :to_pkcs8_der
-    refute_respond_to keypair.secret_key, :to_pkcs8_pem
-
-    refute_respond_to PQCrypto::KEM, :secret_key_from_pkcs8_der
-    refute_respond_to PQCrypto::KEM, :secret_key_from_pkcs8_pem
     refute_respond_to PQCrypto::HybridKEM, :public_key_from_spki_der
+    refute_respond_to PQCrypto::HybridKEM, :secret_key_from_pkcs8_der
     refute_respond_to PQCrypto::Signature, :public_key_from_spki_der
+    refute_respond_to PQCrypto::Signature, :secret_key_from_pkcs8_der
   end
 end
