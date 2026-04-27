@@ -2,20 +2,7 @@
 
 module PQCrypto
   module Serialization
-    ALGORITHM_METADATA = {
-      ml_kem_768: {
-        family: :ml_kem,
-        oid: "2.25.186599352125448088867056807454444238446",
-      }.freeze,
-      ml_kem_768_x25519_xwing: {
-        family: :ml_kem_hybrid,
-        oid: "1.3.6.1.4.1.62253.25722",
-      }.freeze,
-      ml_dsa_65: {
-        family: :ml_dsa,
-        oid: "2.25.305232938483772195555080795650659207792",
-      }.freeze,
-    }.freeze
+    ALGORITHM_METADATA = AlgorithmRegistry.legacy_metadata_view.freeze
 
     class << self
       def algorithm_metadata(algorithm)

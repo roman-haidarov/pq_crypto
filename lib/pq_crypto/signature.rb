@@ -6,22 +6,33 @@ module PQCrypto
   module Signature
     CANONICAL_ALGORITHM = :ml_dsa_65
 
-    DETAILS = {
-      CANONICAL_ALGORITHM => {
-        name: CANONICAL_ALGORITHM,
-        family: Serialization.algorithm_to_family(CANONICAL_ALGORITHM),
-        oid: Serialization.algorithm_to_oid(CANONICAL_ALGORITHM),
-        public_key_bytes: SIGN_PUBLIC_KEY_BYTES,
-        secret_key_bytes: SIGN_SECRET_KEY_BYTES,
-        signature_bytes: SIGN_BYTES,
-        description: "ML-DSA-65 signature primitive (FIPS 204).",
+    DETAILS = AlgorithmRegistry.details_for_family(:ml_dsa).freeze
+
+    NATIVE_DISPATCH = {
+      ml_dsa_44: {
+        keypair: :native_ml_dsa_44_keypair,
+        sign: :native_ml_dsa_44_sign,
+        verify: :native_ml_dsa_44_verify,
+        keypair_from_seed: :native_ml_dsa_44_keypair_from_seed,
+      }.freeze,
+      ml_dsa_65: {
+        keypair: :native_sign_keypair,
+        sign: :native_sign,
+        verify: :native_verify,
+        keypair_from_seed: :native_ml_dsa_keypair_from_seed,
+      }.freeze,
+      ml_dsa_87: {
+        keypair: :native_ml_dsa_87_keypair,
+        sign: :native_ml_dsa_87_sign,
+        verify: :native_ml_dsa_87_verify,
+        keypair_from_seed: :native_ml_dsa_87_keypair_from_seed,
       }.freeze,
     }.freeze
 
     class << self
       def generate(algorithm = CANONICAL_ALGORITHM)
-        resolve_algorithm!(algorithm)
-        public_key, secret_key = PQCrypto.__send__(:native_sign_keypair)
+        algorithm = resolve_algorithm!(algorithm)
+        public_key, secret_key = PQCrypto.__send__(native_method_for(algorithm, :keypair))
         Keypair.new(PublicKey.new(algorithm, public_key), SecretKey.new(algorithm, secret_key))
       end
 
@@ -59,6 +70,26 @@ module PQCrypto
         SecretKey.new(resolved_algorithm, bytes)
       end
 
+      def public_key_from_spki_der(der, algorithm: nil)
+        resolved_algorithm, bytes = SPKI.decode_der(der)
+        validate_algorithm_match!(algorithm, resolved_algorithm) if algorithm
+        PublicKey.new(resolve_algorithm!(resolved_algorithm), bytes)
+      end
+
+      def public_key_from_spki_pem(pem, algorithm: nil)
+        resolved_algorithm, bytes = SPKI.decode_pem(pem)
+        validate_algorithm_match!(algorithm, resolved_algorithm) if algorithm
+        PublicKey.new(resolve_algorithm!(resolved_algorithm), bytes)
+      end
+
+      def secret_key_from_pkcs8_der(der)
+        secret_key_from_decoded_pkcs8(*PKCS8.decode_der(der))
+      end
+
+      def secret_key_from_pkcs8_pem(pem)
+        secret_key_from_decoded_pkcs8(*PKCS8.decode_pem(pem))
+      end
+
       def details(algorithm)
         DETAILS.fetch(resolve_algorithm!(algorithm)).dup
       end
@@ -73,6 +104,39 @@ module PQCrypto
         return algorithm if DETAILS.key?(algorithm)
 
         raise UnsupportedAlgorithmError, "Unsupported signature algorithm: #{algorithm.inspect}"
+      end
+
+      def secret_key_from_decoded_pkcs8(algorithm, format, material)
+        algorithm = resolve_algorithm!(algorithm)
+
+        case format
+        when :expanded
+          SecretKey.new(algorithm, material)
+        when :seed
+          _public_key, expanded = PQCrypto.__send__(native_method_for(algorithm, :keypair_from_seed), material)
+          SecretKey.new(algorithm, expanded)
+        when :both
+          _seed, expanded = material
+          SecretKey.new(algorithm, expanded)
+        else
+          raise SerializationError, "Unsupported ML-DSA PKCS#8 private key format: #{format.inspect}"
+        end
+      rescue ArgumentError => e
+        raise InvalidKeyError, e.message
+      end
+
+      def native_method_for(algorithm, operation)
+        NATIVE_DISPATCH.fetch(resolve_algorithm!(algorithm)).fetch(operation)
+      end
+
+      def validate_algorithm_match!(expected_algorithm, actual_algorithm)
+        expected = resolve_algorithm!(expected_algorithm)
+        return if expected == actual_algorithm
+
+        raise SerializationError,
+              "Expected #{expected.inspect}, got #{actual_algorithm.inspect} (SPKI key algorithm mismatch)"
+      rescue UnsupportedAlgorithmError => e
+        raise SerializationError, e.message
       end
 
       def _streaming_sign(secret_key, io, chunk_size, context)
@@ -203,8 +267,16 @@ module PQCrypto
         Serialization.public_key_to_pqc_container_pem(@algorithm, @bytes)
       end
 
+      def to_spki_der
+        SPKI.encode_der(@algorithm, @bytes)
+      end
+
+      def to_spki_pem
+        SPKI.encode_pem(@algorithm, @bytes)
+      end
+
       def verify(message, signature)
-        PQCrypto.__send__(:native_verify, String(message).b, String(signature).b, @bytes)
+        PQCrypto.__send__(Signature.send(:native_method_for, @algorithm, :verify), String(message).b, String(signature).b, @bytes)
       rescue ArgumentError => e
         raise InvalidKeyError, e.message
       end
@@ -273,8 +345,32 @@ module PQCrypto
         Serialization.secret_key_to_pqc_container_pem(@algorithm, @bytes)
       end
 
+      def to_pkcs8_der(format: :expanded)
+        case format
+        when :expanded
+          PKCS8.encode_der(@algorithm, @bytes, format: :expanded)
+        when :seed, :both
+          raise SerializationError,
+                "ML-DSA seed/both PKCS#8 export requires original seed material; use PQCrypto::PKCS8.encode_der/encode_pem directly"
+        else
+          raise SerializationError, "Unsupported PKCS#8 private key format: #{format.inspect}"
+        end
+      end
+
+      def to_pkcs8_pem(format: :expanded)
+        case format
+        when :expanded
+          PKCS8.encode_pem(@algorithm, @bytes, format: :expanded)
+        when :seed, :both
+          raise SerializationError,
+                "ML-DSA seed/both PKCS#8 export requires original seed material; use PQCrypto::PKCS8.encode_der/encode_pem directly"
+        else
+          raise SerializationError, "Unsupported PKCS#8 private key format: #{format.inspect}"
+        end
+      end
+
       def sign(message)
-        PQCrypto.__send__(:native_sign, String(message).b, @bytes)
+        PQCrypto.__send__(Signature.send(:native_method_for, @algorithm, :sign), String(message).b, @bytes)
       rescue ArgumentError => e
         raise InvalidKeyError, e.message
       end

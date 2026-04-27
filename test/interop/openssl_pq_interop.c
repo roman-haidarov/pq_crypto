@@ -2,6 +2,8 @@
 #include <openssl/params.h>
 #include <openssl/core_names.h>
 #include <openssl/err.h>
+#include <openssl/x509.h>
+#include <openssl/pem.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -97,6 +99,25 @@ static void get_octets(EVP_PKEY *pkey, const char *name, unsigned char **out, si
     }
 }
 
+static int get_octets_optional(EVP_PKEY *pkey, const char *name, unsigned char **out, size_t *out_len) {
+    *out = NULL;
+    *out_len = 0;
+    if (EVP_PKEY_get_octet_string_param(pkey, name, NULL, 0, out_len) <= 0) {
+        ERR_clear_error();
+        return 0;
+    }
+    *out = OPENSSL_malloc(*out_len);
+    if (*out == NULL) die("allocation failure");
+    if (EVP_PKEY_get_octet_string_param(pkey, name, *out, *out_len, out_len) <= 0) {
+        OPENSSL_free(*out);
+        *out = NULL;
+        *out_len = 0;
+        ERR_clear_error();
+        return 0;
+    }
+    return 1;
+}
+
 static EVP_PKEY *mlkem_keygen_from_seed(const unsigned char *seed, size_t seed_len) {
     EVP_PKEY_CTX *ctx = EVP_PKEY_CTX_new_from_name(NULL, "ML-KEM-768", NULL);
     if (ctx == NULL) return NULL;
@@ -143,14 +164,208 @@ static EVP_PKEY *mldsa_keygen_from_seed(const unsigned char *seed, size_t seed_l
     return pkey;
 }
 
+#if OPENSSL_VERSION_NUMBER >= 0x30500000L
+static EVP_PKEY *mlkem_pkey_from_seed(const unsigned char *seed, size_t seed_len) {
+    EVP_PKEY_CTX *ctx = EVP_PKEY_CTX_new_from_name(NULL, "ML-KEM-768", NULL);
+    if (ctx == NULL) return NULL;
+    if (EVP_PKEY_fromdata_init(ctx) <= 0) {
+        EVP_PKEY_CTX_free(ctx);
+        return NULL;
+    }
+
+    OSSL_PARAM params[2];
+    params[0] = OSSL_PARAM_construct_octet_string((char *)"seed", (void *)seed, seed_len);
+    params[1] = OSSL_PARAM_construct_end();
+
+    EVP_PKEY *pkey = NULL;
+    if (EVP_PKEY_fromdata(ctx, &pkey, EVP_PKEY_KEYPAIR, params) <= 0) {
+        EVP_PKEY_CTX_free(ctx);
+        return NULL;
+    }
+    EVP_PKEY_CTX_free(ctx);
+    return pkey;
+}
+
+static void cmd_mlkem_spki_encode_from_raw(const char *pub_hex) {
+    size_t publen = 0;
+    unsigned char *pub = hex_decode(pub_hex, &publen);
+    if (publen != MLKEM768_PUB_BYTES) die("invalid ML-KEM-768 public key length");
+
+    EVP_PKEY *pkey = pkey_from_raw("ML-KEM-768", pub, publen, NULL, 0);
+    if (pkey == NULL) die("mlkem import public failed");
+
+    int der_len = i2d_PUBKEY(pkey, NULL);
+    if (der_len <= 0) die("i2d_PUBKEY size failed");
+    unsigned char *der = OPENSSL_malloc((size_t)der_len);
+    if (der == NULL) die("allocation failure");
+    unsigned char *cursor = der;
+    if (i2d_PUBKEY(pkey, &cursor) != der_len) die("i2d_PUBKEY failed");
+
+    char *der_hex = hex_encode(der, (size_t)der_len);
+    printf("%s\n", der_hex);
+
+    OPENSSL_free(pub); EVP_PKEY_free(pkey); OPENSSL_free(der); OPENSSL_free(der_hex);
+}
+
+static void cmd_mlkem_spki_decode_to_raw(const char *spki_der_hex) {
+    size_t der_len = 0;
+    unsigned char *der = hex_decode(spki_der_hex, &der_len);
+    const unsigned char *cursor = der;
+    EVP_PKEY *pkey = d2i_PUBKEY(NULL, &cursor, (long)der_len);
+    if (pkey == NULL) die("d2i_PUBKEY failed");
+    if (cursor != der + der_len) die("SPKI DER contains trailing data");
+
+    unsigned char *pub = NULL;
+    size_t publen = 0;
+    get_octets(pkey, "pub", &pub, &publen);
+    if (publen != MLKEM768_PUB_BYTES) die("decoded ML-KEM-768 public key has invalid length");
+
+    char *pub_hex = hex_encode(pub, publen);
+    printf("%s\n", pub_hex);
+
+    OPENSSL_free(der); EVP_PKEY_free(pkey); OPENSSL_free(pub); OPENSSL_free(pub_hex);
+}
+
+static void cmd_mlkem_pkcs8_encode_from_seed(const char *seed_hex) {
+    size_t seed_len = 0;
+    unsigned char *seed = hex_decode(seed_hex, &seed_len);
+    if (seed_len != 64) die("invalid ML-KEM-768 seed length");
+
+    EVP_PKEY *pkey = mlkem_pkey_from_seed(seed, seed_len);
+    if (pkey == NULL) die("mlkem import seed failed");
+
+    int der_len = i2d_PrivateKey(pkey, NULL);
+    if (der_len <= 0) die("i2d_PrivateKey size failed");
+    unsigned char *der = OPENSSL_malloc((size_t)der_len);
+    if (der == NULL) die("allocation failure");
+    unsigned char *cursor = der;
+    if (i2d_PrivateKey(pkey, &cursor) != der_len) die("i2d_PrivateKey failed");
+
+    char *der_hex = hex_encode(der, (size_t)der_len);
+    printf("%s\n", der_hex);
+
+    OPENSSL_free(seed); EVP_PKEY_free(pkey); OPENSSL_free(der); OPENSSL_free(der_hex);
+}
+
+static void cmd_mlkem_pkcs8_decode_to_raw(const char *pkcs8_der_hex) {
+    size_t der_len = 0;
+    unsigned char *der = hex_decode(pkcs8_der_hex, &der_len);
+    const unsigned char *cursor = der;
+    EVP_PKEY *pkey = d2i_AutoPrivateKey(NULL, &cursor, (long)der_len);
+    if (pkey == NULL) die("d2i_AutoPrivateKey failed");
+    if (cursor != der + der_len) die("PKCS#8 DER contains trailing data");
+
+    unsigned char *seed = NULL, *priv = NULL;
+    size_t seed_len = 0, priv_len = 0;
+    get_octets_optional(pkey, "seed", &seed, &seed_len);
+    get_octets_optional(pkey, "priv", &priv, &priv_len);
+
+    char *seed_hex = seed ? hex_encode(seed, seed_len) : NULL;
+    char *priv_hex = priv ? hex_encode(priv, priv_len) : NULL;
+    printf("%s\n%s\n", seed_hex ? seed_hex : "", priv_hex ? priv_hex : "");
+
+    OPENSSL_free(der); EVP_PKEY_free(pkey);
+    OPENSSL_free(seed); OPENSSL_free(priv); OPENSSL_free(seed_hex); OPENSSL_free(priv_hex);
+}
+
+static void cmd_mldsa_spki_encode_from_raw(const char *pub_hex) {
+    size_t publen = 0;
+    unsigned char *pub = hex_decode(pub_hex, &publen);
+    if (publen != MLDsa65_PUB_BYTES) die("invalid ML-DSA-65 public key length");
+
+    EVP_PKEY *pkey = pkey_from_raw("ML-DSA-65", pub, publen, NULL, 0);
+    if (pkey == NULL) die("mldsa import public failed");
+
+    int der_len = i2d_PUBKEY(pkey, NULL);
+    if (der_len <= 0) die("i2d_PUBKEY size failed");
+    unsigned char *der = OPENSSL_malloc((size_t)der_len);
+    if (der == NULL) die("allocation failure");
+    unsigned char *cursor = der;
+    if (i2d_PUBKEY(pkey, &cursor) != der_len) die("i2d_PUBKEY failed");
+
+    char *der_hex = hex_encode(der, (size_t)der_len);
+    printf("%s\n", der_hex);
+
+    OPENSSL_free(pub); EVP_PKEY_free(pkey); OPENSSL_free(der); OPENSSL_free(der_hex);
+}
+
+static void cmd_mldsa_spki_decode_to_raw(const char *spki_der_hex) {
+    size_t der_len = 0;
+    unsigned char *der = hex_decode(spki_der_hex, &der_len);
+    const unsigned char *cursor = der;
+    EVP_PKEY *pkey = d2i_PUBKEY(NULL, &cursor, (long)der_len);
+    if (pkey == NULL) die("d2i_PUBKEY failed");
+    if (cursor != der + der_len) die("SPKI DER contains trailing data");
+
+    unsigned char *pub = NULL;
+    size_t publen = 0;
+    get_octets(pkey, "pub", &pub, &publen);
+    if (publen != MLDsa65_PUB_BYTES) die("decoded ML-DSA-65 public key has invalid length");
+
+    char *pub_hex = hex_encode(pub, publen);
+    printf("%s\n", pub_hex);
+
+    OPENSSL_free(der); EVP_PKEY_free(pkey); OPENSSL_free(pub); OPENSSL_free(pub_hex);
+}
+
+static void cmd_mldsa_pkcs8_encode_from_expanded(const char *priv_hex) {
+    size_t privlen = 0;
+    unsigned char *priv = hex_decode(priv_hex, &privlen);
+    if (privlen != MLDsa65_PRIV_BYTES) die("invalid ML-DSA-65 private key length");
+
+    EVP_PKEY *pkey = pkey_from_raw("ML-DSA-65", NULL, 0, priv, privlen);
+    if (pkey == NULL) die("mldsa import private failed");
+
+    int der_len = i2d_PrivateKey(pkey, NULL);
+    if (der_len <= 0) die("i2d_PrivateKey size failed");
+    unsigned char *der = OPENSSL_malloc((size_t)der_len);
+    if (der == NULL) die("allocation failure");
+    unsigned char *cursor = der;
+    if (i2d_PrivateKey(pkey, &cursor) != der_len) die("i2d_PrivateKey failed");
+
+    char *der_hex = hex_encode(der, (size_t)der_len);
+    printf("%s\n", der_hex);
+
+    OPENSSL_free(priv); EVP_PKEY_free(pkey); OPENSSL_free(der); OPENSSL_free(der_hex);
+}
+
+static void cmd_mldsa_pkcs8_decode_to_raw(const char *pkcs8_der_hex) {
+    size_t der_len = 0;
+    unsigned char *der = hex_decode(pkcs8_der_hex, &der_len);
+    const unsigned char *cursor = der;
+    EVP_PKEY *pkey = d2i_AutoPrivateKey(NULL, &cursor, (long)der_len);
+    if (pkey == NULL) die("d2i_AutoPrivateKey failed");
+    if (cursor != der + der_len) die("PKCS#8 DER contains trailing data");
+
+    unsigned char *priv = NULL;
+    size_t priv_len = 0;
+    get_octets(pkey, "priv", &priv, &priv_len);
+    if (priv_len != MLDsa65_PRIV_BYTES) die("decoded ML-DSA-65 private key has invalid length");
+
+    char *priv_hex = hex_encode(priv, priv_len);
+    printf("%s\n", priv_hex);
+
+    OPENSSL_free(der); EVP_PKEY_free(pkey); OPENSSL_free(priv); OPENSSL_free(priv_hex);
+}
+#endif
+
 static void cmd_probe(void) {
     EVP_PKEY_CTX *kem = EVP_PKEY_CTX_new_from_name(NULL, "ML-KEM-768", NULL);
     EVP_PKEY_CTX *sig = EVP_PKEY_CTX_new_from_name(NULL, "ML-DSA-65", NULL);
     unsigned long version = OpenSSL_version_num();
-    printf("{\"openssl_version\":\"%s\",\"version_num\":%lu,\"mlkem\":%s,\"mldsa\":%s}\n",
+    int mlkem_spki = 0;
+    int mldsa_spki = 0;
+#if OPENSSL_VERSION_NUMBER >= 0x30500000L
+    mlkem_spki = (kem != NULL);
+    mldsa_spki = (sig != NULL);
+#endif
+    printf("{\"openssl_version\":\"%s\",\"version_num\":%lu,\"mlkem\":%s,\"mldsa\":%s,\"mlkem_spki\":%s,\"mldsa_spki\":%s,\"openssl_version_number\":%lu}\n",
            OpenSSL_version(OPENSSL_VERSION), version,
            kem ? "true" : "false",
-           sig ? "true" : "false");
+           sig ? "true" : "false",
+           mlkem_spki ? "true" : "false",
+           mldsa_spki ? "true" : "false",
+           (unsigned long)OPENSSL_VERSION_NUMBER);
     EVP_PKEY_CTX_free(kem);
     EVP_PKEY_CTX_free(sig);
 }
@@ -288,6 +503,52 @@ int main(int argc, char **argv) {
         cmd_probe();
         return 0;
     }
+#if OPENSSL_VERSION_NUMBER >= 0x30500000L
+    if (strcmp(argv[1], "mlkem-spki-encode-from-raw") == 0 && argc == 3) {
+        cmd_mlkem_spki_encode_from_raw(argv[2]);
+        return 0;
+    }
+    if (strcmp(argv[1], "mlkem-spki-decode-to-raw") == 0 && argc == 3) {
+        cmd_mlkem_spki_decode_to_raw(argv[2]);
+        return 0;
+    }
+    if (strcmp(argv[1], "mlkem-pkcs8-encode-from-seed") == 0 && argc == 3) {
+        cmd_mlkem_pkcs8_encode_from_seed(argv[2]);
+        return 0;
+    }
+    if (strcmp(argv[1], "mlkem-pkcs8-decode-to-raw") == 0 && argc == 3) {
+        cmd_mlkem_pkcs8_decode_to_raw(argv[2]);
+        return 0;
+    }
+    if (strcmp(argv[1], "mldsa-spki-encode-from-raw") == 0 && argc == 3) {
+        cmd_mldsa_spki_encode_from_raw(argv[2]);
+        return 0;
+    }
+    if (strcmp(argv[1], "mldsa-spki-decode-to-raw") == 0 && argc == 3) {
+        cmd_mldsa_spki_decode_to_raw(argv[2]);
+        return 0;
+    }
+    if (strcmp(argv[1], "mldsa-pkcs8-encode-from-expanded") == 0 && argc == 3) {
+        cmd_mldsa_pkcs8_encode_from_expanded(argv[2]);
+        return 0;
+    }
+    if (strcmp(argv[1], "mldsa-pkcs8-decode-to-raw") == 0 && argc == 3) {
+        cmd_mldsa_pkcs8_decode_to_raw(argv[2]);
+        return 0;
+    }
+#else
+    if ((strcmp(argv[1], "mlkem-spki-encode-from-raw") == 0 && argc == 3) ||
+        (strcmp(argv[1], "mlkem-spki-decode-to-raw") == 0 && argc == 3) ||
+        (strcmp(argv[1], "mlkem-pkcs8-encode-from-seed") == 0 && argc == 3) ||
+        (strcmp(argv[1], "mlkem-pkcs8-decode-to-raw") == 0 && argc == 3) ||
+        (strcmp(argv[1], "mldsa-spki-encode-from-raw") == 0 && argc == 3) ||
+        (strcmp(argv[1], "mldsa-spki-decode-to-raw") == 0 && argc == 3) ||
+        (strcmp(argv[1], "mldsa-pkcs8-encode-from-expanded") == 0 && argc == 3) ||
+        (strcmp(argv[1], "mldsa-pkcs8-decode-to-raw") == 0 && argc == 3)) {
+        fprintf(stderr, "OpenSSL < 3.5 lacks ML-KEM/ML-DSA EVP support\n");
+        return 2;
+    }
+#endif
     if (strcmp(argv[1], "mlkem-keygen-from-seed") == 0 && argc == 3) {
         cmd_mlkem_keygen_from_seed(argv[2]);
         return 0;

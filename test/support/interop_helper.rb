@@ -74,6 +74,7 @@ module InteropHelper
       @openssl_helper = {
         supported: false,
         reason: "OpenSSL does not expose ML-KEM-768 and ML-DSA-65 in this environment (#{probe.fetch('openssl_version')})",
+        probe: probe,
       }
       return @openssl_helper
     end
@@ -87,6 +88,34 @@ module InteropHelper
 
   def openssl_skip_reason
     openssl_helper.fetch(:reason)
+  end
+
+  def openssl_mlkem_spki_supported?
+    helper = openssl_helper
+    helper.fetch(:supported) && helper.fetch(:probe).fetch("mlkem_spki", false)
+  end
+
+  def openssl_mlkem_spki_skip_reason
+    helper = openssl_helper
+    return "mlkem_spki unavailable: #{helper.fetch(:reason)}" unless helper.fetch(:supported)
+
+    probe = helper.fetch(:probe)
+    "mlkem_spki unavailable in #{probe.fetch('openssl_version')} " \
+      "(OPENSSL_VERSION_NUMBER=#{probe.fetch('openssl_version_number', 'unknown')})"
+  end
+
+  def openssl_mldsa_spki_supported?
+    helper = openssl_helper
+    helper.fetch(:supported) && helper.fetch(:probe).fetch("mldsa_spki", false)
+  end
+
+  def openssl_mldsa_spki_skip_reason
+    helper = openssl_helper
+    return "mldsa_spki unavailable: #{helper.fetch(:reason)}" unless helper.fetch(:supported)
+
+    probe = helper.fetch(:probe)
+    "mldsa_spki unavailable in #{probe.fetch('openssl_version')} " \
+      "(OPENSSL_VERSION_NUMBER=#{probe.fetch('openssl_version_number', 'unknown')})"
   end
 
   def run_openssl_helper(*args)
