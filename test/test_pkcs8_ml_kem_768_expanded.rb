@@ -30,38 +30,15 @@ class TestPQCryptoPKCS8MLKEM768Expanded < Minitest::Test
     assert_equal pem, imported.to_pkcs8_pem
   end
 
-  def test_to_pkcs8_rejects_non_expanded_formats_until_patch_2c
+  def test_secret_key_export_rejects_seed_and_both_without_seed_material
     secret_key = PQCrypto::KEM.generate(:ml_kem_768).secret_key
 
     [:seed, :both].each do |format|
       error = assert_raises(PQCrypto::SerializationError) do
         secret_key.to_pkcs8_der(format: format)
       end
-      assert_match(/Patch 2c/, error.message)
+      assert_match(/Patch 4 seed expansion/, error.message)
     end
-  end
-
-  def test_decode_der_of_seed_format_mentions_patch_2c
-    der = pkcs8_der(seed_choice_der("\0" * 64))
-
-    error = assert_raises(PQCrypto::SerializationError) do
-      PQCrypto::PKCS8.decode_der(der)
-    end
-
-    assert_match(/Patch 2c/, error.message)
-  end
-
-  def test_decode_der_of_both_format_mentions_patch_2c
-    der = pkcs8_der(OpenSSL::ASN1::Sequence.new([
-      OpenSSL::ASN1::OctetString.new("\0" * 64),
-      OpenSSL::ASN1::OctetString.new("\0" * PQCrypto::ML_KEM_SECRET_KEY_BYTES),
-    ]).to_der)
-
-    error = assert_raises(PQCrypto::SerializationError) do
-      PQCrypto::PKCS8.decode_der(der)
-    end
-
-    assert_match(/Patch 2c/, error.message)
   end
 
   def test_decode_der_rejects_garbage

@@ -44,23 +44,11 @@ module PQCrypto
       end
 
       def secret_key_from_pkcs8_der(der)
-        algorithm, format, material = PKCS8.decode_der(der)
-        unless format == :expanded
-          raise SerializationError,
-                "Imported PKCS#8 has format #{format.inspect}; support arrives in Patch 2c"
-        end
-
-        SecretKey.new(resolve_algorithm!(algorithm), material)
+        secret_key_from_decoded_pkcs8(*PKCS8.decode_der(der))
       end
 
       def secret_key_from_pkcs8_pem(pem)
-        algorithm, format, material = PKCS8.decode_pem(pem)
-        unless format == :expanded
-          raise SerializationError,
-                "Imported PKCS#8 has format #{format.inspect}; support arrives in Patch 2c"
-        end
-
-        SecretKey.new(resolve_algorithm!(algorithm), material)
+        secret_key_from_decoded_pkcs8(*PKCS8.decode_pem(pem))
       end
 
       def public_key_from_spki_der(der, algorithm: nil)
@@ -89,6 +77,23 @@ module PQCrypto
         return algorithm if DETAILS.key?(algorithm)
 
         raise UnsupportedAlgorithmError, "Unsupported KEM algorithm: #{algorithm.inspect}"
+      end
+
+      def secret_key_from_decoded_pkcs8(algorithm, format, material)
+        secret_material =
+          case format
+          when :expanded
+            material
+          when :both
+            material.fetch(1)
+          when :seed
+            raise SerializationError,
+                  "Imported PKCS#8 has format :seed; use Patch 4 seed expansion"
+          else
+            raise SerializationError, "Unsupported PKCS#8 private key format: #{format.inspect}"
+          end
+
+        SecretKey.new(resolve_algorithm!(algorithm), secret_material)
       end
 
       def validate_algorithm_match!(expected_algorithm, actual_algorithm)
@@ -205,19 +210,25 @@ module PQCrypto
       end
 
       def to_pkcs8_der(format: :expanded)
-        unless format == :expanded
-          raise SerializationError, "PKCS#8 #{format.inspect} format requires Patch 2c"
+        case format
+        when :expanded
+          PKCS8.encode_der(@algorithm, @bytes, format: :expanded)
+        when :seed, :both
+          raise SerializationError, "PKCS#8 #{format.inspect} export from KEM::SecretKey requires Patch 4 seed expansion"
+        else
+          raise SerializationError, "Unsupported PKCS#8 private key format: #{format.inspect}"
         end
-
-        PKCS8.encode_der(@algorithm, @bytes, format: :expanded)
       end
 
       def to_pkcs8_pem(format: :expanded)
-        unless format == :expanded
-          raise SerializationError, "PKCS#8 #{format.inspect} format requires Patch 2c"
+        case format
+        when :expanded
+          PKCS8.encode_pem(@algorithm, @bytes, format: :expanded)
+        when :seed, :both
+          raise SerializationError, "PKCS#8 #{format.inspect} export from KEM::SecretKey requires Patch 4 seed expansion"
+        else
+          raise SerializationError, "Unsupported PKCS#8 private key format: #{format.inspect}"
         end
-
-        PKCS8.encode_pem(@algorithm, @bytes, format: :expanded)
       end
 
       def decapsulate(ciphertext)
