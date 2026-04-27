@@ -35,3 +35,59 @@ jobs:
 
       - name: Run tests
         run: bundle exec rake test
+
+  interop-openssl-3-5-required:
+    name: interop-openssl-3.5-required
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build OpenSSL 3.5
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y build-essential perl pkg-config curl ca-certificates
+          curl -fsSLO https://www.openssl.org/source/openssl-3.5.0.tar.gz
+          tar -xzf openssl-3.5.0.tar.gz
+          cd openssl-3.5.0
+          ./Configure linux-x86_64 --prefix=/opt/openssl-3.5 --openssldir=/opt/openssl-3.5 shared
+          make -s -j"$(nproc)"
+          sudo make -s install_sw
+          echo /opt/openssl-3.5/lib64 | sudo tee /etc/ld.so.conf.d/openssl-3.5.conf
+          sudo ldconfig
+          /opt/openssl-3.5/bin/openssl version
+          /opt/openssl-3.5/bin/openssl version | grep -E '^OpenSSL 3\.(5|[6-9]|[1-9][0-9])\.'
+          echo /opt/openssl-3.5/bin >> "$GITHUB_PATH"
+          {
+            echo "OPENSSL_ROOT_DIR=/opt/openssl-3.5"
+            echo "PKG_CONFIG_PATH=/opt/openssl-3.5/lib64/pkgconfig"
+            echo "LD_LIBRARY_PATH=/opt/openssl-3.5/lib64"
+          } >> "$GITHUB_ENV"
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+          bundler-cache: true
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.0"
+
+      - name: Compile extension
+        run: bundle exec rake compile
+
+      - name: Run tests
+        run: |
+          set -o pipefail
+          bundle exec rake test 2>&1 | tee rake_test.log
+
+      - name: Refuse skipped OpenSSL 3.5 interop tests
+        run: |
+          if grep -E "Skipped: .* (mlkem|mldsa)_spki" rake_test.log; then
+            echo "OpenSSL 3.5 interop tests must NOT skip on this matrix entry."
+            exit 1
+          fi
