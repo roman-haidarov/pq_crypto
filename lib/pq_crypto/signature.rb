@@ -49,6 +49,26 @@ module PQCrypto
         SecretKey.new(resolved_algorithm, bytes)
       end
 
+      def public_key_from_spki_der(der, algorithm: nil)
+        resolved_algorithm, bytes = SPKI.decode_der(der)
+        validate_algorithm_match!(algorithm, resolved_algorithm) if algorithm
+        PublicKey.new(resolve_algorithm!(resolved_algorithm), bytes)
+      end
+
+      def public_key_from_spki_pem(pem, algorithm: nil)
+        resolved_algorithm, bytes = SPKI.decode_pem(pem)
+        validate_algorithm_match!(algorithm, resolved_algorithm) if algorithm
+        PublicKey.new(resolve_algorithm!(resolved_algorithm), bytes)
+      end
+
+      def secret_key_from_pkcs8_der(der)
+        secret_key_from_decoded_pkcs8(*PKCS8.decode_der(der))
+      end
+
+      def secret_key_from_pkcs8_pem(pem)
+        secret_key_from_decoded_pkcs8(*PKCS8.decode_pem(pem))
+      end
+
       def details(algorithm)
         DETAILS.fetch(resolve_algorithm!(algorithm)).dup
       end
@@ -63,6 +83,25 @@ module PQCrypto
         return algorithm if DETAILS.key?(algorithm)
 
         raise UnsupportedAlgorithmError, "Unsupported signature algorithm: #{algorithm.inspect}"
+      end
+
+      def secret_key_from_decoded_pkcs8(algorithm, format, material)
+        unless format == :expanded
+          raise SerializationError,
+                "ML-DSA seed-format PKCS#8 is not yet supported; planned for Patch 8b with opt-in semantics"
+        end
+
+        SecretKey.new(resolve_algorithm!(algorithm), material)
+      end
+
+      def validate_algorithm_match!(expected_algorithm, actual_algorithm)
+        expected = resolve_algorithm!(expected_algorithm)
+        return if expected == actual_algorithm
+
+        raise SerializationError,
+              "Expected #{expected.inspect}, got #{actual_algorithm.inspect} (SPKI key algorithm mismatch)"
+      rescue UnsupportedAlgorithmError => e
+        raise SerializationError, e.message
       end
 
       def _streaming_sign(secret_key, io, chunk_size, context)
@@ -193,6 +232,14 @@ module PQCrypto
         Serialization.public_key_to_pqc_container_pem(@algorithm, @bytes)
       end
 
+      def to_spki_der
+        SPKI.encode_der(@algorithm, @bytes)
+      end
+
+      def to_spki_pem
+        SPKI.encode_pem(@algorithm, @bytes)
+      end
+
       def verify(message, signature)
         PQCrypto.__send__(:native_verify, String(message).b, String(signature).b, @bytes)
       rescue ArgumentError => e
@@ -261,6 +308,30 @@ module PQCrypto
 
       def to_pqc_container_pem
         Serialization.secret_key_to_pqc_container_pem(@algorithm, @bytes)
+      end
+
+      def to_pkcs8_der(format: :expanded)
+        case format
+        when :expanded
+          PKCS8.encode_der(@algorithm, @bytes, format: :expanded)
+        when :seed, :both
+          raise SerializationError,
+                "ML-DSA seed-format PKCS#8 is not yet supported; planned for Patch 8b with opt-in semantics"
+        else
+          raise SerializationError, "Unsupported PKCS#8 private key format: #{format.inspect}"
+        end
+      end
+
+      def to_pkcs8_pem(format: :expanded)
+        case format
+        when :expanded
+          PKCS8.encode_pem(@algorithm, @bytes, format: :expanded)
+        when :seed, :both
+          raise SerializationError,
+                "ML-DSA seed-format PKCS#8 is not yet supported; planned for Patch 8b with opt-in semantics"
+        else
+          raise SerializationError, "Unsupported PKCS#8 private key format: #{format.inspect}"
+        end
       end
 
       def sign(message)

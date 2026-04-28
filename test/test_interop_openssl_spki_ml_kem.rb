@@ -55,7 +55,16 @@ class TestInteropOpenSSLSPKIMLKEM768 < Minitest::Test
     algorithm, format, material = PQCrypto::PKCS8.decode_der(InteropHelper.bin(openssl_pkcs8_hex))
 
     assert_equal :ml_kem_768, algorithm
-    assert_equal :seed, format
-    assert_equal SEED, material
+
+    case format
+    when :seed
+      assert_equal SEED, material
+    when :both
+      seed, expanded = material
+      assert_equal SEED, seed
+      assert_equal PQCrypto::ML_KEM_SECRET_KEY_BYTES, expanded.bytesize
+    else
+      flunk "Expected OpenSSL ML-KEM PKCS#8 to decode as :seed or :both, got #{format.inspect}"
+    end
   end
 end

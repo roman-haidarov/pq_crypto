@@ -8,19 +8,34 @@ module PQCrypto
     PEM_BEGIN = "-----BEGIN #{PEM_LABEL}-----"
     PEM_END = "-----END #{PEM_LABEL}-----"
     ML_KEM_SEED_BYTES = 64
+    ML_DSA_SEED_BYTES = 32
+
+    PRIVATE_KEY_CHOICES = {
+      ml_kem_768: {
+        seed_bytes: ML_KEM_SEED_BYTES,
+        expanded_bytes: PQCrypto::ML_KEM_SECRET_KEY_BYTES,
+        supported_formats: %i[seed expanded both],
+      }.freeze,
+      ml_dsa_65: {
+        seed_bytes: ML_DSA_SEED_BYTES,
+        expanded_bytes: PQCrypto::SIGN_SECRET_KEY_BYTES,
+        supported_formats: %i[expanded],
+      }.freeze,
+    }.freeze
 
     class << self
       def encode_der(algorithm_symbol, secret_material, format:)
         entry = AlgorithmRegistry.fetch(algorithm_symbol)
         validate_secret_key_algorithm!(algorithm_symbol, entry)
+        ensure_format_supported!(algorithm_symbol, format)
 
         choice_der = case format
                      when :seed
                        encode_seed_choice(secret_material, algorithm_symbol)
                      when :expanded
-                       encode_expanded_key_choice(secret_material, algorithm_symbol, entry)
+                       encode_expanded_key_choice(secret_material, algorithm_symbol)
                      when :both
-                       encode_both_choice(secret_material, algorithm_symbol, entry)
+                       encode_both_choice(secret_material, algorithm_symbol)
                      else
                        raise SerializationError, "Unsupported PKCS#8 private key format: #{format.inspect}"
                      end
@@ -59,7 +74,7 @@ module PQCrypto
           raise SerializationError, "PKCS#8 privateKey must be an OCTET STRING"
         end
 
-        decode_private_key_choice(algorithm, entry, String(private_key.value).b)
+        decode_private_key_choice(algorithm, String(private_key.value).b)
       end
 
       def decode_pem(pem)
@@ -99,19 +114,23 @@ module PQCrypto
         algorithm
       end
 
-      def decode_private_key_choice(algorithm, entry, choice_der)
+      def decode_private_key_choice(algorithm, choice_der)
         tag = choice_der.getbyte(0)
         raise SerializationError, "PKCS#8 privateKey CHOICE is empty" if tag.nil?
 
         case tag
         when 0x80
+          ensure_format_supported!(algorithm, :seed)
           decode_seed_choice(algorithm, choice_der)
         when 0x04
-          decode_expanded_key(algorithm, entry, choice_der)
+          ensure_format_supported!(algorithm, :expanded)
+          decode_expanded_key(algorithm, choice_der)
         when 0x30
-          decode_both_choice(algorithm, entry, choice_der)
+          ensure_format_supported!(algorithm, :both)
+          decode_both_choice(algorithm, choice_der)
         else
-          raise SerializationError, "Unsupported PKCS#8 ML-KEM private key CHOICE tag: 0x#{tag.to_s(16).rjust(2, '0')}"
+          raise SerializationError,
+                "Unsupported PKCS#8 #{algorithm.inspect} private key CHOICE tag: 0x#{tag.to_s(16).rjust(2, '0')}"
         end
       end
 
@@ -122,7 +141,7 @@ module PQCrypto
         [algorithm, :seed, seed]
       end
 
-      def decode_expanded_key(algorithm, entry, choice_der)
+      def decode_expanded_key(algorithm, choice_der)
         expanded = decode_asn1(choice_der)
         unless expanded.to_der.b == choice_der
           raise SerializationError, "PKCS#8 expandedKey contains trailing data"
@@ -132,12 +151,12 @@ module PQCrypto
         end
 
         bytes = String(expanded.value).b
-        validate_expanded_key_length!(algorithm, entry, bytes)
+        validate_expanded_key_length!(algorithm, bytes)
 
         [algorithm, :expanded, bytes]
       end
 
-      def decode_both_choice(algorithm, entry, choice_der)
+      def decode_both_choice(algorithm, choice_der)
         both = decode_asn1(choice_der)
         raise SerializationError, "PKCS#8 both contains trailing data" unless both.to_der.b == choice_der
         raise SerializationError, "PKCS#8 both must be a SEQUENCE" unless both.is_a?(OpenSSL::ASN1::Sequence)
@@ -152,8 +171,8 @@ module PQCrypto
         seed_bytes = String(seed.value).b
         expanded_bytes = String(expanded.value).b
         validate_seed_length!(algorithm, seed_bytes)
-        validate_expanded_key_length!(algorithm, entry, expanded_bytes)
-        verify_both_consistency!(seed_bytes, expanded_bytes)
+        validate_expanded_key_length!(algorithm, expanded_bytes)
+        verify_both_consistency!(algorithm, seed_bytes, expanded_bytes)
 
         [algorithm, :both, [seed_bytes, expanded_bytes]]
       end
@@ -165,14 +184,14 @@ module PQCrypto
         encode_tlv(0x80, seed)
       end
 
-      def encode_expanded_key_choice(secret_material, algorithm, entry)
+      def encode_expanded_key_choice(secret_material, algorithm)
         bytes = String(secret_material).b
-        validate_expanded_key_length!(algorithm, entry, bytes)
+        validate_expanded_key_length!(algorithm, bytes)
 
         OpenSSL::ASN1::OctetString.new(bytes).to_der.b
       end
 
-      def encode_both_choice(secret_material, algorithm, entry)
+      def encode_both_choice(secret_material, algorithm)
         unless secret_material.is_a?(Array) && secret_material.size == 2
           raise SerializationError, "PKCS#8 both format requires [seed, expandedKey]"
         end
@@ -181,7 +200,7 @@ module PQCrypto
         seed_bytes = String(seed).b
         expanded_bytes = String(expanded).b
         validate_seed_length!(algorithm, seed_bytes)
-        validate_expanded_key_length!(algorithm, entry, expanded_bytes)
+        validate_expanded_key_length!(algorithm, expanded_bytes)
 
         OpenSSL::ASN1::Sequence.new([
           OpenSSL::ASN1::OctetString.new(seed_bytes),
@@ -189,7 +208,9 @@ module PQCrypto
         ]).to_der.b
       end
 
-      def verify_both_consistency!(seed, expanded)
+      def verify_both_consistency!(algorithm, seed, expanded)
+        return unless algorithm == :ml_kem_768
+
         _public_key, expected_expanded = PQCrypto.__send__(:native_ml_kem_keypair_from_seed, seed)
         return if PQCrypto.__send__(:native_ct_equals, expected_expanded, expanded)
 
@@ -198,14 +219,15 @@ module PQCrypto
       end
 
       def validate_seed_length!(algorithm, seed)
-        return if seed.bytesize == ML_KEM_SEED_BYTES
+        expected = choice_profile(algorithm).fetch(:seed_bytes)
+        return if seed.bytesize == expected
 
         raise SerializationError,
-              "Invalid #{algorithm.inspect} seed private key length: expected #{ML_KEM_SEED_BYTES}, got #{seed.bytesize}"
+              "Invalid #{algorithm.inspect} seed private key length: expected #{expected}, got #{seed.bytesize}"
       end
 
-      def validate_expanded_key_length!(algorithm, entry, expanded)
-        expected = entry.fetch(:secret_key_bytes)
+      def validate_expanded_key_length!(algorithm, expanded)
+        expected = choice_profile(algorithm).fetch(:expanded_bytes)
         return if expanded.bytesize == expected
 
         raise SerializationError,
@@ -213,9 +235,27 @@ module PQCrypto
       end
 
       def validate_secret_key_algorithm!(algorithm_symbol, entry)
-        return if entry.fetch(:family) == :ml_kem
+        return if PRIVATE_KEY_CHOICES.key?(algorithm_symbol) && %i[ml_kem ml_dsa].include?(entry.fetch(:family))
 
         raise SerializationError, "PKCS#8 private key codec is not supported for #{algorithm_symbol.inspect}"
+      end
+
+      def choice_profile(algorithm)
+        PRIVATE_KEY_CHOICES.fetch(algorithm) do
+          raise SerializationError, "PKCS#8 private key codec is not supported for #{algorithm.inspect}"
+        end
+      end
+
+      def ensure_format_supported!(algorithm, format)
+        profile = choice_profile(algorithm)
+        return if profile.fetch(:supported_formats).include?(format)
+
+        if algorithm == :ml_dsa_65 && %i[seed both].include?(format)
+          raise SerializationError,
+                "ML-DSA seed-format PKCS#8 is not yet supported; planned for Patch 8b with opt-in semantics"
+        end
+
+        raise SerializationError, "Unsupported PKCS#8 private key format for #{algorithm.inspect}: #{format.inspect}"
       end
 
       def encode_tlv(tag, value)

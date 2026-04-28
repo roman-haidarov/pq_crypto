@@ -104,6 +104,20 @@ module InteropHelper
       "(OPENSSL_VERSION_NUMBER=#{probe.fetch('openssl_version_number', 'unknown')})"
   end
 
+  def openssl_mldsa_spki_supported?
+    helper = openssl_helper
+    helper.fetch(:supported) && helper.fetch(:probe).fetch("mldsa_spki", false)
+  end
+
+  def openssl_mldsa_spki_skip_reason
+    helper = openssl_helper
+    return "mldsa_spki unavailable: #{helper.fetch(:reason)}" unless helper.fetch(:supported)
+
+    probe = helper.fetch(:probe)
+    "mldsa_spki unavailable in #{probe.fetch('openssl_version')} " \
+      "(OPENSSL_VERSION_NUMBER=#{probe.fetch('openssl_version_number', 'unknown')})"
+  end
+
   def run_openssl_helper(*args)
     helper = openssl_helper
     raise helper.fetch(:reason) unless helper.fetch(:supported)

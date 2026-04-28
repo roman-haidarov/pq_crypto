@@ -96,7 +96,7 @@ module PQCrypto
       end
 
       def validate_public_key_algorithm!(algorithm_symbol, entry)
-        return if entry.fetch(:family) == :ml_kem
+        return if %i[ml_kem ml_dsa].include?(entry.fetch(:family))
 
         raise SerializationError, "SPKI public key codec is not supported for #{algorithm_symbol.inspect}"
       end

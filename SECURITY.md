@@ -13,6 +13,8 @@
 The gem does **not** publish protocol/session helpers as part of the
 supported public API.
 
+ML-DSA seed-format PKCS#8 is not yet supported; planned for a future release with opt-in semantics.
+
 ## Audit status
 
 This project has not been audited. Treat it as experimental software.
