@@ -260,6 +260,21 @@ int pq_mlkem_keypair(uint8_t *pk, uint8_t *sk) {
     return PQCLEAN_MLKEM768_CLEAN_crypto_kem_keypair(pk, sk) == 0 ? PQ_SUCCESS : PQ_ERROR_KEYPAIR;
 }
 
+/*
+ * Expand the 64-byte ML-KEM seed (d || z) into a public/expanded secret
+ * keypair using FIPS 203 Algorithm 16 through PQClean's derand entry point.
+ * This is the production seed-expansion path required by RFC 9935 §6;
+ * it is not the test-only randombytes() seed-replay helper.
+ */
+int pq_mlkem_keypair_from_seed(uint8_t *public_key, uint8_t *secret_key, const uint8_t *seed64) {
+    if (!public_key || !secret_key || !seed64) {
+        return PQ_ERROR_BUFFER;
+    }
+
+    int rc = PQCLEAN_MLKEM768_CLEAN_crypto_kem_keypair_derand(public_key, secret_key, seed64);
+    return (rc == 0) ? PQ_SUCCESS : PQ_ERROR_KEYPAIR;
+}
+
 int pq_mlkem_encapsulate(uint8_t *ct, uint8_t *ss, const uint8_t *pk) {
     return PQCLEAN_MLKEM768_CLEAN_crypto_kem_enc(ct, ss, pk) == 0 ? PQ_SUCCESS
                                                                   : PQ_ERROR_ENCAPSULATE;

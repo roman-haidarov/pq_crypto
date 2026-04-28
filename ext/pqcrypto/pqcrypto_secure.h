@@ -78,6 +78,8 @@ _Static_assert(sizeof(hybrid_ciphertext_t) == HYBRID_CIPHERTEXTBYTES,
 void pq_secure_wipe(void *ptr, size_t len);
 
 int pq_mlkem_keypair(uint8_t *public_key, uint8_t *secret_key);
+int pq_mlkem_keypair_from_seed(uint8_t *public_key, uint8_t *secret_key,
+                               const uint8_t *seed64);
 int pq_mlkem_encapsulate(uint8_t *ciphertext, uint8_t *shared_secret, const uint8_t *public_key);
 int pq_mlkem_decapsulate(uint8_t *shared_secret, const uint8_t *ciphertext,
                          const uint8_t *secret_key);

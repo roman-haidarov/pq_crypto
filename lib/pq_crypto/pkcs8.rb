@@ -153,6 +153,7 @@ module PQCrypto
         expanded_bytes = String(expanded.value).b
         validate_seed_length!(algorithm, seed_bytes)
         validate_expanded_key_length!(algorithm, entry, expanded_bytes)
+        verify_both_consistency!(seed_bytes, expanded_bytes)
 
         [algorithm, :both, [seed_bytes, expanded_bytes]]
       end
@@ -186,6 +187,14 @@ module PQCrypto
           OpenSSL::ASN1::OctetString.new(seed_bytes),
           OpenSSL::ASN1::OctetString.new(expanded_bytes),
         ]).to_der.b
+      end
+
+      def verify_both_consistency!(seed, expanded)
+        _public_key, expected_expanded = PQCrypto.__send__(:native_ml_kem_keypair_from_seed, seed)
+        return if PQCrypto.__send__(:native_ct_equals, expected_expanded, expanded)
+
+        raise SerializationError,
+              "seed/expandedKey inconsistency in PKCS#8 'both' encoding (RFC 9935 §8)"
       end
 
       def validate_seed_length!(algorithm, seed)

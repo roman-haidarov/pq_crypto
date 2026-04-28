@@ -103,6 +103,12 @@ static void *pq_ml_kem_keypair_nogvl(void *arg) {
     return NULL;
 }
 
+static void *pq_ml_kem_keypair_from_seed_nogvl(void *arg) {
+    kem_keypair_call_t *call = (kem_keypair_call_t *)arg;
+    call->result = pq_mlkem_keypair_from_seed(call->public_key, call->secret_key, call->seed);
+    return NULL;
+}
+
 static void *pq_ml_kem_encapsulate_nogvl(void *arg) {
     kem_encapsulate_call_t *call = (kem_encapsulate_call_t *)arg;
     call->result = pq_mlkem_encapsulate(call->ciphertext, call->shared_secret, call->public_key);
@@ -473,6 +479,39 @@ static VALUE pqcrypto_ml_kem_keypair(VALUE self) {
     (void)self;
     return pq_run_kem_keypair(pq_ml_kem_keypair_nogvl, PQ_MLKEM_PUBLICKEYBYTES,
                               PQ_MLKEM_SECRETKEYBYTES);
+}
+
+static VALUE pqcrypto_ml_kem_keypair_from_seed(VALUE self, VALUE seed) {
+    (void)self;
+    StringValue(seed);
+
+    if ((size_t)RSTRING_LEN(seed) != 64) {
+        rb_raise(rb_eArgError, "ML-KEM seed must be 64 bytes (FIPS 203 d||z)");
+    }
+
+    kem_keypair_call_t call = {0};
+    size_t seed_len = 0;
+    call.public_key = pq_alloc_buffer(PQ_MLKEM_PUBLICKEYBYTES);
+    call.secret_key = pq_alloc_buffer(PQ_MLKEM_SECRETKEYBYTES);
+    call.seed = pq_copy_ruby_string(seed, &seed_len);
+    call.seed_len = seed_len;
+
+    rb_thread_call_without_gvl(pq_ml_kem_keypair_from_seed_nogvl, &call, NULL, NULL);
+    pq_wipe_and_free((uint8_t *)call.seed, call.seed_len);
+
+    if (call.result != PQ_SUCCESS) {
+        pq_wipe_and_free(call.secret_key, PQ_MLKEM_SECRETKEYBYTES);
+        free(call.public_key);
+        pq_raise_general_error(call.result);
+    }
+
+    VALUE result = rb_ary_new2(2);
+    rb_ary_push(result, pq_string_from_buffer(call.public_key, PQ_MLKEM_PUBLICKEYBYTES));
+    rb_ary_push(result, pq_string_from_buffer(call.secret_key, PQ_MLKEM_SECRETKEYBYTES));
+
+    free(call.public_key);
+    pq_wipe_and_free(call.secret_key, PQ_MLKEM_SECRETKEYBYTES);
+    return result;
 }
 
 static VALUE pqcrypto_ml_kem_encapsulate(VALUE self, VALUE public_key) {
@@ -1085,6 +1124,8 @@ void Init_pqcrypto_secure(void) {
                               pqcrypto__test_sign_keypair_from_seed, 1);
     rb_define_module_function(mPQCrypto, "__test_sign_from_seed", pqcrypto__test_sign_from_seed, 3);
     rb_define_module_function(mPQCrypto, "ml_kem_keypair", pqcrypto_ml_kem_keypair, 0);
+    rb_define_module_function(mPQCrypto, "ml_kem_keypair_from_seed",
+                              pqcrypto_ml_kem_keypair_from_seed, 1);
     rb_define_module_function(mPQCrypto, "ml_kem_encapsulate", pqcrypto_ml_kem_encapsulate, 1);
     rb_define_module_function(mPQCrypto, "ml_kem_decapsulate", pqcrypto_ml_kem_decapsulate, 2);
     rb_define_module_function(mPQCrypto, "hybrid_kem_keypair", pqcrypto_hybrid_kem_keypair, 0);

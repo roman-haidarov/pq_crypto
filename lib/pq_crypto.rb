@@ -50,6 +50,7 @@ module PQCrypto
   module NativeBindings
     NATIVE_METHODS = %i[
       ml_kem_keypair
+      ml_kem_keypair_from_seed
       ml_kem_encapsulate
       ml_kem_decapsulate
       hybrid_kem_keypair

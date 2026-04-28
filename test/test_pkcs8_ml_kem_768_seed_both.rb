@@ -51,12 +51,14 @@ class TestPQCryptoPKCS8MLKEM768SeedBoth < Minitest::Test
     end
   end
 
-  def test_decode_seed_import_to_secret_key_mentions_patch_4
-    error = assert_raises(PQCrypto::SerializationError) do
-      PQCrypto::KEM.secret_key_from_pkcs8_pem(read_fixture("ml_kem_768_seed.pem"))
-    end
+  def test_decode_seed_import_to_secret_key_expands_to_usable_secret_key
+    _algorithm, _format, (_seed, expanded) = PQCrypto::PKCS8.decode_pem(read_fixture("ml_kem_768_both.pem"))
 
-    assert_match(/Patch 4 seed expansion/, error.message)
+    secret_key = PQCrypto::KEM.secret_key_from_pkcs8_pem(read_fixture("ml_kem_768_seed.pem"))
+
+    assert_equal :ml_kem_768, secret_key.algorithm
+    assert_equal PQCrypto::ML_KEM_SECRET_KEY_BYTES, secret_key.to_bytes.bytesize
+    assert_equal expanded, secret_key.to_bytes
   end
 
   def test_decode_both_imports_secret_key_from_expanded_half
@@ -70,7 +72,7 @@ class TestPQCryptoPKCS8MLKEM768SeedBoth < Minitest::Test
 
   def test_encode_der_rejects_32_byte_seed
     error = assert_raises(PQCrypto::SerializationError) do
-      PQCrypto::PKCS8.encode_der(:ml_kem_768, "\0" * 32, format: :seed)
+      PQCrypto::PKCS8.encode_der(:ml_kem_768, "\x00" * 32, format: :seed)
     end
 
     assert_match(/seed private key length/, error.message)
@@ -79,13 +81,27 @@ class TestPQCryptoPKCS8MLKEM768SeedBoth < Minitest::Test
   def test_decode_der_rejects_both_sequence_with_extra_element
     der = pkcs8_der(OpenSSL::ASN1::Sequence.new([
       OpenSSL::ASN1::OctetString.new(SEED),
-      OpenSSL::ASN1::OctetString.new("\0" * PQCrypto::ML_KEM_SECRET_KEY_BYTES),
+      OpenSSL::ASN1::OctetString.new("\x00" * PQCrypto::ML_KEM_SECRET_KEY_BYTES),
       OpenSSL::ASN1::OctetString.new("extra"),
     ]).to_der)
 
     assert_raises(PQCrypto::SerializationError) do
       PQCrypto::PKCS8.decode_der(der)
     end
+  end
+
+  def test_decode_der_rejects_seed_expanded_inconsistency_in_both
+    _algorithm, _format, (_seed, expanded) = PQCrypto::PKCS8.decode_pem(read_fixture("ml_kem_768_both.pem"))
+    corrupted = expanded.dup
+    corrupted.setbyte(corrupted.bytesize - 1, corrupted.getbyte(corrupted.bytesize - 1) ^ 0xff)
+    der = PQCrypto::PKCS8.encode_der(:ml_kem_768, [SEED, corrupted], format: :both)
+
+    error = assert_raises(PQCrypto::SerializationError) do
+      PQCrypto::PKCS8.decode_der(der)
+    end
+
+    assert_match(/seed\/expandedKey inconsistency/, error.message)
+    assert_match(/RFC 9935/, error.message)
   end
 
   private

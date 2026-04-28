@@ -80,18 +80,18 @@ module PQCrypto
       end
 
       def secret_key_from_decoded_pkcs8(algorithm, format, material)
-        secret_material =
-          case format
-          when :expanded
-            material
-          when :both
-            material.fetch(1)
-          when :seed
-            raise SerializationError,
-                  "Imported PKCS#8 has format :seed; use Patch 4 seed expansion"
-          else
-            raise SerializationError, "Unsupported PKCS#8 private key format: #{format.inspect}"
-          end
+        secret_material = case format
+                          when :seed
+                            _public_key, expanded = PQCrypto.__send__(:native_ml_kem_keypair_from_seed, material)
+                            expanded
+                          when :both
+                            _seed, expanded = material
+                            expanded
+                          when :expanded
+                            material
+                          else
+                            raise SerializationError, "Unsupported PKCS#8 private key format: #{format.inspect}"
+                          end
 
         SecretKey.new(resolve_algorithm!(algorithm), secret_material)
       end
@@ -214,7 +214,7 @@ module PQCrypto
         when :expanded
           PKCS8.encode_der(@algorithm, @bytes, format: :expanded)
         when :seed, :both
-          raise SerializationError, "PKCS#8 #{format.inspect} export from KEM::SecretKey requires Patch 4 seed expansion"
+          raise SerializationError, "PKCS#8 #{format.inspect} export from KEM::SecretKey requires original seed material"
         else
           raise SerializationError, "Unsupported PKCS#8 private key format: #{format.inspect}"
         end
@@ -225,7 +225,7 @@ module PQCrypto
         when :expanded
           PKCS8.encode_pem(@algorithm, @bytes, format: :expanded)
         when :seed, :both
-          raise SerializationError, "PKCS#8 #{format.inspect} export from KEM::SecretKey requires Patch 4 seed expansion"
+          raise SerializationError, "PKCS#8 #{format.inspect} export from KEM::SecretKey requires original seed material"
         else
           raise SerializationError, "Unsupported PKCS#8 private key format: #{format.inspect}"
         end

@@ -37,7 +37,7 @@ class TestPQCryptoPKCS8MLKEM768Expanded < Minitest::Test
       error = assert_raises(PQCrypto::SerializationError) do
         secret_key.to_pkcs8_der(format: format)
       end
-      assert_match(/Patch 4 seed expansion/, error.message)
+      assert_match(/original seed material/, error.message)
     end
   end
 
