@@ -167,15 +167,37 @@ int pq_secret_key_from_pqc_container_pem(char **algorithm_out, uint8_t **key_out
 
 int pq_testing_mlkem_keypair_from_seed(uint8_t *public_key, uint8_t *secret_key,
                                        const uint8_t *seed, size_t seed_len);
+int pq_testing_mlkem512_keypair_from_seed(uint8_t *public_key, uint8_t *secret_key,
+                                          const uint8_t *seed, size_t seed_len);
+int pq_testing_mlkem1024_keypair_from_seed(uint8_t *public_key, uint8_t *secret_key,
+                                           const uint8_t *seed, size_t seed_len);
 int pq_testing_mlkem_encapsulate_from_seed(uint8_t *ciphertext, uint8_t *shared_secret,
                                            const uint8_t *public_key, const uint8_t *seed,
                                            size_t seed_len);
+int pq_testing_mlkem512_encapsulate_from_seed(uint8_t *ciphertext, uint8_t *shared_secret,
+                                              const uint8_t *public_key, const uint8_t *seed,
+                                              size_t seed_len);
+int pq_testing_mlkem1024_encapsulate_from_seed(uint8_t *ciphertext, uint8_t *shared_secret,
+                                               const uint8_t *public_key, const uint8_t *seed,
+                                               size_t seed_len);
 int pq_testing_mldsa_keypair_from_seed(uint8_t *public_key, uint8_t *secret_key,
                                        const uint8_t *seed, size_t seed_len);
+int pq_testing_mldsa44_keypair_from_seed(uint8_t *public_key, uint8_t *secret_key,
+                                         const uint8_t *seed, size_t seed_len);
+int pq_testing_mldsa87_keypair_from_seed(uint8_t *public_key, uint8_t *secret_key,
+                                         const uint8_t *seed, size_t seed_len);
 int pq_testing_mldsa_sign_from_seed(uint8_t *signature, size_t *signature_len,
                                     const uint8_t *message, size_t message_len,
                                     const uint8_t *secret_key, const uint8_t *seed,
                                     size_t seed_len);
+int pq_testing_mldsa44_sign_from_seed(uint8_t *signature, size_t *signature_len,
+                                      const uint8_t *message, size_t message_len,
+                                      const uint8_t *secret_key, const uint8_t *seed,
+                                      size_t seed_len);
+int pq_testing_mldsa87_sign_from_seed(uint8_t *signature, size_t *signature_len,
+                                      const uint8_t *message, size_t message_len,
+                                      const uint8_t *secret_key, const uint8_t *seed,
+                                      size_t seed_len);
 
 void pq_testing_set_seed(const uint8_t *seed, size_t len);
 void pq_testing_clear_seed(void);

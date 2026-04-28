@@ -324,26 +324,66 @@ int pq_mlkem1024_decapsulate(uint8_t *ss, const uint8_t *ct, const uint8_t *sk) 
                                                                    : PQ_ERROR_DECAPSULATE;
 }
 
-int pq_testing_mlkem_keypair_from_seed(uint8_t *public_key, uint8_t *secret_key,
-                                       const uint8_t *seed, size_t seed_len) {
-    if (!public_key || !secret_key || !seed || seed_len != 64) {
+static int pq_testing_mlkem_keypair_from_seed_with(uint8_t *public_key, uint8_t *secret_key,
+                                                   const uint8_t *seed, size_t seed_len,
+                                                   int (*keypair_derand)(uint8_t *, uint8_t *,
+                                                                         const uint8_t *)) {
+    if (!public_key || !secret_key || !seed || seed_len != 64 || !keypair_derand) {
         return PQ_ERROR_BUFFER;
     }
-    return PQCLEAN_MLKEM768_CLEAN_crypto_kem_keypair_derand(public_key, secret_key, seed) == 0
-               ? PQ_SUCCESS
-               : PQ_ERROR_KEYPAIR;
+    return keypair_derand(public_key, secret_key, seed) == 0 ? PQ_SUCCESS : PQ_ERROR_KEYPAIR;
+}
+
+static int pq_testing_mlkem_encapsulate_from_seed_with(
+    uint8_t *ciphertext, uint8_t *shared_secret, const uint8_t *public_key, const uint8_t *seed,
+    size_t seed_len, int (*enc_derand)(uint8_t *, uint8_t *, const uint8_t *, const uint8_t *)) {
+    if (!ciphertext || !shared_secret || !public_key || !seed || seed_len != 32 || !enc_derand) {
+        return PQ_ERROR_BUFFER;
+    }
+    return enc_derand(ciphertext, shared_secret, public_key, seed) == 0 ? PQ_SUCCESS
+                                                                        : PQ_ERROR_ENCAPSULATE;
+}
+
+int pq_testing_mlkem_keypair_from_seed(uint8_t *public_key, uint8_t *secret_key,
+                                       const uint8_t *seed, size_t seed_len) {
+    return pq_testing_mlkem_keypair_from_seed_with(
+        public_key, secret_key, seed, seed_len, PQCLEAN_MLKEM768_CLEAN_crypto_kem_keypair_derand);
+}
+
+int pq_testing_mlkem512_keypair_from_seed(uint8_t *public_key, uint8_t *secret_key,
+                                          const uint8_t *seed, size_t seed_len) {
+    return pq_testing_mlkem_keypair_from_seed_with(
+        public_key, secret_key, seed, seed_len, PQCLEAN_MLKEM512_CLEAN_crypto_kem_keypair_derand);
+}
+
+int pq_testing_mlkem1024_keypair_from_seed(uint8_t *public_key, uint8_t *secret_key,
+                                           const uint8_t *seed, size_t seed_len) {
+    return pq_testing_mlkem_keypair_from_seed_with(
+        public_key, secret_key, seed, seed_len, PQCLEAN_MLKEM1024_CLEAN_crypto_kem_keypair_derand);
 }
 
 int pq_testing_mlkem_encapsulate_from_seed(uint8_t *ciphertext, uint8_t *shared_secret,
                                            const uint8_t *public_key, const uint8_t *seed,
                                            size_t seed_len) {
-    if (!ciphertext || !shared_secret || !public_key || !seed || seed_len != 32) {
-        return PQ_ERROR_BUFFER;
-    }
-    return PQCLEAN_MLKEM768_CLEAN_crypto_kem_enc_derand(ciphertext, shared_secret, public_key,
-                                                        seed) == 0
-               ? PQ_SUCCESS
-               : PQ_ERROR_ENCAPSULATE;
+    return pq_testing_mlkem_encapsulate_from_seed_with(
+        ciphertext, shared_secret, public_key, seed, seed_len,
+        PQCLEAN_MLKEM768_CLEAN_crypto_kem_enc_derand);
+}
+
+int pq_testing_mlkem512_encapsulate_from_seed(uint8_t *ciphertext, uint8_t *shared_secret,
+                                              const uint8_t *public_key, const uint8_t *seed,
+                                              size_t seed_len) {
+    return pq_testing_mlkem_encapsulate_from_seed_with(
+        ciphertext, shared_secret, public_key, seed, seed_len,
+        PQCLEAN_MLKEM512_CLEAN_crypto_kem_enc_derand);
+}
+
+int pq_testing_mlkem1024_encapsulate_from_seed(uint8_t *ciphertext, uint8_t *shared_secret,
+                                               const uint8_t *public_key, const uint8_t *seed,
+                                               size_t seed_len) {
+    return pq_testing_mlkem_encapsulate_from_seed_with(
+        ciphertext, shared_secret, public_key, seed, seed_len,
+        PQCLEAN_MLKEM1024_CLEAN_crypto_kem_enc_derand);
 }
 
 int pq_sign_keypair(uint8_t *public_key, uint8_t *secret_key) {
@@ -412,41 +452,78 @@ int pq_mldsa87_verify(const uint8_t *signature, size_t signature_len, const uint
                : PQ_ERROR_VERIFY;
 }
 
-int pq_testing_mldsa_keypair_from_seed(uint8_t *public_key, uint8_t *secret_key,
-                                       const uint8_t *seed, size_t seed_len) {
+static int pq_testing_mldsa_keypair_from_seed_with(uint8_t *public_key, uint8_t *secret_key,
+                                                   const uint8_t *seed, size_t seed_len,
+                                                   int (*keypair)(uint8_t *, uint8_t *)) {
     int rc;
-    if (!public_key || !secret_key || !seed) {
-        return PQ_ERROR_BUFFER;
-    }
-
-    if (seed_len != 32) {
+    if (!public_key || !secret_key || !seed || seed_len != 32 || !keypair) {
         return PQ_ERROR_BUFFER;
     }
 
     pq_testing_set_seed(seed, seed_len);
-    rc = PQCLEAN_MLDSA65_CLEAN_crypto_sign_keypair(public_key, secret_key);
+    rc = keypair(public_key, secret_key);
     pq_testing_clear_seed();
     return rc == 0 ? PQ_SUCCESS : PQ_ERROR_KEYPAIR;
+}
+
+static int pq_testing_mldsa_sign_from_seed_with(
+    uint8_t *signature, size_t *signature_len, const uint8_t *message, size_t message_len,
+    const uint8_t *secret_key, const uint8_t *seed, size_t seed_len,
+    int (*sign)(uint8_t *, size_t *, const uint8_t *, size_t, const uint8_t *)) {
+    int rc;
+    if (!signature || !signature_len || !secret_key || !seed || seed_len != 32 || !sign) {
+        return PQ_ERROR_BUFFER;
+    }
+
+    pq_testing_set_seed(seed, seed_len);
+    rc = sign(signature, signature_len, message, message_len, secret_key);
+    pq_testing_clear_seed();
+    return rc == 0 ? PQ_SUCCESS : PQ_ERROR_SIGN;
+}
+
+int pq_testing_mldsa_keypair_from_seed(uint8_t *public_key, uint8_t *secret_key,
+                                       const uint8_t *seed, size_t seed_len) {
+    return pq_testing_mldsa_keypair_from_seed_with(public_key, secret_key, seed, seed_len,
+                                                   PQCLEAN_MLDSA65_CLEAN_crypto_sign_keypair);
+}
+
+int pq_testing_mldsa44_keypair_from_seed(uint8_t *public_key, uint8_t *secret_key,
+                                         const uint8_t *seed, size_t seed_len) {
+    return pq_testing_mldsa_keypair_from_seed_with(public_key, secret_key, seed, seed_len,
+                                                   PQCLEAN_MLDSA44_CLEAN_crypto_sign_keypair);
+}
+
+int pq_testing_mldsa87_keypair_from_seed(uint8_t *public_key, uint8_t *secret_key,
+                                         const uint8_t *seed, size_t seed_len) {
+    return pq_testing_mldsa_keypair_from_seed_with(public_key, secret_key, seed, seed_len,
+                                                   PQCLEAN_MLDSA87_CLEAN_crypto_sign_keypair);
 }
 
 int pq_testing_mldsa_sign_from_seed(uint8_t *signature, size_t *signature_len,
                                     const uint8_t *message, size_t message_len,
                                     const uint8_t *secret_key, const uint8_t *seed,
                                     size_t seed_len) {
-    int rc;
-    if (!signature || !signature_len || !secret_key || !seed) {
-        return PQ_ERROR_BUFFER;
-    }
+    return pq_testing_mldsa_sign_from_seed_with(signature, signature_len, message, message_len,
+                                                secret_key, seed, seed_len,
+                                                PQCLEAN_MLDSA65_CLEAN_crypto_sign_signature);
+}
 
-    if (seed_len != 32) {
-        return PQ_ERROR_BUFFER;
-    }
+int pq_testing_mldsa44_sign_from_seed(uint8_t *signature, size_t *signature_len,
+                                      const uint8_t *message, size_t message_len,
+                                      const uint8_t *secret_key, const uint8_t *seed,
+                                      size_t seed_len) {
+    return pq_testing_mldsa_sign_from_seed_with(signature, signature_len, message, message_len,
+                                                secret_key, seed, seed_len,
+                                                PQCLEAN_MLDSA44_CLEAN_crypto_sign_signature);
+}
 
-    pq_testing_set_seed(seed, seed_len);
-    rc = PQCLEAN_MLDSA65_CLEAN_crypto_sign_signature(signature, signature_len, message, message_len,
-                                                     secret_key);
-    pq_testing_clear_seed();
-    return rc == 0 ? PQ_SUCCESS : PQ_ERROR_SIGN;
+int pq_testing_mldsa87_sign_from_seed(uint8_t *signature, size_t *signature_len,
+                                      const uint8_t *message, size_t message_len,
+                                      const uint8_t *secret_key, const uint8_t *seed,
+                                      size_t seed_len) {
+    return pq_testing_mldsa_sign_from_seed_with(signature, signature_len, message, message_len,
+                                                secret_key, seed, seed_len,
+                                                PQCLEAN_MLDSA87_CLEAN_crypto_sign_signature);
 }
 
 int pq_hybrid_kem_keypair(uint8_t *public_key, uint8_t *secret_key) {

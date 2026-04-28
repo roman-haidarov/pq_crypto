@@ -86,8 +86,14 @@ module PQCrypto
       secret_key_from_pqc_container_pem
       __test_ml_kem_keypair_from_seed
       __test_ml_kem_encapsulate_from_seed
+      __test_ml_kem_512_encapsulate_from_seed
+      __test_ml_kem_1024_encapsulate_from_seed
       __test_sign_keypair_from_seed
+      __test_ml_dsa_44_keypair_from_seed
+      __test_ml_dsa_87_keypair_from_seed
       __test_sign_from_seed
+      __test_ml_dsa_44_sign_from_seed
+      __test_ml_dsa_87_sign_from_seed
     ].freeze
 
     EXTERNAL_MU_METHODS = %i[
@@ -148,26 +154,58 @@ module PQCrypto
   end
 
   module Testing
-    def self.ml_kem_keypair_from_seed(seed)
-      PQCrypto.__send__(:native_test_ml_kem_keypair_from_seed, String(seed).b)
+    KEM_KEYPAIR_METHODS = {
+      ml_kem_512: :native_ml_kem_512_keypair_from_seed,
+      ml_kem_768: :native_ml_kem_keypair_from_seed,
+      ml_kem_1024: :native_ml_kem_1024_keypair_from_seed,
+    }.freeze
+
+    KEM_ENCAPSULATE_METHODS = {
+      ml_kem_512: :native_test_ml_kem_512_encapsulate_from_seed,
+      ml_kem_768: :native_test_ml_kem_encapsulate_from_seed,
+      ml_kem_1024: :native_test_ml_kem_1024_encapsulate_from_seed,
+    }.freeze
+
+    MLDSA_KEYPAIR_METHODS = {
+      ml_dsa_44: :native_test_ml_dsa_44_keypair_from_seed,
+      ml_dsa_65: :native_test_sign_keypair_from_seed,
+      ml_dsa_87: :native_test_ml_dsa_87_keypair_from_seed,
+    }.freeze
+
+    MLDSA_SIGN_METHODS = {
+      ml_dsa_44: :native_test_ml_dsa_44_sign_from_seed,
+      ml_dsa_65: :native_test_sign_from_seed,
+      ml_dsa_87: :native_test_ml_dsa_87_sign_from_seed,
+    }.freeze
+
+    def self.ml_kem_keypair_from_seed(seed, algorithm: :ml_kem_768)
+      PQCrypto.__send__(KEM_KEYPAIR_METHODS.fetch(algorithm), String(seed).b)
+    rescue KeyError
+      raise UnsupportedAlgorithmError, "Unsupported ML-KEM KAT algorithm: #{algorithm.inspect}"
     rescue ArgumentError => e
       raise InvalidKeyError, e.message
     end
 
-    def self.ml_kem_encapsulate_from_seed(public_key, seed)
-      PQCrypto.__send__(:native_test_ml_kem_encapsulate_from_seed, String(public_key).b, String(seed).b)
+    def self.ml_kem_encapsulate_from_seed(public_key, seed, algorithm: :ml_kem_768)
+      PQCrypto.__send__(KEM_ENCAPSULATE_METHODS.fetch(algorithm), String(public_key).b, String(seed).b)
+    rescue KeyError
+      raise UnsupportedAlgorithmError, "Unsupported ML-KEM KAT algorithm: #{algorithm.inspect}"
     rescue ArgumentError => e
       raise InvalidKeyError, e.message
     end
 
-    def self.ml_dsa_keypair_from_seed(seed)
-      PQCrypto.__send__(:native_test_sign_keypair_from_seed, String(seed).b)
+    def self.ml_dsa_keypair_from_seed(seed, algorithm: :ml_dsa_65)
+      PQCrypto.__send__(MLDSA_KEYPAIR_METHODS.fetch(algorithm), String(seed).b)
+    rescue KeyError
+      raise UnsupportedAlgorithmError, "Unsupported ML-DSA KAT algorithm: #{algorithm.inspect}"
     rescue ArgumentError => e
       raise InvalidKeyError, e.message
     end
 
-    def self.ml_dsa_sign_from_seed(message, secret_key, seed)
-      PQCrypto.__send__(:native_test_sign_from_seed, String(message).b, String(secret_key).b, String(seed).b)
+    def self.ml_dsa_sign_from_seed(message, secret_key, seed, algorithm: :ml_dsa_65)
+      PQCrypto.__send__(MLDSA_SIGN_METHODS.fetch(algorithm), String(message).b, String(secret_key).b, String(seed).b)
+    rescue KeyError
+      raise UnsupportedAlgorithmError, "Unsupported ML-DSA KAT algorithm: #{algorithm.inspect}"
     rescue ArgumentError => e
       raise InvalidKeyError, e.message
     end
