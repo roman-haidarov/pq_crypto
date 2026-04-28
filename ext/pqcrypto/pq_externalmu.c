@@ -1,5 +1,9 @@
 #include "pqcrypto_secure.h"
 
+#undef PQCLEAN_MLDSA65_CLEAN_CRYPTO_PUBLICKEYBYTES
+#undef PQCLEAN_MLDSA65_CLEAN_CRYPTO_SECRETKEYBYTES
+#undef PQCLEAN_MLDSA65_CLEAN_CRYPTO_BYTES
+
 #include <stdint.h>
 #include <stddef.h>
 #include <string.h>

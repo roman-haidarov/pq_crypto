@@ -4,18 +4,7 @@ module PQCrypto
   module HybridKEM
     CANONICAL_ALGORITHM = :ml_kem_768_x25519_xwing
 
-    DETAILS = {
-      CANONICAL_ALGORITHM => {
-        name: CANONICAL_ALGORITHM,
-        family: Serialization.algorithm_to_family(CANONICAL_ALGORITHM),
-        oid: Serialization.algorithm_to_oid(CANONICAL_ALGORITHM),
-        public_key_bytes: HYBRID_KEM_PUBLIC_KEY_BYTES,
-        secret_key_bytes: HYBRID_KEM_SECRET_KEY_BYTES,
-        ciphertext_bytes: HYBRID_KEM_CIPHERTEXT_BYTES,
-        shared_secret_bytes: HYBRID_KEM_SHARED_SECRET_BYTES,
-        description: "Hybrid KEM: ML-KEM-768 + X25519 combined via X-Wing SHA3-256 combiner (draft-connolly-cfrg-xwing-kem).",
-      }.freeze,
-    }.freeze
+    DETAILS = AlgorithmRegistry.details_for_family(:ml_kem_hybrid).freeze
 
     class << self
       def generate(algorithm = CANONICAL_ALGORITHM)

@@ -19,8 +19,12 @@ DEFAULT_PQCLEAN = {
 }.freeze
 
 KEEP_DIRS = %w[
+  crypto_kem/ml-kem-512/clean
   crypto_kem/ml-kem-768/clean
+  crypto_kem/ml-kem-1024/clean
+  crypto_sign/ml-dsa-44/clean
   crypto_sign/ml-dsa-65/clean
+  crypto_sign/ml-dsa-87/clean
   common
 ].freeze
 

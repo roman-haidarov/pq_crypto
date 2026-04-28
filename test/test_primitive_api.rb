@@ -171,23 +171,13 @@ class TestPQCryptoPrimitiveAPI < Minitest::Test
   end
 
   def test_unsupported_algorithm_errors
-    assert_raises(PQCrypto::UnsupportedAlgorithmError) { PQCrypto::KEM.generate(:ml_kem_1024) }
+    assert_raises(PQCrypto::UnsupportedAlgorithmError) { PQCrypto::KEM.generate(:ml_kem_2048) }
     assert_raises(PQCrypto::UnsupportedAlgorithmError) { PQCrypto::HybridKEM.generate(:ml_kem_1024_x25519) }
-    assert_raises(PQCrypto::UnsupportedAlgorithmError) { PQCrypto::Signature.generate(:ml_dsa_87) }
+    assert_raises(PQCrypto::UnsupportedAlgorithmError) { PQCrypto::Signature.generate(:ml_dsa_99) }
   end
 
-  def test_legacy_aliases_are_absent
-    keypair = PQCrypto::KEM.generate(:ml_kem_768)
-    refute_respond_to keypair.public_key, :to_spki_der
-    refute_respond_to keypair.public_key, :to_spki_pem
-    refute_respond_to keypair.secret_key, :to_pkcs8_der
-    refute_respond_to keypair.secret_key, :to_pkcs8_pem
-
-    refute_respond_to PQCrypto::KEM, :public_key_from_spki_der
-    refute_respond_to PQCrypto::KEM, :public_key_from_spki_pem
-    refute_respond_to PQCrypto::KEM, :secret_key_from_pkcs8_der
-    refute_respond_to PQCrypto::KEM, :secret_key_from_pkcs8_pem
+  def test_unsupported_asn1_key_aliases_are_absent
     refute_respond_to PQCrypto::HybridKEM, :public_key_from_spki_der
-    refute_respond_to PQCrypto::Signature, :public_key_from_spki_der
+    refute_respond_to PQCrypto::HybridKEM, :secret_key_from_pkcs8_der
   end
 end

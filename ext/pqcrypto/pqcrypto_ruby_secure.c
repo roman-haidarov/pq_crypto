@@ -103,15 +103,71 @@ static void *pq_ml_kem_keypair_nogvl(void *arg) {
     return NULL;
 }
 
+static void *pq_ml_kem_512_keypair_nogvl(void *arg) {
+    kem_keypair_call_t *call = (kem_keypair_call_t *)arg;
+    call->result = pq_mlkem512_keypair(call->public_key, call->secret_key);
+    return NULL;
+}
+
+static void *pq_ml_kem_1024_keypair_nogvl(void *arg) {
+    kem_keypair_call_t *call = (kem_keypair_call_t *)arg;
+    call->result = pq_mlkem1024_keypair(call->public_key, call->secret_key);
+    return NULL;
+}
+
+static void *pq_ml_kem_keypair_from_seed_nogvl(void *arg) {
+    kem_keypair_call_t *call = (kem_keypair_call_t *)arg;
+    call->result = pq_mlkem_keypair_from_seed(call->public_key, call->secret_key, call->seed);
+    return NULL;
+}
+
+static void *pq_ml_kem_512_keypair_from_seed_nogvl(void *arg) {
+    kem_keypair_call_t *call = (kem_keypair_call_t *)arg;
+    call->result = pq_mlkem512_keypair_from_seed(call->public_key, call->secret_key, call->seed);
+    return NULL;
+}
+
+static void *pq_ml_kem_1024_keypair_from_seed_nogvl(void *arg) {
+    kem_keypair_call_t *call = (kem_keypair_call_t *)arg;
+    call->result = pq_mlkem1024_keypair_from_seed(call->public_key, call->secret_key, call->seed);
+    return NULL;
+}
+
 static void *pq_ml_kem_encapsulate_nogvl(void *arg) {
     kem_encapsulate_call_t *call = (kem_encapsulate_call_t *)arg;
     call->result = pq_mlkem_encapsulate(call->ciphertext, call->shared_secret, call->public_key);
     return NULL;
 }
 
+static void *pq_ml_kem_512_encapsulate_nogvl(void *arg) {
+    kem_encapsulate_call_t *call = (kem_encapsulate_call_t *)arg;
+    call->result = pq_mlkem512_encapsulate(call->ciphertext, call->shared_secret, call->public_key);
+    return NULL;
+}
+
+static void *pq_ml_kem_1024_encapsulate_nogvl(void *arg) {
+    kem_encapsulate_call_t *call = (kem_encapsulate_call_t *)arg;
+    call->result =
+        pq_mlkem1024_encapsulate(call->ciphertext, call->shared_secret, call->public_key);
+    return NULL;
+}
+
 static void *pq_ml_kem_decapsulate_nogvl(void *arg) {
     kem_decapsulate_call_t *call = (kem_decapsulate_call_t *)arg;
     call->result = pq_mlkem_decapsulate(call->shared_secret, call->ciphertext, call->secret_key);
+    return NULL;
+}
+
+static void *pq_ml_kem_512_decapsulate_nogvl(void *arg) {
+    kem_decapsulate_call_t *call = (kem_decapsulate_call_t *)arg;
+    call->result = pq_mlkem512_decapsulate(call->shared_secret, call->ciphertext, call->secret_key);
+    return NULL;
+}
+
+static void *pq_ml_kem_1024_decapsulate_nogvl(void *arg) {
+    kem_decapsulate_call_t *call = (kem_decapsulate_call_t *)arg;
+    call->result =
+        pq_mlkem1024_decapsulate(call->shared_secret, call->ciphertext, call->secret_key);
     return NULL;
 }
 
@@ -125,6 +181,20 @@ static void *pq_testing_ml_kem_keypair_nogvl(void *arg) {
 static void *pq_testing_ml_kem_encapsulate_nogvl(void *arg) {
     kem_encapsulate_call_t *call = (kem_encapsulate_call_t *)arg;
     call->result = pq_testing_mlkem_encapsulate_from_seed(
+        call->ciphertext, call->shared_secret, call->public_key, call->seed, call->seed_len);
+    return NULL;
+}
+
+static void *pq_testing_ml_kem_512_encapsulate_nogvl(void *arg) {
+    kem_encapsulate_call_t *call = (kem_encapsulate_call_t *)arg;
+    call->result = pq_testing_mlkem512_encapsulate_from_seed(
+        call->ciphertext, call->shared_secret, call->public_key, call->seed, call->seed_len);
+    return NULL;
+}
+
+static void *pq_testing_ml_kem_1024_encapsulate_nogvl(void *arg) {
+    kem_encapsulate_call_t *call = (kem_encapsulate_call_t *)arg;
+    call->result = pq_testing_mlkem1024_encapsulate_from_seed(
         call->ciphertext, call->shared_secret, call->public_key, call->seed, call->seed_len);
     return NULL;
 }
@@ -155,10 +225,54 @@ static void *pq_sign_keypair_nogvl(void *arg) {
     return NULL;
 }
 
+static void *pq_mldsa_44_sign_keypair_nogvl(void *arg) {
+    sign_keypair_call_t *call = (sign_keypair_call_t *)arg;
+    call->result = pq_mldsa44_sign_keypair(call->public_key, call->secret_key);
+    return NULL;
+}
+
+static void *pq_mldsa_87_sign_keypair_nogvl(void *arg) {
+    sign_keypair_call_t *call = (sign_keypair_call_t *)arg;
+    call->result = pq_mldsa87_sign_keypair(call->public_key, call->secret_key);
+    return NULL;
+}
+
+static void *pq_mldsa_44_keypair_from_seed_nogvl(void *arg) {
+    sign_keypair_call_t *call = (sign_keypair_call_t *)arg;
+    call->result = pq_mldsa44_keypair_from_seed(call->public_key, call->secret_key, call->seed);
+    return NULL;
+}
+
+static void *pq_mldsa_keypair_from_seed_nogvl(void *arg) {
+    sign_keypair_call_t *call = (sign_keypair_call_t *)arg;
+    call->result = pq_mldsa_keypair_from_seed(call->public_key, call->secret_key, call->seed);
+    return NULL;
+}
+
+static void *pq_mldsa_87_keypair_from_seed_nogvl(void *arg) {
+    sign_keypair_call_t *call = (sign_keypair_call_t *)arg;
+    call->result = pq_mldsa87_keypair_from_seed(call->public_key, call->secret_key, call->seed);
+    return NULL;
+}
+
 static void *pq_sign_nogvl(void *arg) {
     sign_call_t *call = (sign_call_t *)arg;
     call->result = pq_sign(call->signature, &call->signature_len, call->message, call->message_len,
                            call->secret_key);
+    return NULL;
+}
+
+static void *pq_mldsa_44_sign_nogvl(void *arg) {
+    sign_call_t *call = (sign_call_t *)arg;
+    call->result = pq_mldsa44_sign(call->signature, &call->signature_len, call->message,
+                                   call->message_len, call->secret_key);
+    return NULL;
+}
+
+static void *pq_mldsa_87_sign_nogvl(void *arg) {
+    sign_call_t *call = (sign_call_t *)arg;
+    call->result = pq_mldsa87_sign(call->signature, &call->signature_len, call->message,
+                                   call->message_len, call->secret_key);
     return NULL;
 }
 
@@ -177,10 +291,54 @@ static void *pq_testing_sign_nogvl(void *arg) {
     return NULL;
 }
 
+static void *pq_testing_mldsa_44_keypair_nogvl(void *arg) {
+    sign_keypair_call_t *call = (sign_keypair_call_t *)arg;
+    call->result = pq_testing_mldsa44_keypair_from_seed(call->public_key, call->secret_key,
+                                                        call->seed, call->seed_len);
+    return NULL;
+}
+
+static void *pq_testing_mldsa_87_keypair_nogvl(void *arg) {
+    sign_keypair_call_t *call = (sign_keypair_call_t *)arg;
+    call->result = pq_testing_mldsa87_keypair_from_seed(call->public_key, call->secret_key,
+                                                        call->seed, call->seed_len);
+    return NULL;
+}
+
+static void *pq_testing_mldsa_44_sign_nogvl(void *arg) {
+    sign_call_t *call = (sign_call_t *)arg;
+    call->result = pq_testing_mldsa44_sign_from_seed(call->signature, &call->signature_len,
+                                                     call->message, call->message_len,
+                                                     call->secret_key, call->seed, call->seed_len);
+    return NULL;
+}
+
+static void *pq_testing_mldsa_87_sign_nogvl(void *arg) {
+    sign_call_t *call = (sign_call_t *)arg;
+    call->result = pq_testing_mldsa87_sign_from_seed(call->signature, &call->signature_len,
+                                                     call->message, call->message_len,
+                                                     call->secret_key, call->seed, call->seed_len);
+    return NULL;
+}
+
 static void *pq_verify_nogvl(void *arg) {
     verify_call_t *call = (verify_call_t *)arg;
     call->result = pq_verify(call->signature, call->signature_len, call->message, call->message_len,
                              call->public_key);
+    return NULL;
+}
+
+static void *pq_mldsa_44_verify_nogvl(void *arg) {
+    verify_call_t *call = (verify_call_t *)arg;
+    call->result = pq_mldsa44_verify(call->signature, call->signature_len, call->message,
+                                     call->message_len, call->public_key);
+    return NULL;
+}
+
+static void *pq_mldsa_87_verify_nogvl(void *arg) {
+    verify_call_t *call = (verify_call_t *)arg;
+    call->result = pq_mldsa87_verify(call->signature, call->signature_len, call->message,
+                                     call->message_len, call->public_key);
     return NULL;
 }
 
@@ -475,6 +633,72 @@ static VALUE pqcrypto_ml_kem_keypair(VALUE self) {
                               PQ_MLKEM_SECRETKEYBYTES);
 }
 
+static VALUE pq_run_kem_keypair_from_seed(void *(*nogvl)(void *), VALUE seed, size_t public_key_len,
+                                          size_t secret_key_len) {
+    StringValue(seed);
+
+    if ((size_t)RSTRING_LEN(seed) != 64) {
+        rb_raise(rb_eArgError, "ML-KEM seed must be 64 bytes (FIPS 203 d||z)");
+    }
+
+    kem_keypair_call_t call = {0};
+    size_t seed_len = 0;
+    call.public_key = pq_alloc_buffer(public_key_len);
+    call.secret_key = pq_alloc_buffer(secret_key_len);
+    call.seed = pq_copy_ruby_string(seed, &seed_len);
+    call.seed_len = seed_len;
+
+    rb_thread_call_without_gvl(nogvl, &call, NULL, NULL);
+    pq_wipe_and_free((uint8_t *)call.seed, call.seed_len);
+
+    if (call.result != PQ_SUCCESS) {
+        pq_wipe_and_free(call.secret_key, secret_key_len);
+        free(call.public_key);
+        pq_raise_general_error(call.result);
+    }
+
+    VALUE result = rb_ary_new2(2);
+    rb_ary_push(result, pq_string_from_buffer(call.public_key, public_key_len));
+    rb_ary_push(result, pq_string_from_buffer(call.secret_key, secret_key_len));
+
+    free(call.public_key);
+    pq_wipe_and_free(call.secret_key, secret_key_len);
+    return result;
+}
+
+static VALUE pqcrypto_ml_kem_keypair_from_seed(VALUE self, VALUE seed) {
+    (void)self;
+    StringValue(seed);
+
+    if ((size_t)RSTRING_LEN(seed) != 64) {
+        rb_raise(rb_eArgError, "ML-KEM seed must be 64 bytes (FIPS 203 d||z)");
+    }
+
+    kem_keypair_call_t call = {0};
+    size_t seed_len = 0;
+    call.public_key = pq_alloc_buffer(PQ_MLKEM_PUBLICKEYBYTES);
+    call.secret_key = pq_alloc_buffer(PQ_MLKEM_SECRETKEYBYTES);
+    call.seed = pq_copy_ruby_string(seed, &seed_len);
+    call.seed_len = seed_len;
+
+    rb_thread_call_without_gvl(pq_ml_kem_keypair_from_seed_nogvl, &call, NULL, NULL);
+    pq_wipe_and_free((uint8_t *)call.seed, call.seed_len);
+
+    if (call.result != PQ_SUCCESS) {
+        pq_wipe_and_free(call.secret_key, PQ_MLKEM_SECRETKEYBYTES);
+        free(call.public_key);
+        pq_raise_general_error(call.result);
+    }
+
+    VALUE result = rb_ary_new2(2);
+    rb_ary_push(result, pq_string_from_buffer(call.public_key, PQ_MLKEM_PUBLICKEYBYTES));
+    rb_ary_push(result, pq_string_from_buffer(call.secret_key, PQ_MLKEM_SECRETKEYBYTES));
+
+    free(call.public_key);
+    pq_wipe_and_free(call.secret_key, PQ_MLKEM_SECRETKEYBYTES);
+    return result;
+}
+
 static VALUE pqcrypto_ml_kem_encapsulate(VALUE self, VALUE public_key) {
     (void)self;
     return pq_run_kem_encapsulate(pq_ml_kem_encapsulate_nogvl, public_key, PQ_MLKEM_PUBLICKEYBYTES,
@@ -485,6 +709,58 @@ static VALUE pqcrypto_ml_kem_decapsulate(VALUE self, VALUE ciphertext, VALUE sec
     (void)self;
     return pq_run_kem_decapsulate(pq_ml_kem_decapsulate_nogvl, ciphertext, PQ_MLKEM_CIPHERTEXTBYTES,
                                   secret_key, PQ_MLKEM_SECRETKEYBYTES, PQ_MLKEM_SHAREDSECRETBYTES);
+}
+
+static VALUE pqcrypto_ml_kem_512_keypair(VALUE self) {
+    (void)self;
+    return pq_run_kem_keypair(pq_ml_kem_512_keypair_nogvl, MLKEM512_PUBLICKEYBYTES,
+                              MLKEM512_SECRETKEYBYTES);
+}
+
+static VALUE pqcrypto_ml_kem_512_keypair_from_seed(VALUE self, VALUE seed) {
+    (void)self;
+    return pq_run_kem_keypair_from_seed(pq_ml_kem_512_keypair_from_seed_nogvl, seed,
+                                        MLKEM512_PUBLICKEYBYTES, MLKEM512_SECRETKEYBYTES);
+}
+
+static VALUE pqcrypto_ml_kem_512_encapsulate(VALUE self, VALUE public_key) {
+    (void)self;
+    return pq_run_kem_encapsulate(pq_ml_kem_512_encapsulate_nogvl, public_key,
+                                  MLKEM512_PUBLICKEYBYTES, MLKEM512_CIPHERTEXTBYTES,
+                                  MLKEM512_SHAREDSECRETBYTES);
+}
+
+static VALUE pqcrypto_ml_kem_512_decapsulate(VALUE self, VALUE ciphertext, VALUE secret_key) {
+    (void)self;
+    return pq_run_kem_decapsulate(pq_ml_kem_512_decapsulate_nogvl, ciphertext,
+                                  MLKEM512_CIPHERTEXTBYTES, secret_key, MLKEM512_SECRETKEYBYTES,
+                                  MLKEM512_SHAREDSECRETBYTES);
+}
+
+static VALUE pqcrypto_ml_kem_1024_keypair(VALUE self) {
+    (void)self;
+    return pq_run_kem_keypair(pq_ml_kem_1024_keypair_nogvl, MLKEM1024_PUBLICKEYBYTES,
+                              MLKEM1024_SECRETKEYBYTES);
+}
+
+static VALUE pqcrypto_ml_kem_1024_keypair_from_seed(VALUE self, VALUE seed) {
+    (void)self;
+    return pq_run_kem_keypair_from_seed(pq_ml_kem_1024_keypair_from_seed_nogvl, seed,
+                                        MLKEM1024_PUBLICKEYBYTES, MLKEM1024_SECRETKEYBYTES);
+}
+
+static VALUE pqcrypto_ml_kem_1024_encapsulate(VALUE self, VALUE public_key) {
+    (void)self;
+    return pq_run_kem_encapsulate(pq_ml_kem_1024_encapsulate_nogvl, public_key,
+                                  MLKEM1024_PUBLICKEYBYTES, MLKEM1024_CIPHERTEXTBYTES,
+                                  MLKEM1024_SHAREDSECRETBYTES);
+}
+
+static VALUE pqcrypto_ml_kem_1024_decapsulate(VALUE self, VALUE ciphertext, VALUE secret_key) {
+    (void)self;
+    return pq_run_kem_decapsulate(pq_ml_kem_1024_decapsulate_nogvl, ciphertext,
+                                  MLKEM1024_CIPHERTEXTBYTES, secret_key, MLKEM1024_SECRETKEYBYTES,
+                                  MLKEM1024_SHAREDSECRETBYTES);
 }
 
 static VALUE pqcrypto_hybrid_kem_keypair(VALUE self) {
@@ -577,6 +853,61 @@ static VALUE pqcrypto__test_ml_kem_encapsulate_from_seed(VALUE self, VALUE publi
     return result;
 }
 
+static VALUE pq_run_test_kem_encapsulate_from_seed(void *(*nogvl)(void *), VALUE public_key,
+                                                   VALUE seed, size_t public_key_len,
+                                                   size_t ciphertext_len,
+                                                   size_t shared_secret_len) {
+    pq_validate_bytes_argument(public_key, public_key_len, "public key");
+    StringValue(seed);
+
+    if ((size_t)RSTRING_LEN(seed) != 32) {
+        rb_raise(rb_eArgError, "Deterministic test seed must be 32 bytes");
+    }
+
+    kem_encapsulate_call_t call = {0};
+    size_t public_key_copy_len = 0;
+    size_t seed_len = 0;
+    call.public_key = pq_copy_ruby_string(public_key, &public_key_copy_len);
+    call.ciphertext = pq_alloc_buffer(ciphertext_len);
+    call.shared_secret = pq_alloc_buffer(shared_secret_len);
+    call.seed = pq_copy_ruby_string(seed, &seed_len);
+    call.seed_len = seed_len;
+
+    rb_thread_call_without_gvl(nogvl, &call, NULL, NULL);
+    pq_wipe_and_free((uint8_t *)call.public_key, public_key_copy_len);
+    pq_wipe_and_free((uint8_t *)call.seed, call.seed_len);
+
+    if (call.result != PQ_SUCCESS) {
+        pq_wipe_and_free(call.shared_secret, shared_secret_len);
+        free(call.ciphertext);
+        pq_raise_general_error(call.result);
+    }
+
+    VALUE result = rb_ary_new2(2);
+    rb_ary_push(result, pq_string_from_buffer(call.ciphertext, ciphertext_len));
+    rb_ary_push(result, pq_string_from_buffer(call.shared_secret, shared_secret_len));
+
+    free(call.ciphertext);
+    pq_wipe_and_free(call.shared_secret, shared_secret_len);
+    return result;
+}
+
+static VALUE pqcrypto__test_ml_kem_512_encapsulate_from_seed(VALUE self, VALUE public_key,
+                                                             VALUE seed) {
+    (void)self;
+    return pq_run_test_kem_encapsulate_from_seed(
+        pq_testing_ml_kem_512_encapsulate_nogvl, public_key, seed, MLKEM512_PUBLICKEYBYTES,
+        MLKEM512_CIPHERTEXTBYTES, MLKEM512_SHAREDSECRETBYTES);
+}
+
+static VALUE pqcrypto__test_ml_kem_1024_encapsulate_from_seed(VALUE self, VALUE public_key,
+                                                              VALUE seed) {
+    (void)self;
+    return pq_run_test_kem_encapsulate_from_seed(
+        pq_testing_ml_kem_1024_encapsulate_nogvl, public_key, seed, MLKEM1024_PUBLICKEYBYTES,
+        MLKEM1024_CIPHERTEXTBYTES, MLKEM1024_SHAREDSECRETBYTES);
+}
+
 static VALUE pqcrypto__test_sign_keypair_from_seed(VALUE self, VALUE seed) {
     (void)self;
     StringValue(seed);
@@ -646,24 +977,148 @@ static VALUE pqcrypto__test_sign_from_seed(VALUE self, VALUE message, VALUE secr
     return result;
 }
 
+static VALUE pq_run_test_sign_keypair_from_seed(void *(*nogvl)(void *), VALUE seed,
+                                                size_t public_key_len, size_t secret_key_len) {
+    StringValue(seed);
+
+    if ((size_t)RSTRING_LEN(seed) != 32) {
+        rb_raise(rb_eArgError, "Deterministic test seed must be 32 bytes");
+    }
+
+    sign_keypair_call_t call = {0};
+    size_t seed_len = 0;
+    call.public_key = pq_alloc_buffer(public_key_len);
+    call.secret_key = pq_alloc_buffer(secret_key_len);
+    call.seed = pq_copy_ruby_string(seed, &seed_len);
+    call.seed_len = seed_len;
+
+    rb_thread_call_without_gvl(nogvl, &call, NULL, NULL);
+    pq_wipe_and_free((uint8_t *)call.seed, call.seed_len);
+
+    if (call.result != PQ_SUCCESS) {
+        pq_wipe_and_free(call.secret_key, secret_key_len);
+        free(call.public_key);
+        pq_raise_general_error(call.result);
+    }
+
+    VALUE result = rb_ary_new2(2);
+    rb_ary_push(result, pq_string_from_buffer(call.public_key, public_key_len));
+    rb_ary_push(result, pq_string_from_buffer(call.secret_key, secret_key_len));
+
+    free(call.public_key);
+    pq_wipe_and_free(call.secret_key, secret_key_len);
+    return result;
+}
+
+static VALUE pqcrypto__test_ml_dsa_44_keypair_from_seed(VALUE self, VALUE seed) {
+    (void)self;
+    return pq_run_test_sign_keypair_from_seed(pq_testing_mldsa_44_keypair_nogvl, seed,
+                                              MLDSA44_PUBLICKEYBYTES, MLDSA44_SECRETKEYBYTES);
+}
+
+static VALUE pqcrypto__test_ml_dsa_87_keypair_from_seed(VALUE self, VALUE seed) {
+    (void)self;
+    return pq_run_test_sign_keypair_from_seed(pq_testing_mldsa_87_keypair_nogvl, seed,
+                                              MLDSA87_PUBLICKEYBYTES, MLDSA87_SECRETKEYBYTES);
+}
+
+static VALUE pqcrypto_ml_dsa_44_keypair_from_seed(VALUE self, VALUE seed) {
+    (void)self;
+    return pq_run_test_sign_keypair_from_seed(pq_mldsa_44_keypair_from_seed_nogvl, seed,
+                                              MLDSA44_PUBLICKEYBYTES, MLDSA44_SECRETKEYBYTES);
+}
+
+static VALUE pqcrypto_ml_dsa_keypair_from_seed(VALUE self, VALUE seed) {
+    (void)self;
+    return pq_run_test_sign_keypair_from_seed(pq_mldsa_keypair_from_seed_nogvl, seed,
+                                              PQ_MLDSA_PUBLICKEYBYTES, PQ_MLDSA_SECRETKEYBYTES);
+}
+
+static VALUE pqcrypto_ml_dsa_87_keypair_from_seed(VALUE self, VALUE seed) {
+    (void)self;
+    return pq_run_test_sign_keypair_from_seed(pq_mldsa_87_keypair_from_seed_nogvl, seed,
+                                              MLDSA87_PUBLICKEYBYTES, MLDSA87_SECRETKEYBYTES);
+}
+
+static VALUE pq_run_test_sign_from_seed(void *(*nogvl)(void *), VALUE message, VALUE secret_key,
+                                        VALUE seed, size_t secret_key_len, size_t signature_len) {
+    pq_validate_bytes_argument(secret_key, secret_key_len, "secret key");
+    StringValue(seed);
+
+    if ((size_t)RSTRING_LEN(seed) != 32) {
+        rb_raise(rb_eArgError, "Deterministic test seed must be 32 bytes");
+    }
+
+    sign_call_t call = {0};
+    size_t secret_key_copy_len = 0;
+    size_t seed_len = 0;
+    call.secret_key = pq_copy_ruby_string(secret_key, &secret_key_copy_len);
+    call.signature_len = signature_len;
+    call.signature = pq_alloc_buffer(signature_len);
+    call.message = pq_copy_ruby_string(message, &call.message_len);
+    call.seed = pq_copy_ruby_string(seed, &seed_len);
+    call.seed_len = seed_len;
+
+    rb_thread_call_without_gvl(nogvl, &call, NULL, NULL);
+
+    pq_free_buffer(call.message);
+    pq_wipe_and_free((uint8_t *)call.secret_key, secret_key_copy_len);
+    pq_wipe_and_free((uint8_t *)call.seed, call.seed_len);
+
+    if (call.result != PQ_SUCCESS) {
+        pq_free_buffer(call.signature);
+        pq_raise_general_error(call.result);
+    }
+
+    VALUE result = pq_string_from_buffer(call.signature, call.signature_len);
+    pq_free_buffer(call.signature);
+    return result;
+}
+
+static VALUE pqcrypto__test_ml_dsa_44_sign_from_seed(VALUE self, VALUE message, VALUE secret_key,
+                                                     VALUE seed) {
+    (void)self;
+    return pq_run_test_sign_from_seed(pq_testing_mldsa_44_sign_nogvl, message, secret_key, seed,
+                                      MLDSA44_SECRETKEYBYTES, MLDSA44_BYTES);
+}
+
+static VALUE pqcrypto__test_ml_dsa_87_sign_from_seed(VALUE self, VALUE message, VALUE secret_key,
+                                                     VALUE seed) {
+    (void)self;
+    return pq_run_test_sign_from_seed(pq_testing_mldsa_87_sign_nogvl, message, secret_key, seed,
+                                      MLDSA87_SECRETKEYBYTES, MLDSA87_BYTES);
+}
+
 static VALUE pqcrypto_sign_keypair(VALUE self) {
     (void)self;
     return pq_run_sign_keypair(pq_sign_keypair_nogvl, PQ_MLDSA_PUBLICKEYBYTES,
                                PQ_MLDSA_SECRETKEYBYTES);
 }
 
-static VALUE pqcrypto_sign(VALUE self, VALUE message, VALUE secret_key) {
+static VALUE pqcrypto_ml_dsa_44_keypair(VALUE self) {
     (void)self;
-    pq_validate_bytes_argument(secret_key, PQ_MLDSA_SECRETKEYBYTES, "secret key");
+    return pq_run_sign_keypair(pq_mldsa_44_sign_keypair_nogvl, MLDSA44_PUBLICKEYBYTES,
+                               MLDSA44_SECRETKEYBYTES);
+}
+
+static VALUE pqcrypto_ml_dsa_87_keypair(VALUE self) {
+    (void)self;
+    return pq_run_sign_keypair(pq_mldsa_87_sign_keypair_nogvl, MLDSA87_PUBLICKEYBYTES,
+                               MLDSA87_SECRETKEYBYTES);
+}
+
+static VALUE pq_run_sign(void *(*nogvl)(void *), VALUE message, VALUE secret_key,
+                         size_t secret_key_len_expected, size_t signature_len_expected) {
+    pq_validate_bytes_argument(secret_key, secret_key_len_expected, "secret key");
 
     sign_call_t call = {0};
     size_t secret_key_len = 0;
     call.secret_key = pq_copy_ruby_string(secret_key, &secret_key_len);
-    call.signature_len = PQ_MLDSA_BYTES;
-    call.signature = pq_alloc_buffer(PQ_MLDSA_BYTES);
+    call.signature_len = signature_len_expected;
+    call.signature = pq_alloc_buffer(signature_len_expected);
     call.message = pq_copy_ruby_string(message, &call.message_len);
 
-    rb_nogvl(pq_sign_nogvl, &call, NULL, NULL, RB_NOGVL_OFFLOAD_SAFE);
+    rb_nogvl(nogvl, &call, NULL, NULL, RB_NOGVL_OFFLOAD_SAFE);
 
     pq_free_buffer(call.message);
     pq_wipe_and_free((uint8_t *)call.secret_key, secret_key_len);
@@ -678,10 +1133,27 @@ static VALUE pqcrypto_sign(VALUE self, VALUE message, VALUE secret_key) {
     return result;
 }
 
-static VALUE pqcrypto_verify(VALUE self, VALUE message, VALUE signature, VALUE public_key) {
+static VALUE pqcrypto_sign(VALUE self, VALUE message, VALUE secret_key) {
     (void)self;
+    return pq_run_sign(pq_sign_nogvl, message, secret_key, PQ_MLDSA_SECRETKEYBYTES, PQ_MLDSA_BYTES);
+}
+
+static VALUE pqcrypto_ml_dsa_44_sign(VALUE self, VALUE message, VALUE secret_key) {
+    (void)self;
+    return pq_run_sign(pq_mldsa_44_sign_nogvl, message, secret_key, MLDSA44_SECRETKEYBYTES,
+                       MLDSA44_BYTES);
+}
+
+static VALUE pqcrypto_ml_dsa_87_sign(VALUE self, VALUE message, VALUE secret_key) {
+    (void)self;
+    return pq_run_sign(pq_mldsa_87_sign_nogvl, message, secret_key, MLDSA87_SECRETKEYBYTES,
+                       MLDSA87_BYTES);
+}
+
+static VALUE pq_run_verify(void *(*nogvl)(void *), VALUE message, VALUE signature, VALUE public_key,
+                           size_t public_key_len_expected) {
     StringValue(signature);
-    pq_validate_bytes_argument(public_key, PQ_MLDSA_PUBLICKEYBYTES, "public key");
+    pq_validate_bytes_argument(public_key, public_key_len_expected, "public key");
 
     verify_call_t call = {0};
     size_t public_key_len = 0;
@@ -691,7 +1163,7 @@ static VALUE pqcrypto_verify(VALUE self, VALUE message, VALUE signature, VALUE p
     call.signature_len = signature_len;
     call.message = pq_copy_ruby_string(message, &call.message_len);
 
-    rb_nogvl(pq_verify_nogvl, &call, NULL, NULL, RB_NOGVL_OFFLOAD_SAFE);
+    rb_nogvl(nogvl, &call, NULL, NULL, RB_NOGVL_OFFLOAD_SAFE);
 
     pq_free_buffer(call.message);
     pq_free_buffer((uint8_t *)call.public_key);
@@ -704,6 +1176,25 @@ static VALUE pqcrypto_verify(VALUE self, VALUE message, VALUE signature, VALUE p
         return Qfalse;
     }
     pq_raise_general_error(call.result);
+}
+
+static VALUE pqcrypto_verify(VALUE self, VALUE message, VALUE signature, VALUE public_key) {
+    (void)self;
+    return pq_run_verify(pq_verify_nogvl, message, signature, public_key, PQ_MLDSA_PUBLICKEYBYTES);
+}
+
+static VALUE pqcrypto_ml_dsa_44_verify(VALUE self, VALUE message, VALUE signature,
+                                       VALUE public_key) {
+    (void)self;
+    return pq_run_verify(pq_mldsa_44_verify_nogvl, message, signature, public_key,
+                         MLDSA44_PUBLICKEYBYTES);
+}
+
+static VALUE pqcrypto_ml_dsa_87_verify(VALUE self, VALUE message, VALUE signature,
+                                       VALUE public_key) {
+    (void)self;
+    return pq_run_verify(pq_mldsa_87_verify_nogvl, message, signature, public_key,
+                         MLDSA87_PUBLICKEYBYTES);
 }
 
 static VALUE pqcrypto_ct_equals(VALUE self, VALUE a, VALUE b) {
@@ -786,11 +1277,19 @@ static size_t mu_builder_wrapper_size(const void *ptr) {
 }
 
 static const rb_data_type_t mu_builder_data_type = {
-    "PQCrypto::MLDSA::MuBuilder",
-    {NULL, mu_builder_wrapper_free, mu_builder_wrapper_size},
-    NULL,
-    NULL,
-    RUBY_TYPED_FREE_IMMEDIATELY};
+    .wrap_struct_name = "PQCrypto::MLDSA::MuBuilder",
+    .function =
+        {
+            .dmark = NULL,
+            .dfree = mu_builder_wrapper_free,
+            .dsize = mu_builder_wrapper_size,
+            .dcompact = NULL,
+            .reserved = {NULL},
+        },
+    .parent = NULL,
+    .data = NULL,
+    .flags = RUBY_TYPED_FREE_IMMEDIATELY,
+};
 
 static mu_builder_wrapper_t *mu_builder_unwrap(VALUE obj) {
     mu_builder_wrapper_t *wrapper;
@@ -1012,18 +1511,34 @@ static VALUE pqcrypto__native_mldsa_verify_mu(VALUE self, VALUE mu, VALUE signat
 }
 
 static void define_constants(void) {
+    rb_define_const(mPQCrypto, "ML_KEM_512_PUBLIC_KEY_BYTES", INT2NUM(MLKEM512_PUBLICKEYBYTES));
+    rb_define_const(mPQCrypto, "ML_KEM_512_SECRET_KEY_BYTES", INT2NUM(MLKEM512_SECRETKEYBYTES));
+    rb_define_const(mPQCrypto, "ML_KEM_512_CIPHERTEXT_BYTES", INT2NUM(MLKEM512_CIPHERTEXTBYTES));
+    rb_define_const(mPQCrypto, "ML_KEM_512_SHARED_SECRET_BYTES",
+                    INT2NUM(MLKEM512_SHAREDSECRETBYTES));
     rb_define_const(mPQCrypto, "ML_KEM_PUBLIC_KEY_BYTES", INT2NUM(PQ_MLKEM_PUBLICKEYBYTES));
     rb_define_const(mPQCrypto, "ML_KEM_SECRET_KEY_BYTES", INT2NUM(PQ_MLKEM_SECRETKEYBYTES));
     rb_define_const(mPQCrypto, "ML_KEM_CIPHERTEXT_BYTES", INT2NUM(PQ_MLKEM_CIPHERTEXTBYTES));
     rb_define_const(mPQCrypto, "ML_KEM_SHARED_SECRET_BYTES", INT2NUM(PQ_MLKEM_SHAREDSECRETBYTES));
+    rb_define_const(mPQCrypto, "ML_KEM_1024_PUBLIC_KEY_BYTES", INT2NUM(MLKEM1024_PUBLICKEYBYTES));
+    rb_define_const(mPQCrypto, "ML_KEM_1024_SECRET_KEY_BYTES", INT2NUM(MLKEM1024_SECRETKEYBYTES));
+    rb_define_const(mPQCrypto, "ML_KEM_1024_CIPHERTEXT_BYTES", INT2NUM(MLKEM1024_CIPHERTEXTBYTES));
+    rb_define_const(mPQCrypto, "ML_KEM_1024_SHARED_SECRET_BYTES",
+                    INT2NUM(MLKEM1024_SHAREDSECRETBYTES));
     rb_define_const(mPQCrypto, "HYBRID_KEM_PUBLIC_KEY_BYTES", INT2NUM(PQ_HYBRID_PUBLICKEYBYTES));
     rb_define_const(mPQCrypto, "HYBRID_KEM_SECRET_KEY_BYTES", INT2NUM(PQ_HYBRID_SECRETKEYBYTES));
     rb_define_const(mPQCrypto, "HYBRID_KEM_CIPHERTEXT_BYTES", INT2NUM(PQ_HYBRID_CIPHERTEXTBYTES));
     rb_define_const(mPQCrypto, "HYBRID_KEM_SHARED_SECRET_BYTES",
                     INT2NUM(PQ_HYBRID_SHAREDSECRETBYTES));
+    rb_define_const(mPQCrypto, "SIGN_44_PUBLIC_KEY_BYTES", INT2NUM(MLDSA44_PUBLICKEYBYTES));
+    rb_define_const(mPQCrypto, "SIGN_44_SECRET_KEY_BYTES", INT2NUM(MLDSA44_SECRETKEYBYTES));
+    rb_define_const(mPQCrypto, "SIGN_44_BYTES", INT2NUM(MLDSA44_BYTES));
     rb_define_const(mPQCrypto, "SIGN_PUBLIC_KEY_BYTES", INT2NUM(PQ_MLDSA_PUBLICKEYBYTES));
     rb_define_const(mPQCrypto, "SIGN_SECRET_KEY_BYTES", INT2NUM(PQ_MLDSA_SECRETKEYBYTES));
     rb_define_const(mPQCrypto, "SIGN_BYTES", INT2NUM(PQ_MLDSA_BYTES));
+    rb_define_const(mPQCrypto, "SIGN_87_PUBLIC_KEY_BYTES", INT2NUM(MLDSA87_PUBLICKEYBYTES));
+    rb_define_const(mPQCrypto, "SIGN_87_SECRET_KEY_BYTES", INT2NUM(MLDSA87_SECRETKEYBYTES));
+    rb_define_const(mPQCrypto, "SIGN_87_BYTES", INT2NUM(MLDSA87_BYTES));
 }
 
 static VALUE pqcrypto_public_key_to_pqc_container_der(VALUE self, VALUE algorithm,
@@ -1081,12 +1596,40 @@ void Init_pqcrypto_secure(void) {
                               pqcrypto__test_ml_kem_keypair_from_seed, 1);
     rb_define_module_function(mPQCrypto, "__test_ml_kem_encapsulate_from_seed",
                               pqcrypto__test_ml_kem_encapsulate_from_seed, 2);
+    rb_define_module_function(mPQCrypto, "__test_ml_kem_512_encapsulate_from_seed",
+                              pqcrypto__test_ml_kem_512_encapsulate_from_seed, 2);
+    rb_define_module_function(mPQCrypto, "__test_ml_kem_1024_encapsulate_from_seed",
+                              pqcrypto__test_ml_kem_1024_encapsulate_from_seed, 2);
     rb_define_module_function(mPQCrypto, "__test_sign_keypair_from_seed",
                               pqcrypto__test_sign_keypair_from_seed, 1);
+    rb_define_module_function(mPQCrypto, "__test_ml_dsa_44_keypair_from_seed",
+                              pqcrypto__test_ml_dsa_44_keypair_from_seed, 1);
+    rb_define_module_function(mPQCrypto, "__test_ml_dsa_87_keypair_from_seed",
+                              pqcrypto__test_ml_dsa_87_keypair_from_seed, 1);
     rb_define_module_function(mPQCrypto, "__test_sign_from_seed", pqcrypto__test_sign_from_seed, 3);
+    rb_define_module_function(mPQCrypto, "__test_ml_dsa_44_sign_from_seed",
+                              pqcrypto__test_ml_dsa_44_sign_from_seed, 3);
+    rb_define_module_function(mPQCrypto, "__test_ml_dsa_87_sign_from_seed",
+                              pqcrypto__test_ml_dsa_87_sign_from_seed, 3);
     rb_define_module_function(mPQCrypto, "ml_kem_keypair", pqcrypto_ml_kem_keypair, 0);
+    rb_define_module_function(mPQCrypto, "ml_kem_keypair_from_seed",
+                              pqcrypto_ml_kem_keypair_from_seed, 1);
     rb_define_module_function(mPQCrypto, "ml_kem_encapsulate", pqcrypto_ml_kem_encapsulate, 1);
     rb_define_module_function(mPQCrypto, "ml_kem_decapsulate", pqcrypto_ml_kem_decapsulate, 2);
+    rb_define_module_function(mPQCrypto, "ml_kem_512_keypair", pqcrypto_ml_kem_512_keypair, 0);
+    rb_define_module_function(mPQCrypto, "ml_kem_512_keypair_from_seed",
+                              pqcrypto_ml_kem_512_keypair_from_seed, 1);
+    rb_define_module_function(mPQCrypto, "ml_kem_512_encapsulate", pqcrypto_ml_kem_512_encapsulate,
+                              1);
+    rb_define_module_function(mPQCrypto, "ml_kem_512_decapsulate", pqcrypto_ml_kem_512_decapsulate,
+                              2);
+    rb_define_module_function(mPQCrypto, "ml_kem_1024_keypair", pqcrypto_ml_kem_1024_keypair, 0);
+    rb_define_module_function(mPQCrypto, "ml_kem_1024_keypair_from_seed",
+                              pqcrypto_ml_kem_1024_keypair_from_seed, 1);
+    rb_define_module_function(mPQCrypto, "ml_kem_1024_encapsulate",
+                              pqcrypto_ml_kem_1024_encapsulate, 1);
+    rb_define_module_function(mPQCrypto, "ml_kem_1024_decapsulate",
+                              pqcrypto_ml_kem_1024_decapsulate, 2);
     rb_define_module_function(mPQCrypto, "hybrid_kem_keypair", pqcrypto_hybrid_kem_keypair, 0);
     rb_define_module_function(mPQCrypto, "hybrid_kem_encapsulate", pqcrypto_hybrid_kem_encapsulate,
                               1);
@@ -1095,6 +1638,18 @@ void Init_pqcrypto_secure(void) {
     rb_define_module_function(mPQCrypto, "sign_keypair", pqcrypto_sign_keypair, 0);
     rb_define_module_function(mPQCrypto, "sign", pqcrypto_sign, 2);
     rb_define_module_function(mPQCrypto, "verify", pqcrypto_verify, 3);
+    rb_define_module_function(mPQCrypto, "ml_dsa_44_keypair", pqcrypto_ml_dsa_44_keypair, 0);
+    rb_define_module_function(mPQCrypto, "ml_dsa_44_keypair_from_seed",
+                              pqcrypto_ml_dsa_44_keypair_from_seed, 1);
+    rb_define_module_function(mPQCrypto, "ml_dsa_keypair_from_seed",
+                              pqcrypto_ml_dsa_keypair_from_seed, 1);
+    rb_define_module_function(mPQCrypto, "ml_dsa_44_sign", pqcrypto_ml_dsa_44_sign, 2);
+    rb_define_module_function(mPQCrypto, "ml_dsa_44_verify", pqcrypto_ml_dsa_44_verify, 3);
+    rb_define_module_function(mPQCrypto, "ml_dsa_87_keypair", pqcrypto_ml_dsa_87_keypair, 0);
+    rb_define_module_function(mPQCrypto, "ml_dsa_87_keypair_from_seed",
+                              pqcrypto_ml_dsa_87_keypair_from_seed, 1);
+    rb_define_module_function(mPQCrypto, "ml_dsa_87_sign", pqcrypto_ml_dsa_87_sign, 2);
+    rb_define_module_function(mPQCrypto, "ml_dsa_87_verify", pqcrypto_ml_dsa_87_verify, 3);
     rb_define_module_function(mPQCrypto, "ct_equals", pqcrypto_ct_equals, 2);
     rb_define_module_function(mPQCrypto, "secure_wipe", pqcrypto_secure_wipe, 1);
     rb_define_module_function(mPQCrypto, "version", pqcrypto_version, 0);
