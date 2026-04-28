@@ -68,9 +68,12 @@ module PQCrypto
       sign
       verify
       ml_dsa_44_keypair
+      ml_dsa_44_keypair_from_seed
+      ml_dsa_keypair_from_seed
       ml_dsa_44_sign
       ml_dsa_44_verify
       ml_dsa_87_keypair
+      ml_dsa_87_keypair_from_seed
       ml_dsa_87_sign
       ml_dsa_87_verify
       ct_equals

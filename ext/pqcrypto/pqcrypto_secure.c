@@ -481,6 +481,29 @@ static int pq_testing_mldsa_sign_from_seed_with(
     return rc == 0 ? PQ_SUCCESS : PQ_ERROR_SIGN;
 }
 
+/*
+ * Production ML-DSA seed expansion for RFC 9881 seed-format PKCS#8 imports.
+ *
+ * PQClean does not expose a public crypto_sign_keypair_derand entrypoint for
+ * ML-DSA. This deliberately reuses pq_crypto's thread-local seed-replay
+ * randombytes() path, the same path covered by Patch 8 KATs, and is surfaced
+ * only through the Ruby PKCS#8 opt-in gate.
+ */
+int pq_mldsa44_keypair_from_seed(uint8_t *public_key, uint8_t *secret_key, const uint8_t *seed32) {
+    return pq_testing_mldsa_keypair_from_seed_with(public_key, secret_key, seed32, 32,
+                                                   PQCLEAN_MLDSA44_CLEAN_crypto_sign_keypair);
+}
+
+int pq_mldsa_keypair_from_seed(uint8_t *public_key, uint8_t *secret_key, const uint8_t *seed32) {
+    return pq_testing_mldsa_keypair_from_seed_with(public_key, secret_key, seed32, 32,
+                                                   PQCLEAN_MLDSA65_CLEAN_crypto_sign_keypair);
+}
+
+int pq_mldsa87_keypair_from_seed(uint8_t *public_key, uint8_t *secret_key, const uint8_t *seed32) {
+    return pq_testing_mldsa_keypair_from_seed_with(public_key, secret_key, seed32, 32,
+                                                   PQCLEAN_MLDSA87_CLEAN_crypto_sign_keypair);
+}
+
 int pq_testing_mldsa_keypair_from_seed(uint8_t *public_key, uint8_t *secret_key,
                                        const uint8_t *seed, size_t seed_len) {
     return pq_testing_mldsa_keypair_from_seed_with(public_key, secret_key, seed, seed_len,

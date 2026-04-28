@@ -13,16 +13,19 @@ module PQCrypto
         keypair: :native_ml_dsa_44_keypair,
         sign: :native_ml_dsa_44_sign,
         verify: :native_ml_dsa_44_verify,
+        keypair_from_seed: :native_ml_dsa_44_keypair_from_seed,
       }.freeze,
       ml_dsa_65: {
         keypair: :native_sign_keypair,
         sign: :native_sign,
         verify: :native_verify,
+        keypair_from_seed: :native_ml_dsa_keypair_from_seed,
       }.freeze,
       ml_dsa_87: {
         keypair: :native_ml_dsa_87_keypair,
         sign: :native_ml_dsa_87_sign,
         verify: :native_ml_dsa_87_verify,
+        keypair_from_seed: :native_ml_dsa_87_keypair_from_seed,
       }.freeze,
     }.freeze
 
@@ -104,12 +107,22 @@ module PQCrypto
       end
 
       def secret_key_from_decoded_pkcs8(algorithm, format, material)
-        unless format == :expanded
-          raise SerializationError,
-                "ML-DSA seed-format PKCS#8 is not yet supported; planned for Patch 8b with opt-in semantics"
-        end
+        algorithm = resolve_algorithm!(algorithm)
 
-        SecretKey.new(resolve_algorithm!(algorithm), material)
+        case format
+        when :expanded
+          SecretKey.new(algorithm, material)
+        when :seed
+          _public_key, expanded = PQCrypto.__send__(native_method_for(algorithm, :keypair_from_seed), material)
+          SecretKey.new(algorithm, expanded)
+        when :both
+          _seed, expanded = material
+          SecretKey.new(algorithm, expanded)
+        else
+          raise SerializationError, "Unsupported ML-DSA PKCS#8 private key format: #{format.inspect}"
+        end
+      rescue ArgumentError => e
+        raise InvalidKeyError, e.message
       end
 
       def native_method_for(algorithm, operation)
@@ -338,7 +351,7 @@ module PQCrypto
           PKCS8.encode_der(@algorithm, @bytes, format: :expanded)
         when :seed, :both
           raise SerializationError,
-                "ML-DSA seed-format PKCS#8 is not yet supported; planned for Patch 8b with opt-in semantics"
+                "ML-DSA seed/both PKCS#8 export requires original seed material; use PQCrypto::PKCS8.encode_der/encode_pem directly"
         else
           raise SerializationError, "Unsupported PKCS#8 private key format: #{format.inspect}"
         end
@@ -350,7 +363,7 @@ module PQCrypto
           PKCS8.encode_pem(@algorithm, @bytes, format: :expanded)
         when :seed, :both
           raise SerializationError,
-                "ML-DSA seed-format PKCS#8 is not yet supported; planned for Patch 8b with opt-in semantics"
+                "ML-DSA seed/both PKCS#8 export requires original seed material; use PQCrypto::PKCS8.encode_der/encode_pem directly"
         else
           raise SerializationError, "Unsupported PKCS#8 private key format: #{format.inspect}"
         end

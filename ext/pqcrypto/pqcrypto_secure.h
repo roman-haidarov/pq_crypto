@@ -127,6 +127,12 @@ int pq_mlkem1024_decapsulate(uint8_t *shared_secret, const uint8_t *ciphertext,
 int pq_sign_keypair(uint8_t *public_key, uint8_t *secret_key);
 int pq_mldsa44_sign_keypair(uint8_t *public_key, uint8_t *secret_key);
 int pq_mldsa87_sign_keypair(uint8_t *public_key, uint8_t *secret_key);
+int pq_mldsa44_keypair_from_seed(uint8_t *public_key, uint8_t *secret_key,
+                                  const uint8_t *seed32);
+int pq_mldsa_keypair_from_seed(uint8_t *public_key, uint8_t *secret_key,
+                               const uint8_t *seed32);
+int pq_mldsa87_keypair_from_seed(uint8_t *public_key, uint8_t *secret_key,
+                                  const uint8_t *seed32);
 int pq_sign(uint8_t *signature, size_t *signature_len, const uint8_t *message, size_t message_len,
             const uint8_t *secret_key);
 int pq_mldsa44_sign(uint8_t *signature, size_t *signature_len, const uint8_t *message, size_t message_len,

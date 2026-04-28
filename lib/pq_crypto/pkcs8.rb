@@ -10,6 +10,8 @@ module PQCrypto
     ML_KEM_SEED_BYTES = 64
     ML_DSA_SEED_BYTES = 32
 
+    @allow_ml_dsa_seed_format = false
+
     PRIVATE_KEY_CHOICES = {
       ml_kem_512: {
         seed_bytes: ML_KEM_SEED_BYTES,
@@ -29,21 +31,23 @@ module PQCrypto
       ml_dsa_44: {
         seed_bytes: ML_DSA_SEED_BYTES,
         expanded_bytes: PQCrypto::SIGN_44_SECRET_KEY_BYTES,
-        supported_formats: %i[expanded],
+        supported_formats: %i[seed expanded both],
       }.freeze,
       ml_dsa_65: {
         seed_bytes: ML_DSA_SEED_BYTES,
         expanded_bytes: PQCrypto::SIGN_SECRET_KEY_BYTES,
-        supported_formats: %i[expanded],
+        supported_formats: %i[seed expanded both],
       }.freeze,
       ml_dsa_87: {
         seed_bytes: ML_DSA_SEED_BYTES,
         expanded_bytes: PQCrypto::SIGN_87_SECRET_KEY_BYTES,
-        supported_formats: %i[expanded],
+        supported_formats: %i[seed expanded both],
       }.freeze,
     }.freeze
 
     class << self
+      attr_accessor :allow_ml_dsa_seed_format
+
       def encode_der(algorithm_symbol, secret_material, format:)
         entry = AlgorithmRegistry.fetch(algorithm_symbol)
         validate_secret_key_algorithm!(algorithm_symbol, entry)
@@ -229,18 +233,25 @@ module PQCrypto
       end
 
       def verify_both_consistency!(algorithm, seed, expanded)
-        return unless %i[ml_kem_512 ml_kem_768 ml_kem_1024].include?(algorithm)
-
         native_method = {
           ml_kem_512: :native_ml_kem_512_keypair_from_seed,
           ml_kem_768: :native_ml_kem_keypair_from_seed,
           ml_kem_1024: :native_ml_kem_1024_keypair_from_seed,
-        }.fetch(algorithm)
+          ml_dsa_44: :native_ml_dsa_44_keypair_from_seed,
+          ml_dsa_65: :native_ml_dsa_keypair_from_seed,
+          ml_dsa_87: :native_ml_dsa_87_keypair_from_seed,
+        }[algorithm]
+        return if native_method.nil?
+
         _public_key, expected_expanded = PQCrypto.__send__(native_method, seed)
         return if PQCrypto.__send__(:native_ct_equals, expected_expanded, expanded)
 
-        raise SerializationError,
-              "seed/expandedKey inconsistency in PKCS#8 'both' encoding (RFC 9935 §8)"
+        message = if ml_dsa_algorithm?(algorithm)
+                    "seed/expandedKey inconsistency in ML-DSA PKCS#8 'both' encoding (RFC 9881 §6)"
+                  else
+                    "seed/expandedKey inconsistency in PKCS#8 'both' encoding (RFC 9935 §8)"
+                  end
+        raise SerializationError, message
       end
 
       def validate_seed_length!(algorithm, seed)
@@ -272,15 +283,19 @@ module PQCrypto
       end
 
       def ensure_format_supported!(algorithm, format)
+        if ml_dsa_algorithm?(algorithm) && %i[seed both].include?(format) && !allow_ml_dsa_seed_format
+          raise SerializationError,
+                "ML-DSA seed-format PKCS#8 is opt-in; set PQCrypto::PKCS8.allow_ml_dsa_seed_format = true to enable (see SECURITY.md for caveats)"
+        end
+
         profile = choice_profile(algorithm)
         return if profile.fetch(:supported_formats).include?(format)
 
-        if %i[ml_dsa_44 ml_dsa_65 ml_dsa_87].include?(algorithm) && %i[seed both].include?(format)
-          raise SerializationError,
-                "ML-DSA seed-format PKCS#8 is not yet supported; planned for Patch 8b with opt-in semantics"
-        end
-
         raise SerializationError, "Unsupported PKCS#8 private key format for #{algorithm.inspect}: #{format.inspect}"
+      end
+
+      def ml_dsa_algorithm?(algorithm)
+        %i[ml_dsa_44 ml_dsa_65 ml_dsa_87].include?(algorithm)
       end
 
       def encode_tlv(tag, value)

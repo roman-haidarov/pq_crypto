@@ -13,7 +13,7 @@
 The gem does **not** publish protocol/session helpers as part of the
 supported public API.
 
-ML-DSA seed-format PKCS#8 is not yet supported; planned for a future release with opt-in semantics.
+ML-DSA seed-format PKCS#8 import is opt-in; see "ML-DSA seed-format imports" below.
 
 ## Audit status
 
@@ -50,6 +50,25 @@ is IND-CCA secure and SHA3-256 behaves as a PRF.
 This gem is intended to match the X-Wing draft as of version 10. External
 interoperability should still be verified against the reference
 implementation before relying on it.
+
+### ML-DSA seed-format imports
+
+ML-DSA seed and both-form PKCS#8 imports are disabled by default. To import
+these encodings, callers must explicitly set:
+
+```ruby
+PQCrypto::PKCS8.allow_ml_dsa_seed_format = true
+```
+
+This opt-in exists because PQClean exposes no public ML-DSA
+`crypto_sign_keypair_derand` entrypoint. The implementation therefore reuses
+the same thread-local seed-replay `randombytes()` path introduced for Patch 8 KAT tests to
+expand the RFC 9881 seed into an expanded private key. The replay buffer is
+thread-local, cleared immediately after expansion, and remains inactive for all
+normal production randomness paths.
+
+For `both` encodings, the decoder expands the seed and rejects the key if the
+expandedKey half does not match the seed-derived key.
 
 ### Deterministic test hooks
 
