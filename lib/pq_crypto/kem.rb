@@ -8,10 +8,31 @@ module PQCrypto
 
     DETAILS = AlgorithmRegistry.details_for_family(:ml_kem).freeze
 
+    NATIVE_DISPATCH = {
+      ml_kem_512: {
+        keypair: :native_ml_kem_512_keypair,
+        keypair_from_seed: :native_ml_kem_512_keypair_from_seed,
+        encapsulate: :native_ml_kem_512_encapsulate,
+        decapsulate: :native_ml_kem_512_decapsulate,
+      }.freeze,
+      ml_kem_768: {
+        keypair: :native_ml_kem_keypair,
+        keypair_from_seed: :native_ml_kem_keypair_from_seed,
+        encapsulate: :native_ml_kem_encapsulate,
+        decapsulate: :native_ml_kem_decapsulate,
+      }.freeze,
+      ml_kem_1024: {
+        keypair: :native_ml_kem_1024_keypair,
+        keypair_from_seed: :native_ml_kem_1024_keypair_from_seed,
+        encapsulate: :native_ml_kem_1024_encapsulate,
+        decapsulate: :native_ml_kem_1024_decapsulate,
+      }.freeze,
+    }.freeze
+
     class << self
       def generate(algorithm = CANONICAL_ALGORITHM)
         algorithm = resolve_algorithm!(algorithm)
-        public_key, secret_key = PQCrypto.__send__(:native_ml_kem_keypair)
+        public_key, secret_key = PQCrypto.__send__(native_method_for(algorithm, :keypair))
         Keypair.new(PublicKey.new(algorithm, public_key), SecretKey.new(algorithm, secret_key))
       end
 
@@ -82,7 +103,7 @@ module PQCrypto
       def secret_key_from_decoded_pkcs8(algorithm, format, material)
         secret_material = case format
                           when :seed
-                            _public_key, expanded = PQCrypto.__send__(:native_ml_kem_keypair_from_seed, material)
+                            _public_key, expanded = PQCrypto.__send__(native_method_for(algorithm, :keypair_from_seed), material)
                             expanded
                           when :both
                             _seed, expanded = material
@@ -94,6 +115,10 @@ module PQCrypto
                           end
 
         SecretKey.new(resolve_algorithm!(algorithm), secret_material)
+      end
+
+      def native_method_for(algorithm, operation)
+        NATIVE_DISPATCH.fetch(resolve_algorithm!(algorithm)).fetch(operation)
       end
 
       def validate_algorithm_match!(expected_algorithm, actual_algorithm)
@@ -154,7 +179,7 @@ module PQCrypto
       end
 
       def encapsulate
-        ciphertext, shared_secret = PQCrypto.__send__(:native_ml_kem_encapsulate, @bytes)
+        ciphertext, shared_secret = PQCrypto.__send__(KEM.send(:native_method_for, @algorithm, :encapsulate), @bytes)
         EncapsulationResult.new(ciphertext, shared_secret)
       rescue ArgumentError => e
         raise InvalidKeyError, e.message
@@ -232,7 +257,7 @@ module PQCrypto
       end
 
       def decapsulate(ciphertext)
-        PQCrypto.__send__(:native_ml_kem_decapsulate, String(ciphertext).b, @bytes)
+        PQCrypto.__send__(KEM.send(:native_method_for, @algorithm, :decapsulate), String(ciphertext).b, @bytes)
       rescue ArgumentError => e
         raise InvalidCiphertextError, e.message
       end

@@ -1,3 +1,9 @@
+## 0.4.0
+
+- Add public API support for ML-KEM-512, ML-KEM-1024, ML-DSA-44, and ML-DSA-87.
+- Add native wrappers and Ruby dispatch for the new parameter sets.
+- Extend SPKI/PKCS#8 support to the new parameter sets while keeping `pqc_container_*` restricted to the original algorithms.
+
 # Changelog
 
 ## [0.3.2] — 2026-04-25

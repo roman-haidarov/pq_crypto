@@ -11,14 +11,34 @@ module PQCrypto
     ML_DSA_SEED_BYTES = 32
 
     PRIVATE_KEY_CHOICES = {
+      ml_kem_512: {
+        seed_bytes: ML_KEM_SEED_BYTES,
+        expanded_bytes: PQCrypto::ML_KEM_512_SECRET_KEY_BYTES,
+        supported_formats: %i[seed expanded both],
+      }.freeze,
       ml_kem_768: {
         seed_bytes: ML_KEM_SEED_BYTES,
         expanded_bytes: PQCrypto::ML_KEM_SECRET_KEY_BYTES,
         supported_formats: %i[seed expanded both],
       }.freeze,
+      ml_kem_1024: {
+        seed_bytes: ML_KEM_SEED_BYTES,
+        expanded_bytes: PQCrypto::ML_KEM_1024_SECRET_KEY_BYTES,
+        supported_formats: %i[seed expanded both],
+      }.freeze,
+      ml_dsa_44: {
+        seed_bytes: ML_DSA_SEED_BYTES,
+        expanded_bytes: PQCrypto::SIGN_44_SECRET_KEY_BYTES,
+        supported_formats: %i[expanded],
+      }.freeze,
       ml_dsa_65: {
         seed_bytes: ML_DSA_SEED_BYTES,
         expanded_bytes: PQCrypto::SIGN_SECRET_KEY_BYTES,
+        supported_formats: %i[expanded],
+      }.freeze,
+      ml_dsa_87: {
+        seed_bytes: ML_DSA_SEED_BYTES,
+        expanded_bytes: PQCrypto::SIGN_87_SECRET_KEY_BYTES,
         supported_formats: %i[expanded],
       }.freeze,
     }.freeze
@@ -209,9 +229,14 @@ module PQCrypto
       end
 
       def verify_both_consistency!(algorithm, seed, expanded)
-        return unless algorithm == :ml_kem_768
+        return unless %i[ml_kem_512 ml_kem_768 ml_kem_1024].include?(algorithm)
 
-        _public_key, expected_expanded = PQCrypto.__send__(:native_ml_kem_keypair_from_seed, seed)
+        native_method = {
+          ml_kem_512: :native_ml_kem_512_keypair_from_seed,
+          ml_kem_768: :native_ml_kem_keypair_from_seed,
+          ml_kem_1024: :native_ml_kem_1024_keypair_from_seed,
+        }.fetch(algorithm)
+        _public_key, expected_expanded = PQCrypto.__send__(native_method, seed)
         return if PQCrypto.__send__(:native_ct_equals, expected_expanded, expanded)
 
         raise SerializationError,
@@ -250,7 +275,7 @@ module PQCrypto
         profile = choice_profile(algorithm)
         return if profile.fetch(:supported_formats).include?(format)
 
-        if algorithm == :ml_dsa_65 && %i[seed both].include?(format)
+        if %i[ml_dsa_44 ml_dsa_65 ml_dsa_87].include?(algorithm) && %i[seed both].include?(format)
           raise SerializationError,
                 "ML-DSA seed-format PKCS#8 is not yet supported; planned for Patch 8b with opt-in semantics"
         end

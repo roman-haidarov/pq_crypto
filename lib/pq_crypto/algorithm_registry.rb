@@ -6,6 +6,17 @@ module PQCrypto
       def entries
         @entries ||= begin
           {
+            ml_kem_512: {
+              family: :ml_kem,
+              legacy_oid: nil,
+              standard_oid: "2.16.840.1.101.3.4.4.1",
+              public_key_bytes: PQCrypto::ML_KEM_512_PUBLIC_KEY_BYTES,
+              secret_key_bytes: PQCrypto::ML_KEM_512_SECRET_KEY_BYTES,
+              ciphertext_bytes: PQCrypto::ML_KEM_512_CIPHERTEXT_BYTES,
+              shared_secret_bytes: PQCrypto::ML_KEM_512_SHARED_SECRET_BYTES,
+              signature_bytes: nil,
+              description: "Pure ML-KEM-512 primitive (FIPS 203).",
+            }.freeze,
             ml_kem_768: {
               family: :ml_kem,
               legacy_oid: "2.25.186599352125448088867056807454444238446",
@@ -16,6 +27,17 @@ module PQCrypto
               shared_secret_bytes: PQCrypto::ML_KEM_SHARED_SECRET_BYTES,
               signature_bytes: nil,
               description: "Pure ML-KEM-768 primitive (FIPS 203).",
+            }.freeze,
+            ml_kem_1024: {
+              family: :ml_kem,
+              legacy_oid: nil,
+              standard_oid: "2.16.840.1.101.3.4.4.3",
+              public_key_bytes: PQCrypto::ML_KEM_1024_PUBLIC_KEY_BYTES,
+              secret_key_bytes: PQCrypto::ML_KEM_1024_SECRET_KEY_BYTES,
+              ciphertext_bytes: PQCrypto::ML_KEM_1024_CIPHERTEXT_BYTES,
+              shared_secret_bytes: PQCrypto::ML_KEM_1024_SHARED_SECRET_BYTES,
+              signature_bytes: nil,
+              description: "Pure ML-KEM-1024 primitive (FIPS 203).",
             }.freeze,
             ml_kem_768_x25519_xwing: {
               family: :ml_kem_hybrid,
@@ -28,6 +50,17 @@ module PQCrypto
               signature_bytes: nil,
               description: "Hybrid KEM: ML-KEM-768 + X25519 combined via X-Wing SHA3-256 combiner (draft-connolly-cfrg-xwing-kem).",
             }.freeze,
+            ml_dsa_44: {
+              family: :ml_dsa,
+              legacy_oid: nil,
+              standard_oid: "2.16.840.1.101.3.4.3.17",
+              public_key_bytes: PQCrypto::SIGN_44_PUBLIC_KEY_BYTES,
+              secret_key_bytes: PQCrypto::SIGN_44_SECRET_KEY_BYTES,
+              ciphertext_bytes: nil,
+              shared_secret_bytes: nil,
+              signature_bytes: PQCrypto::SIGN_44_BYTES,
+              description: "ML-DSA-44 signature primitive (FIPS 204).",
+            }.freeze,
             ml_dsa_65: {
               family: :ml_dsa,
               legacy_oid: "2.25.305232938483772195555080795650659207792",
@@ -38,6 +71,17 @@ module PQCrypto
               shared_secret_bytes: nil,
               signature_bytes: PQCrypto::SIGN_BYTES,
               description: "ML-DSA-65 signature primitive (FIPS 204).",
+            }.freeze,
+            ml_dsa_87: {
+              family: :ml_dsa,
+              legacy_oid: nil,
+              standard_oid: "2.16.840.1.101.3.4.3.19",
+              public_key_bytes: PQCrypto::SIGN_87_PUBLIC_KEY_BYTES,
+              secret_key_bytes: PQCrypto::SIGN_87_SECRET_KEY_BYTES,
+              ciphertext_bytes: nil,
+              shared_secret_bytes: nil,
+              signature_bytes: PQCrypto::SIGN_87_BYTES,
+              description: "ML-DSA-87 signature primitive (FIPS 204).",
             }.freeze,
           }.freeze
         end
@@ -81,10 +125,13 @@ module PQCrypto
       end
 
       def legacy_metadata_view
-        @legacy_metadata_view ||= entries.transform_values do |entry|
-          {
+        @legacy_metadata_view ||= entries.each_with_object({}) do |(algorithm, entry), view|
+          oid = entry.fetch(:legacy_oid)
+          next if oid.nil?
+
+          view[algorithm] = {
             family: entry.fetch(:family),
-            oid: entry.fetch(:legacy_oid),
+            oid: oid,
           }.freeze
         end.freeze
       end

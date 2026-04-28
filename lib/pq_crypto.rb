@@ -53,12 +53,26 @@ module PQCrypto
       ml_kem_keypair_from_seed
       ml_kem_encapsulate
       ml_kem_decapsulate
+      ml_kem_512_keypair
+      ml_kem_512_keypair_from_seed
+      ml_kem_512_encapsulate
+      ml_kem_512_decapsulate
+      ml_kem_1024_keypair
+      ml_kem_1024_keypair_from_seed
+      ml_kem_1024_encapsulate
+      ml_kem_1024_decapsulate
       hybrid_kem_keypair
       hybrid_kem_encapsulate
       hybrid_kem_decapsulate
       sign_keypair
       sign
       verify
+      ml_dsa_44_keypair
+      ml_dsa_44_sign
+      ml_dsa_44_verify
+      ml_dsa_87_keypair
+      ml_dsa_87_sign
+      ml_dsa_87_verify
       ct_equals
       secure_wipe
       version

@@ -8,10 +8,28 @@ module PQCrypto
 
     DETAILS = AlgorithmRegistry.details_for_family(:ml_dsa).freeze
 
+    NATIVE_DISPATCH = {
+      ml_dsa_44: {
+        keypair: :native_ml_dsa_44_keypair,
+        sign: :native_ml_dsa_44_sign,
+        verify: :native_ml_dsa_44_verify,
+      }.freeze,
+      ml_dsa_65: {
+        keypair: :native_sign_keypair,
+        sign: :native_sign,
+        verify: :native_verify,
+      }.freeze,
+      ml_dsa_87: {
+        keypair: :native_ml_dsa_87_keypair,
+        sign: :native_ml_dsa_87_sign,
+        verify: :native_ml_dsa_87_verify,
+      }.freeze,
+    }.freeze
+
     class << self
       def generate(algorithm = CANONICAL_ALGORITHM)
-        resolve_algorithm!(algorithm)
-        public_key, secret_key = PQCrypto.__send__(:native_sign_keypair)
+        algorithm = resolve_algorithm!(algorithm)
+        public_key, secret_key = PQCrypto.__send__(native_method_for(algorithm, :keypair))
         Keypair.new(PublicKey.new(algorithm, public_key), SecretKey.new(algorithm, secret_key))
       end
 
@@ -92,6 +110,10 @@ module PQCrypto
         end
 
         SecretKey.new(resolve_algorithm!(algorithm), material)
+      end
+
+      def native_method_for(algorithm, operation)
+        NATIVE_DISPATCH.fetch(resolve_algorithm!(algorithm)).fetch(operation)
       end
 
       def validate_algorithm_match!(expected_algorithm, actual_algorithm)
@@ -241,7 +263,7 @@ module PQCrypto
       end
 
       def verify(message, signature)
-        PQCrypto.__send__(:native_verify, String(message).b, String(signature).b, @bytes)
+        PQCrypto.__send__(Signature.send(:native_method_for, @algorithm, :verify), String(message).b, String(signature).b, @bytes)
       rescue ArgumentError => e
         raise InvalidKeyError, e.message
       end
@@ -335,7 +357,7 @@ module PQCrypto
       end
 
       def sign(message)
-        PQCrypto.__send__(:native_sign, String(message).b, @bytes)
+        PQCrypto.__send__(Signature.send(:native_method_for, @algorithm, :sign), String(message).b, @bytes)
       rescue ArgumentError => e
         raise InvalidKeyError, e.message
       end

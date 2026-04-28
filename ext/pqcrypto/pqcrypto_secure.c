@@ -1,4 +1,5 @@
 #include "pqcrypto_secure.h"
+#include "pqcrypto_version.h"
 
 #include <stdio.h>
 #include <sys/types.h>
@@ -46,15 +47,6 @@ static int pq_size_add(size_t a, size_t b, size_t *out) {
     if (SIZE_MAX - a < b)
         return PQ_ERROR_BUFFER;
     *out = a + b;
-    return PQ_SUCCESS;
-}
-
-static int pq_size_mul(size_t a, size_t b, size_t *out) {
-    if (!out)
-        return PQ_ERROR_BUFFER;
-    if (a != 0 && SIZE_MAX / a < b)
-        return PQ_ERROR_BUFFER;
-    *out = a * b;
     return PQ_SUCCESS;
 }
 
@@ -260,6 +252,14 @@ int pq_mlkem_keypair(uint8_t *pk, uint8_t *sk) {
     return PQCLEAN_MLKEM768_CLEAN_crypto_kem_keypair(pk, sk) == 0 ? PQ_SUCCESS : PQ_ERROR_KEYPAIR;
 }
 
+int pq_mlkem512_keypair(uint8_t *pk, uint8_t *sk) {
+    return PQCLEAN_MLKEM512_CLEAN_crypto_kem_keypair(pk, sk) == 0 ? PQ_SUCCESS : PQ_ERROR_KEYPAIR;
+}
+
+int pq_mlkem1024_keypair(uint8_t *pk, uint8_t *sk) {
+    return PQCLEAN_MLKEM1024_CLEAN_crypto_kem_keypair(pk, sk) == 0 ? PQ_SUCCESS : PQ_ERROR_KEYPAIR;
+}
+
 /*
  * Expand the 64-byte ML-KEM seed (d || z) into a public/expanded secret
  * keypair using FIPS 203 Algorithm 16 through PQClean's derand entry point.
@@ -275,14 +275,53 @@ int pq_mlkem_keypair_from_seed(uint8_t *public_key, uint8_t *secret_key, const u
     return (rc == 0) ? PQ_SUCCESS : PQ_ERROR_KEYPAIR;
 }
 
+int pq_mlkem512_keypair_from_seed(uint8_t *public_key, uint8_t *secret_key, const uint8_t *seed64) {
+    if (!public_key || !secret_key || !seed64) {
+        return PQ_ERROR_BUFFER;
+    }
+
+    int rc = PQCLEAN_MLKEM512_CLEAN_crypto_kem_keypair_derand(public_key, secret_key, seed64);
+    return (rc == 0) ? PQ_SUCCESS : PQ_ERROR_KEYPAIR;
+}
+
+int pq_mlkem1024_keypair_from_seed(uint8_t *public_key, uint8_t *secret_key,
+                                   const uint8_t *seed64) {
+    if (!public_key || !secret_key || !seed64) {
+        return PQ_ERROR_BUFFER;
+    }
+
+    int rc = PQCLEAN_MLKEM1024_CLEAN_crypto_kem_keypair_derand(public_key, secret_key, seed64);
+    return (rc == 0) ? PQ_SUCCESS : PQ_ERROR_KEYPAIR;
+}
+
 int pq_mlkem_encapsulate(uint8_t *ct, uint8_t *ss, const uint8_t *pk) {
     return PQCLEAN_MLKEM768_CLEAN_crypto_kem_enc(ct, ss, pk) == 0 ? PQ_SUCCESS
                                                                   : PQ_ERROR_ENCAPSULATE;
 }
 
+int pq_mlkem512_encapsulate(uint8_t *ct, uint8_t *ss, const uint8_t *pk) {
+    return PQCLEAN_MLKEM512_CLEAN_crypto_kem_enc(ct, ss, pk) == 0 ? PQ_SUCCESS
+                                                                  : PQ_ERROR_ENCAPSULATE;
+}
+
+int pq_mlkem1024_encapsulate(uint8_t *ct, uint8_t *ss, const uint8_t *pk) {
+    return PQCLEAN_MLKEM1024_CLEAN_crypto_kem_enc(ct, ss, pk) == 0 ? PQ_SUCCESS
+                                                                   : PQ_ERROR_ENCAPSULATE;
+}
+
 int pq_mlkem_decapsulate(uint8_t *ss, const uint8_t *ct, const uint8_t *sk) {
     return PQCLEAN_MLKEM768_CLEAN_crypto_kem_dec(ss, ct, sk) == 0 ? PQ_SUCCESS
                                                                   : PQ_ERROR_DECAPSULATE;
+}
+
+int pq_mlkem512_decapsulate(uint8_t *ss, const uint8_t *ct, const uint8_t *sk) {
+    return PQCLEAN_MLKEM512_CLEAN_crypto_kem_dec(ss, ct, sk) == 0 ? PQ_SUCCESS
+                                                                  : PQ_ERROR_DECAPSULATE;
+}
+
+int pq_mlkem1024_decapsulate(uint8_t *ss, const uint8_t *ct, const uint8_t *sk) {
+    return PQCLEAN_MLKEM1024_CLEAN_crypto_kem_dec(ss, ct, sk) == 0 ? PQ_SUCCESS
+                                                                   : PQ_ERROR_DECAPSULATE;
 }
 
 int pq_testing_mlkem_keypair_from_seed(uint8_t *public_key, uint8_t *secret_key,
@@ -313,6 +352,18 @@ int pq_sign_keypair(uint8_t *public_key, uint8_t *secret_key) {
                : PQ_ERROR_KEYPAIR;
 }
 
+int pq_mldsa44_sign_keypair(uint8_t *public_key, uint8_t *secret_key) {
+    return PQCLEAN_MLDSA44_CLEAN_crypto_sign_keypair(public_key, secret_key) == 0
+               ? PQ_SUCCESS
+               : PQ_ERROR_KEYPAIR;
+}
+
+int pq_mldsa87_sign_keypair(uint8_t *public_key, uint8_t *secret_key) {
+    return PQCLEAN_MLDSA87_CLEAN_crypto_sign_keypair(public_key, secret_key) == 0
+               ? PQ_SUCCESS
+               : PQ_ERROR_KEYPAIR;
+}
+
 int pq_sign(uint8_t *signature, size_t *signature_len, const uint8_t *message, size_t message_len,
             const uint8_t *secret_key) {
     return PQCLEAN_MLDSA65_CLEAN_crypto_sign_signature(signature, signature_len, message,
@@ -321,9 +372,41 @@ int pq_sign(uint8_t *signature, size_t *signature_len, const uint8_t *message, s
                : PQ_ERROR_SIGN;
 }
 
+int pq_mldsa44_sign(uint8_t *signature, size_t *signature_len, const uint8_t *message,
+                    size_t message_len, const uint8_t *secret_key) {
+    return PQCLEAN_MLDSA44_CLEAN_crypto_sign_signature(signature, signature_len, message,
+                                                       message_len, secret_key) == 0
+               ? PQ_SUCCESS
+               : PQ_ERROR_SIGN;
+}
+
+int pq_mldsa87_sign(uint8_t *signature, size_t *signature_len, const uint8_t *message,
+                    size_t message_len, const uint8_t *secret_key) {
+    return PQCLEAN_MLDSA87_CLEAN_crypto_sign_signature(signature, signature_len, message,
+                                                       message_len, secret_key) == 0
+               ? PQ_SUCCESS
+               : PQ_ERROR_SIGN;
+}
+
 int pq_verify(const uint8_t *signature, size_t signature_len, const uint8_t *message,
               size_t message_len, const uint8_t *public_key) {
     return PQCLEAN_MLDSA65_CLEAN_crypto_sign_verify(signature, signature_len, message, message_len,
+                                                    public_key) == 0
+               ? PQ_SUCCESS
+               : PQ_ERROR_VERIFY;
+}
+
+int pq_mldsa44_verify(const uint8_t *signature, size_t signature_len, const uint8_t *message,
+                      size_t message_len, const uint8_t *public_key) {
+    return PQCLEAN_MLDSA44_CLEAN_crypto_sign_verify(signature, signature_len, message, message_len,
+                                                    public_key) == 0
+               ? PQ_SUCCESS
+               : PQ_ERROR_VERIFY;
+}
+
+int pq_mldsa87_verify(const uint8_t *signature, size_t signature_len, const uint8_t *message,
+                      size_t message_len, const uint8_t *public_key) {
+    return PQCLEAN_MLDSA87_CLEAN_crypto_sign_verify(signature, signature_len, message, message_len,
                                                     public_key) == 0
                ? PQ_SUCCESS
                : PQ_ERROR_VERIFY;
@@ -974,5 +1057,5 @@ int pq_secret_key_from_pqc_container_pem(char **algorithm_out, uint8_t **key_out
 }
 
 const char *pq_version(void) {
-    return "0.3.2";
+    return PQCRYPTO_VERSION;
 }

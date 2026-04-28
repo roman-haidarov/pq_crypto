@@ -171,9 +171,9 @@ class TestPQCryptoPrimitiveAPI < Minitest::Test
   end
 
   def test_unsupported_algorithm_errors
-    assert_raises(PQCrypto::UnsupportedAlgorithmError) { PQCrypto::KEM.generate(:ml_kem_1024) }
+    assert_raises(PQCrypto::UnsupportedAlgorithmError) { PQCrypto::KEM.generate(:ml_kem_2048) }
     assert_raises(PQCrypto::UnsupportedAlgorithmError) { PQCrypto::HybridKEM.generate(:ml_kem_1024_x25519) }
-    assert_raises(PQCrypto::UnsupportedAlgorithmError) { PQCrypto::Signature.generate(:ml_dsa_87) }
+    assert_raises(PQCrypto::UnsupportedAlgorithmError) { PQCrypto::Signature.generate(:ml_dsa_99) }
   end
 
   def test_unsupported_asn1_key_aliases_are_absent

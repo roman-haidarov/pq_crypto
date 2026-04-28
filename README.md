@@ -282,3 +282,14 @@ PQCLEAN_SHA256=<archive-sha256> \
 PQCLEAN_STRIP=PQClean-<full-git-commit> \
   bundle exec ruby script/vendor_libs.rb
 ```
+
+
+## Supported parameter sets
+
+| Family | Parameter sets | Serialization notes |
+| --- | --- | --- |
+| KEM | ML-KEM-512, ML-KEM-768, ML-KEM-1024 | SPKI/PKCS#8 for all; `pqc_container_*` remains limited to the original ML-KEM-768 algorithm. |
+| Signature | ML-DSA-44, ML-DSA-65, ML-DSA-87 | SPKI/PKCS#8 expanded-key for all; `pqc_container_*` remains limited to the original ML-DSA-65 algorithm. |
+| Hybrid | ML-KEM-768 + X25519 (X-Wing) | `pqc_container_*` only. |
+
+Patch 7 adds public Ruby API support for the additional NIST parameter sets while preserving the existing project-local `pqc_container_*` wire format.
