@@ -1,10 +1,28 @@
-## 0.4.0
-
-- Add public API support for ML-KEM-512, ML-KEM-1024, ML-DSA-44, and ML-DSA-87.
-- Add native wrappers and Ruby dispatch for the new parameter sets.
-- Extend SPKI/PKCS#8 support to the new parameter sets while keeping `pqc_container_*` restricted to the original algorithms.
-
 # Changelog
+
+## [0.4.0] — 2026-04-28
+
+### Added — standard serialization and expanded parameter sets
+
+- Added a central algorithm registry with legacy `pqc_container_*` OIDs kept separate from RFC 9935 / RFC 9881 standard OIDs.
+- Added RFC 9935 SPKI public-key and PKCS#8 private-key support for ML-KEM.
+- Added RFC 9881 SPKI public-key and expanded-key PKCS#8 support for ML-DSA.
+- Added public API support for ML-KEM-512, ML-KEM-1024, ML-DSA-44, and ML-DSA-87 alongside the existing ML-KEM-768 and ML-DSA-65 support.
+- Added OpenSSL 3.5+ interoperability tests for standard SPKI / PKCS#8 encodings where supported by the linked OpenSSL.
+- Added NIST ACVP KAT test infrastructure for ML-KEM and ML-DSA parameter sets.
+- Added opt-in ML-DSA seed/both PKCS#8 import support. The default remains off; callers must set `PQCrypto::PKCS8.allow_ml_dsa_seed_format = true`.
+
+### Changed
+
+- Bumped the gem version to `0.4.0`.
+- `pqc_container_*` remains frozen and project-local. It is still limited to the original three algorithms: `:ml_kem_768`, `:ml_dsa_65`, and `:ml_kem_768_x25519_xwing`.
+- `DETAILS[:oid]` continues to expose the legacy `pqc_container_*` OID for backward compatibility. Standard OIDs are available via `PQCrypto::AlgorithmRegistry.standard_oid`.
+- The native `PQCrypto.version` path now derives from `lib/pq_crypto/version.rb` through a generated C header, avoiding a second manually maintained version string.
+
+### Security notes
+
+- ML-DSA seed-format imports are opt-in because PQClean does not expose a public ML-DSA derandomized keypair entrypoint. The implementation reuses the thread-local seed-replay path documented in `SECURITY.md`.
+- The project remains unaudited and experimental.
 
 ## [0.3.2] — 2026-04-25
 

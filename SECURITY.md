@@ -4,54 +4,90 @@
 
 `pq_crypto` exposes a primitive-first public surface:
 
-- `PQCrypto::KEM` (`ML-KEM-768`)
-- `PQCrypto::Signature` (`ML-DSA-65`)
-- `PQCrypto::HybridKEM` (`ML-KEM-768 + X25519` via the X-Wing combiner)
+- `PQCrypto::KEM` — ML-KEM-512, ML-KEM-768, ML-KEM-1024
+- `PQCrypto::Signature` — ML-DSA-44, ML-DSA-65, ML-DSA-87
+- `PQCrypto::HybridKEM` — ML-KEM-768 + X25519 via the X-Wing combiner
 - `PQCrypto.secure_wipe`
-- `PQCrypto.ct_equals` (constant-time byte-string comparison)
+- `PQCrypto.ct_equals`
 
-The gem does **not** publish protocol/session helpers as part of the
-supported public API.
-
-ML-DSA seed-format PKCS#8 import is opt-in; see "ML-DSA seed-format imports" below.
+The gem does not publish protocol/session helpers as part of the supported
+public API.
 
 ## Audit status
 
 This project has not been audited. Treat it as experimental software.
 
+The test surface includes deterministic regression tests, NIST ACVP KAT test
+infrastructure, and OpenSSL 3.5+ interoperability tests for standard SPKI /
+PKCS#8 encodings where the linked OpenSSL exposes the corresponding ML-KEM /
+ML-DSA EVP support. These tests improve compatibility coverage but are not a
+substitute for a security audit.
+
 ## Algorithm notes
 
-### ML-KEM-768 / ML-DSA-65
+### ML-KEM / ML-DSA
 
-The post-quantum primitives are backed by vendored `PQClean` sources
-and called through PQClean's public `crypto_kem_*` and `crypto_sign_*`
-entrypoints only. Internal PQClean symbols are not called from this
-gem.
+The post-quantum primitives are backed by vendored `PQClean` sources and called
+through PQClean's public `crypto_kem_*` and `crypto_sign_*` entrypoints. The gem
+does not reimplement ML-KEM, ML-DSA, SHAKE, or Keccak.
 
 ### HybridKEM
 
-`PQCrypto::HybridKEM` implements the **X-Wing** construction from
-[`draft-connolly-cfrg-xwing-kem-10`](https://datatracker.ietf.org/doc/draft-connolly-cfrg-xwing-kem/).
+`PQCrypto::HybridKEM` implements the X-Wing construction from
+`draft-connolly-cfrg-xwing-kem-10`.
 
-The X-Wing secret decapsulation key is a 32-byte seed. It is expanded
-with SHAKE256 into the ML-KEM-768 and X25519 private material used
-internally for decapsulation. The public key and ciphertext are the
-fixed-length concatenations specified by the draft.
+The X-Wing secret decapsulation key is a 32-byte seed. It is expanded with
+SHAKE256 into the ML-KEM-768 and X25519 private material used internally for
+decapsulation. The public key and ciphertext are the fixed-length
+concatenations specified by the draft.
 
-    ss = SHA3-256( ss_M || ss_X || ct_X || pk_X || XWingLabel )
+```text
+ss = SHA3-256( ss_M || ss_X || ct_X || pk_X || XWingLabel )
+```
 
-where `XWingLabel = "\.//^\"` (6 ASCII bytes).
+where `XWingLabel = "\.//^\"`.
 
-X-Wing as specified has a proof of classical IND-CCA security under
-the strong Diffie-Hellman assumption for X25519 (in the ROM), and
-post-quantum IND-CCA security in the standard model assuming ML-KEM-768
-is IND-CCA secure and SHA3-256 behaves as a PRF.
-
-This gem is intended to match the X-Wing draft as of version 10. External
-interoperability should still be verified against the reference
+External interoperability should be verified against the reference
 implementation before relying on it.
 
-### ML-DSA seed-format imports
+## Serialization formats
+
+### pq_crypto-local `pqc_container_*`
+
+`pqc_container_*` DER/PEM wrappers are pq_crypto-specific containers. They are:
+
+- not ASN.1
+- not SPKI
+- not PKCS#8
+- not advertised as interoperable with OpenSSL, Go, Java, or PKI tooling
+
+This format is frozen for backward compatibility and remains limited to the
+original three algorithms:
+
+- `:ml_kem_768`
+- `:ml_dsa_65`
+- `:ml_kem_768_x25519_xwing`
+
+### Standard SPKI / PKCS#8
+
+ML-KEM and ML-DSA use standard SPKI public-key and PKCS#8 private-key encodings
+for the NIST parameter sets. AlgorithmIdentifier parameters are absent, not
+encoded as `NULL`.
+
+| Algorithm | Standard OID | Reference |
+| --- | --- | --- |
+| ML-KEM-512 | `2.16.840.1.101.3.4.4.1` | RFC 9935 |
+| ML-KEM-768 | `2.16.840.1.101.3.4.4.2` | RFC 9935 |
+| ML-KEM-1024 | `2.16.840.1.101.3.4.4.3` | RFC 9935 |
+| ML-DSA-44 | `2.16.840.1.101.3.4.3.17` | RFC 9881 |
+| ML-DSA-65 | `2.16.840.1.101.3.4.3.18` | RFC 9881 |
+| ML-DSA-87 | `2.16.840.1.101.3.4.3.19` | RFC 9881 |
+
+`PQCrypto::KEM.details` / `PQCrypto::Signature.details` keep `:oid` as the
+legacy `pqc_container_*` OID for backward compatibility. Use
+`PQCrypto::AlgorithmRegistry.standard_oid` for the standard OID.
+
+## ML-DSA seed-format imports
 
 ML-DSA seed and both-form PKCS#8 imports are disabled by default. To import
 these encodings, callers must explicitly set:
@@ -61,8 +97,8 @@ PQCrypto::PKCS8.allow_ml_dsa_seed_format = true
 ```
 
 This opt-in exists because PQClean exposes no public ML-DSA
-`crypto_sign_keypair_derand` entrypoint. The implementation therefore reuses
-the same thread-local seed-replay `randombytes()` path introduced for Patch 8 KAT tests to
+`crypto_sign_keypair_derand` entrypoint. The implementation therefore reuses the
+same thread-local seed-replay `randombytes()` path introduced for KAT tests to
 expand the RFC 9881 seed into an expanded private key. The replay buffer is
 thread-local, cleared immediately after expansion, and remains inactive for all
 normal production randomness paths.
@@ -70,80 +106,42 @@ normal production randomness paths.
 For `both` encodings, the decoder expands the seed and rejects the key if the
 expandedKey half does not match the seed-derived key.
 
-### Deterministic test hooks
+## Deterministic test hooks
 
-`PQCrypto::Testing` deterministic helpers drive the stock PQClean
-`crypto_sign_keypair` / `crypto_sign_signature` (for ML-DSA) and
-`crypto_kem_keypair_derand` / `crypto_kem_enc_derand` (for ML-KEM)
-against a caller-supplied seed. For ML-DSA, which has no derand API
-upstream, the gem installs a thread-local seed-replay buffer inside
-its `randombytes()` implementation; outside of a test call the same
-`randombytes()` entry delegates directly to OpenSSL `RAND_bytes`. No
-internal PQClean algorithm logic is reimplemented in this gem.
-
-## Serialization
-
-`pqc_container_*` DER/PEM wrappers are pq_crypto-specific containers.
-
-They are:
-
-- not real SPKI
-- not real PKCS#8
-- not advertised as interoperable with OpenSSL, Go, Java, or PKI tooling
-
-The `pqc_container_*` envelope itself is project-specific. ML-KEM and
-ML-DSA currently use project-local UUID-derived OIDs under `2.25.*`.
-Hybrid X-Wing uses the draft X-Wing OID `1.3.6.1.4.1.62253.25722`.
-
-The hybrid OID used by 0.2.0
-(`2.25.260242945110721168101139140490528778800`) is retired. The
-intermediate 0.3.0 project-local hybrid OID
-(`2.25.318532651283923671095712569430174917109`) is also retired in
-favor of the draft X-Wing OID. Older hybrid containers are rejected at
-decode time.
+`PQCrypto::Testing` deterministic helpers drive the stock PQClean entrypoints
+against caller-supplied seeds. For ML-DSA, which has no derand API upstream, the
+gem installs a thread-local seed-replay buffer inside its `randombytes()`
+implementation; outside of a test call the same `randombytes()` entry delegates
+directly to OpenSSL `RAND_bytes`.
 
 ## Memory wiping
 
-`PQCrypto.secure_wipe` clears mutable Ruby strings in place. Ruby key
-objects (`PublicKey`, `SecretKey`) take a copy of the bytes passed into
-their constructor and expose `#wipe!` to zero only that internal copy
-— any prior Ruby string the caller still holds is untouched. Ruby
-garbage collection and prior derived copies may still leave sensitive
-material elsewhere in process memory.
+`PQCrypto.secure_wipe` clears mutable Ruby strings in place. Ruby key objects
+take a copy of the bytes passed into their constructor and expose `#wipe!` to
+zero only that internal copy. Ruby garbage collection and prior derived copies
+may still leave sensitive material elsewhere in process memory.
+
+Secret key objects redact `inspect` output and intentionally do not expose a
+public `fingerprint` method. This avoids accidental logging of raw secret bytes
+or stable secret-derived identifiers.
 
 ## OpenSSL baseline
 
-`pq_crypto` requires OpenSSL **3.0 or later**.
+`pq_crypto` requires OpenSSL 3.0 or later.
 
 OpenSSL is used for:
 
-- `X25519` key generation and key agreement (`EVP_PKEY_*`)
-- `SHA3-256` (X-Wing combiner, via `EVP_sha3_256`)
-- `RAND_bytes` (production entropy source for `randombytes()`)
-- `CRYPTO_memcmp` (constant-time comparison used by `PQCrypto.ct_equals`)
-- Base64 encode/decode for PEM via OpenSSL `BIO_f_base64`, with strict
-  header/footer framing and trailing-garbage checks.
+- X25519 key generation and key agreement
+- SHA3-256 for the X-Wing combiner
+- RAND_bytes as the production entropy source for `randombytes()`
+- CRYPTO_memcmp for constant-time comparison
+- Base64 encode/decode for PEM via OpenSSL BIOs
 
-## Secret key display and wiping
-
-Secret key objects redact `inspect` output and intentionally do not expose
-a public `fingerprint` method. This avoids accidental logging of raw secret
-bytes or stable secret-derived identifiers.
-
-`wipe!` is best-effort only. It wipes the current Ruby string buffer held
-by the key object; it cannot guarantee erasure of copies made by Ruby,
-OpenSSL, native wrapper buffers, serialization, logging, crash dumps, or
-the garbage collector.
+OpenSSL 3.5+ is additionally used in interop tests when ML-KEM / ML-DSA EVP
+support is available.
 
 ## Threading
 
 Concurrent read-only operations on primitive key objects are supported.
-Native calls copy Ruby string inputs before releasing the GVL, so
-normal concurrent use does not rely on Ruby string storage remaining
-pinned in place.
-
-The deterministic test hooks use a thread-local seed-replay mode
-around `randombytes()`, so a test running on one thread does not
-affect production callers on other threads. The deterministic helpers
-remain test-only utilities and should not be relied on as a general
-multi-threading contract.
+Mutating operations such as `wipe!` must not race with other uses of the same
+object.

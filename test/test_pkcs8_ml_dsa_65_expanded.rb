@@ -47,31 +47,31 @@ class TestPQCryptoPKCS8MLDSA65Expanded < Minitest::Test
       error = assert_raises(PQCrypto::SerializationError) do
         secret_key.to_pkcs8_der(format: format)
       end
-      assert_match(/ML-DSA seed-format PKCS#8 is not yet supported/, error.message)
+      assert_match(/ML-DSA seed\/both PKCS#8 export requires original seed material/, error.message)
     end
   end
 
-  def test_pkcs8_encoder_rejects_seed_and_both_for_ml_dsa
+  def test_pkcs8_encoder_rejects_seed_and_both_for_ml_dsa_by_default
     [:seed, :both].each do |format|
       material = format == :both ? ["\0" * ML_DSA_SEED_BYTES, "\0" * PQCrypto::SIGN_SECRET_KEY_BYTES] : "\0" * ML_DSA_SEED_BYTES
 
       error = assert_raises(PQCrypto::SerializationError) do
         PQCrypto::PKCS8.encode_der(:ml_dsa_65, material, format: format)
       end
-      assert_match(/ML-DSA seed-format PKCS#8 is not yet supported/, error.message)
+      assert_match(/ML-DSA seed-format PKCS#8 is opt-in/, error.message)
     end
   end
 
-  def test_decode_der_rejects_seed_choice_for_ml_dsa_until_patch_8b
+  def test_decode_der_rejects_seed_choice_for_ml_dsa_by_default
     der = pkcs8_der(seed_choice_der("\0" * ML_DSA_SEED_BYTES))
 
     error = assert_raises(PQCrypto::SerializationError) do
       PQCrypto::PKCS8.decode_der(der)
     end
-    assert_match(/ML-DSA seed-format PKCS#8 is not yet supported/, error.message)
+    assert_match(/ML-DSA seed-format PKCS#8 is opt-in/, error.message)
   end
 
-  def test_decode_der_rejects_both_choice_for_ml_dsa_until_patch_8b
+  def test_decode_der_rejects_both_choice_for_ml_dsa_by_default
     der = pkcs8_der(OpenSSL::ASN1::Sequence.new([
       OpenSSL::ASN1::OctetString.new("\0" * ML_DSA_SEED_BYTES),
       OpenSSL::ASN1::OctetString.new("\0" * PQCrypto::SIGN_SECRET_KEY_BYTES),
@@ -80,7 +80,7 @@ class TestPQCryptoPKCS8MLDSA65Expanded < Minitest::Test
     error = assert_raises(PQCrypto::SerializationError) do
       PQCrypto::PKCS8.decode_der(der)
     end
-    assert_match(/ML-DSA seed-format PKCS#8 is not yet supported/, error.message)
+    assert_match(/ML-DSA seed-format PKCS#8 is opt-in/, error.message)
   end
 
   def test_decode_der_rejects_wrong_expanded_key_size
