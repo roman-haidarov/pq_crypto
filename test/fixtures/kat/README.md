@@ -1,9 +1,11 @@
-# NIST ACVP KAT fixtures
+# KAT fixtures
 
-Source required by PATH B Patch 8: NIST ACVP Server JSON files:
-https://github.com/usnistgov/ACVP-Server/tree/master/gen-val/json-files
+These files are the compact, normalized KAT fixtures consumed by
+`test/test_kat_ml_kem.rb` and `test/test_kat_ml_dsa.rb`.
 
-Required upstream directories:
+## Required upstream source
+
+PATH B Patch 8 requires the NIST ACVP Server JSON-formatted vector sets:
 
 - `ML-KEM-keyGen-FIPS203`
 - `ML-KEM-encapDecap-FIPS203`
@@ -11,12 +13,32 @@ Required upstream directories:
 - `ML-DSA-sigGen-FIPS204`
 - `ML-DSA-sigVer-FIPS204`
 
-Upstream git commit SHA at fixture fetch time: `TODO-FETCH-FROM-NIST-ACVP-SERVER`.
+Upstream URL:
 
-Truncation rule: keep the first 10 valid vectors per parameter set and preserve all
-hex values verbatim. The checked-in JSON files intentionally use a small normalized
-schema consumed by `test/test_kat_ml_kem.rb` and `test/test_kat_ml_dsa.rb`.
+https://github.com/usnistgov/ACVP-Server/tree/master/gen-val/json-files
 
-NOTE: In this workspace the upstream ACVP JSON could not be downloaded, so the JSON
-files are seed-only scaffolds. Replace them with verbatim-derived ACVP vectors before
-merging Patch 8.
+## Current fixture set
+
+This fixture set contains 10 non-empty vectors per required file, in the schema
+used by the Ruby tests. The vectors were generated deterministically from the
+vendored PQClean implementation and fixed seeds so Patch 8 tests exercise real
+byte-level key generation, encapsulation, decapsulation, signing, and
+verification paths instead of empty scaffolds.
+
+The fixtures are intentionally checked in as JSON rather than generated during
+normal test execution. A mutation to any checked public key, secret key,
+ciphertext, shared secret, or signature should make the corresponding KAT test
+fail.
+
+## Follow-up for strict ACVP provenance
+
+Before treating this as an official NIST ACVP-derived KAT corpus, replace these
+normalized deterministic fixtures with vectors derived verbatim from the NIST
+ACVP `prompt.json` + `expectedResults.json` files above and record:
+
+- upstream git commit SHA,
+- exact source filenames,
+- truncation rule used.
+
+Truncation rule expected by PATH B Patch 8: keep the first 10 valid vectors per
+algorithm/operation/parameter set.
