@@ -129,22 +129,34 @@ def configure_pqclean(vendor_dir)
   pqclean_dir = File.join(vendor_dir, "pqclean")
   return nil unless Dir.exist?(pqclean_dir)
 
-  mlkem_dir = File.join(pqclean_dir, "crypto_kem", "ml-kem-768", "clean")
-  mldsa_dir = File.join(pqclean_dir, "crypto_sign", "ml-dsa-65", "clean")
+  mlkem_dirs = {
+    "pqclean_mlkem512" => File.join(pqclean_dir, "crypto_kem", "ml-kem-512", "clean"),
+    "pqclean_mlkem768" => File.join(pqclean_dir, "crypto_kem", "ml-kem-768", "clean"),
+    "pqclean_mlkem1024" => File.join(pqclean_dir, "crypto_kem", "ml-kem-1024", "clean")
+  }
+  mldsa_dirs = {
+    "pqclean_mldsa44" => File.join(pqclean_dir, "crypto_sign", "ml-dsa-44", "clean"),
+    "pqclean_mldsa65" => File.join(pqclean_dir, "crypto_sign", "ml-dsa-65", "clean"),
+    "pqclean_mldsa87" => File.join(pqclean_dir, "crypto_sign", "ml-dsa-87", "clean")
+  }
   common_dir = File.join(pqclean_dir, "common")
 
   keccak_config = configure_keccak_backend(vendor_dir, common_dir)
 
-  include_dirs = [mlkem_dir, mldsa_dir, common_dir, *keccak_config[:include_dirs]]
+  include_dirs = [*mlkem_dirs.values, *mldsa_dirs.values, common_dir, *keccak_config[:include_dirs]]
   return nil unless include_dirs.all? { |dir| Dir.exist?(dir) }
 
-  mlkem_sources = Dir.glob(File.join(mlkem_dir, "*.c")).sort
-  mldsa_sources = Dir.glob(File.join(mldsa_dir, "*.c")).sort
+  mlkem_source_groups = mlkem_dirs.map do |prefix, dir|
+    [prefix, Dir.glob(File.join(dir, "*.c")).sort]
+  end
+  mldsa_source_groups = mldsa_dirs.map do |prefix, dir|
+    [prefix, Dir.glob(File.join(dir, "*.c")).sort]
+  end
   common_sources = %w[sha2.c sp800-185.c].map { |name| File.join(common_dir, name) }
 
   source_groups = [
-    ["pqclean_mlkem", mlkem_sources],
-    ["pqclean_mldsa", mldsa_sources],
+    *mlkem_source_groups,
+    *mldsa_source_groups,
     ["pqclean_common", common_sources],
     keccak_config[:source_group]
   ]
