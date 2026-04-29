@@ -23,7 +23,6 @@ def generate_version_header!
 end
 
 generate_version_header!
-$cleanfiles << "pqcrypto_version.h"
 
 $CFLAGS << " -std=c11 -Wall -Wextra -O2"
 $CFLAGS << " -fstack-protector-strong -D_FORTIFY_SOURCE=2"
