@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.4.2] - 2026-04-29
+
+### Fixed
+- Fixed native extension build from packaged gem by keeping generated
+  `pqcrypto_version.h` available after `make clean`.
+
 ## [0.4.1] — 2026-04-29
 
 ### Fixed
