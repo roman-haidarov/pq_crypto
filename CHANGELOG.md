@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1] — 2026-04-29
+
+### Fixed
+
+- Hardened native ML-DSA signing error handling by checking RNG failures.
+- Improved streaming ML-DSA validation and context handling without regressing throughput.
+
 ## [0.4.0] — 2026-04-28
 
 ### Added — standard serialization and expanded parameter sets

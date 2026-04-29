@@ -140,8 +140,9 @@ module PQCrypto
       end
 
       def _streaming_sign(secret_key, io, chunk_size, context)
+        validate_streaming_algorithm!(secret_key.algorithm)
         validate_chunk_size!(chunk_size)
-        validate_context!(context)
+        context = validate_context!(context)
         validate_io!(io)
 
         sk_bytes = secret_key.__send__(:bytes_for_native)
@@ -151,7 +152,7 @@ module PQCrypto
           raise InvalidKeyError, e.message
         end
 
-        builder = PQCrypto.__send__(:_native_mldsa_mu_builder_new, tr, context.b)
+        builder = PQCrypto.__send__(:_native_mldsa_mu_builder_new, tr, context)
         builder_consumed = false
         mu = nil
         begin
@@ -167,8 +168,9 @@ module PQCrypto
       end
 
       def _streaming_verify(public_key, io, signature, chunk_size, context)
+        validate_streaming_algorithm!(public_key.algorithm)
         validate_chunk_size!(chunk_size)
-        validate_context!(context)
+        context = validate_context!(context)
         validate_io!(io)
 
         pk_bytes = public_key.__send__(:bytes_for_native)
@@ -178,7 +180,7 @@ module PQCrypto
           raise InvalidKeyError, e.message
         end
 
-        builder = PQCrypto.__send__(:_native_mldsa_mu_builder_new, tr, context.b)
+        builder = PQCrypto.__send__(:_native_mldsa_mu_builder_new, tr, context)
         builder_consumed = false
         mu = nil
         sig_bytes = String(signature).b
@@ -226,6 +228,14 @@ module PQCrypto
         if ctx.bytesize > 255
           raise ArgumentError, "context must be at most 255 bytes (FIPS 204)"
         end
+        ctx
+      end
+
+      def validate_streaming_algorithm!(algorithm)
+        return if resolve_algorithm!(algorithm) == CANONICAL_ALGORITHM
+
+        raise UnsupportedAlgorithmError,
+              "Streaming sign_io/verify_io currently supports only #{CANONICAL_ALGORITHM.inspect}"
       end
     end
 

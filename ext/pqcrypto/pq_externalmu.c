@@ -78,7 +78,16 @@ int pq_sign_mu(uint8_t *signature, size_t *signature_len, const uint8_t *mu,
 
     memcpy(mu_local, mu, CRHBYTES);
 
-    randombytes(rnd, RNDBYTES);
+    if (randombytes(rnd, RNDBYTES) != 0) {
+        pq_secure_wipe(rho, sizeof(rho));
+        pq_secure_wipe(key, sizeof(key));
+        pq_secure_wipe(rnd, sizeof(rnd));
+        pq_secure_wipe(mu_local, sizeof(mu_local));
+        pq_secure_wipe(&s1, sizeof(s1));
+        pq_secure_wipe(&s2, sizeof(s2));
+        pq_secure_wipe(&t0, sizeof(t0));
+        return PQ_ERROR_RANDOM;
+    }
 
     {
         uint8_t kr[SEEDBYTES + RNDBYTES + CRHBYTES];

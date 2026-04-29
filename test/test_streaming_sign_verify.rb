@@ -178,6 +178,25 @@ class TestStreamingSignVerify < Minitest::Test
     end
   end
 
+  def test_sign_io_rejects_non_canonical_ml_dsa_variants_explicitly
+    keypair = PQCrypto::Signature.generate(:ml_dsa_44)
+
+    error = assert_raises(PQCrypto::UnsupportedAlgorithmError) do
+      keypair.secret_key.sign_io(StringIO.new("message".b))
+    end
+    assert_match(/supports only :ml_dsa_65/, error.message)
+  end
+
+  def test_verify_io_rejects_non_canonical_ml_dsa_variants_explicitly
+    keypair = PQCrypto::Signature.generate(:ml_dsa_44)
+    sig = keypair.secret_key.sign("message".b)
+
+    error = assert_raises(PQCrypto::UnsupportedAlgorithmError) do
+      keypair.public_key.verify_io(StringIO.new("message".b), sig)
+    end
+    assert_match(/supports only :ml_dsa_65/, error.message)
+  end
+
   def test_context_tied_to_signature
     message = "ctx-bound message".b
     ctx_a = "context-A".b
