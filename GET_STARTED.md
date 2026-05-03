@@ -366,14 +366,6 @@ sources only. There is no PQClean fallback and no separate
 `PQCRYPTO_KECCAK_BACKEND` switch: Keccak/SHAKE comes from the selected PQ Code
 Package native source tree.
 
-For release gems, the vendor snapshot should already be packaged. For source or
-Git installs, `extconf.rb` auto-vendors the snapshot during native extension
-build if `ext/pqcrypto/vendor/.vendored` is missing. Auto-vendoring requires
-`git` and network access; disable it with `PQCRYPTO_AUTO_VENDOR=0` when you want
-the build to fail instead of downloading sources.
-
-For local development, explicit vendoring is still recommended:
-
 ```bash
 bundle exec rake vendor
 bundle exec rake compile
@@ -415,16 +407,13 @@ bundle exec rake test
 ```
 
 Refresh the pinned PQ Code Package native vendor snapshot only when intentionally
-updating vendored sources:
+updating vendored sources. The vendoring script keeps a minimal, source-gem-safe
+snapshot: `mlkem-native/mlkem`, `mldsa-native/mldsa`, and upstream license/docs
+only. It intentionally omits examples and symlink-heavy upstream trees:
 
 ```bash
 bundle exec ruby script/vendor_libs.rb
 ```
-
-Native extension installation from a Git dependency also runs this script
-automatically when the vendor snapshot is absent. For offline/reproducible
-installs, commit the vendored snapshot or build/install from a packaged gem that
-contains `ext/pqcrypto/vendor`.
 
 To intentionally change the upstream snapshot, override the native package refs:
 

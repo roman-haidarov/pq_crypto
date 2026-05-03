@@ -66,21 +66,19 @@ original algorithms:
 - Ruby 3.4 or later
 - a C toolchain with C11 support
 - OpenSSL 3.0 or later with SHA3-256 and SHAKE256 available
-- PQ Code Package native sources: either vendored in `ext/pqcrypto/vendor` or available to auto-vendor during installation
+- vendored minimal PQ Code Package native snapshot in `ext/pqcrypto/vendor`
 
 ## Native backend
 
 Version `0.5.0` moves ML-KEM and ML-DSA to PQ Code Package
 `mlkem-native` / `mldsa-native` sources. PQClean is no longer built and there
-is no runtime or build-time PQClean fallback.
+is no runtime or build-time PQClean fallback. The repository and source gem
+ship a minimal vendor snapshot containing only the `mlkem/` and `mldsa/` source
+trees plus license/docs; upstream examples, tests, proofs, `.git` directories,
+and symlink-heavy trees are intentionally omitted. If the native vendor snapshot
+is missing, the extension build fails early.
 
-A packaged release gem should include the pinned vendor snapshot. Source and Git
-installs can also auto-vendor the snapshot during native extension build when
-`ext/pqcrypto/vendor/.vendored` is missing. That path requires `git` and network
-access to GitHub. Set `PQCRYPTO_AUTO_VENDOR=0` to disable install-time vendoring
-and fail fast instead.
-
-From a source checkout, you can refresh the native vendor snapshot explicitly:
+From a source checkout, refresh the native vendor snapshot before compiling:
 
 ```bash
 bundle exec rake vendor
