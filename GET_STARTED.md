@@ -359,17 +359,31 @@ keypair.secret_key == imported_secret_key
 Secret key `inspect` output is intentionally redacted, and secret key objects
 do not expose a public fingerprint method.
 
-## 13. Build-time Keccak backend
+## 13. Native backend
 
-The default build uses PQClean's scalar `common/fips202.c` backend:
+Since `0.5.0`, the build uses PQ Code Package `mlkem-native` / `mldsa-native`
+sources only. There is no PQClean fallback and no separate
+`PQCRYPTO_KECCAK_BACKEND` switch: Keccak/SHAKE comes from the selected PQ Code
+Package native source tree.
+
+For release gems, the vendor snapshot should already be packaged. For source or
+Git installs, `extconf.rb` auto-vendors the snapshot during native extension
+build if `ext/pqcrypto/vendor/.vendored` is missing. Auto-vendoring requires
+`git` and network access; disable it with `PQCRYPTO_AUTO_VENDOR=0` when you want
+the build to fail instead of downloading sources.
+
+For local development, explicit vendoring is still recommended:
 
 ```bash
-PQCRYPTO_KECCAK_BACKEND=clean bundle exec rake compile
+bundle exec rake vendor
+bundle exec rake compile
 ```
 
-`PQCRYPTO_KECCAK_BACKEND=xkcp` is reserved for a separately vendored, reviewed,
-`fips202.h`-compatible XKCP adapter. If requested without that adapter, the
-build aborts instead of silently falling back to `clean`.
+To try the upstream native assembly backend, opt in explicitly:
+
+```bash
+PQCRYPTO_NATIVE_ASM=1 bundle exec rake compile
+```
 
 ## 14. Async / Fiber scheduler behavior
 
@@ -389,8 +403,8 @@ PQCrypto::Testing.ml_dsa_keypair_from_seed(seed)       # 32-byte seed
 PQCrypto::Testing.ml_dsa_sign_from_seed(message, sk, seed)
 ```
 
-These helpers are intended for tests only. They drive stock PQClean entrypoints
-and are not part of the normal application API.
+These helpers are intended for tests only. They drive deterministic PQ Code
+Package native entrypoints and are not part of the normal application API.
 
 ## 16. Development commands
 
@@ -400,20 +414,22 @@ Run the test suite:
 bundle exec rake test
 ```
 
-Refresh the pinned PQClean vendor snapshot only when intentionally updating
-vendored sources:
+Refresh the pinned PQ Code Package native vendor snapshot only when intentionally
+updating vendored sources:
 
 ```bash
 bundle exec ruby script/vendor_libs.rb
 ```
 
-To intentionally change the upstream snapshot, override all pinning inputs
-together:
+Native extension installation from a Git dependency also runs this script
+automatically when the vendor snapshot is absent. For offline/reproducible
+installs, commit the vendored snapshot or build/install from a packaged gem that
+contains `ext/pqcrypto/vendor`.
+
+To intentionally change the upstream snapshot, override the native package refs:
 
 ```bash
-PQCLEAN_VERSION=<full-git-commit> \
-PQCLEAN_URL=https://github.com/PQClean/PQClean/archive/<full-git-commit>.tar.gz \
-PQCLEAN_SHA256=<archive-sha256> \
-PQCLEAN_STRIP=PQClean-<full-git-commit> \
+MLKEM_NATIVE_REF=<tag-or-commit> \
+MLDSA_NATIVE_REF=<tag-or-commit> \
   bundle exec ruby script/vendor_libs.rb
 ```

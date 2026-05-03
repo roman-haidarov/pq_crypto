@@ -3,162 +3,34 @@
 
 require "digest"
 require "fileutils"
-require "open-uri"
-require "rubygems/package"
-require "tmpdir"
-require "zlib"
+require "open3"
 
 VENDOR_DIR = File.expand_path("../ext/pqcrypto/vendor", __dir__)
 MANIFEST_PATH = File.join(VENDOR_DIR, ".vendored")
 
-DEFAULT_PQCLEAN = {
-  version: "2cc64716044832eea747234ddbffc06746ab815d",
-  url: "https://github.com/PQClean/PQClean/archive/2cc64716044832eea747234ddbffc06746ab815d.tar.gz",
-  strip: "PQClean-2cc64716044832eea747234ddbffc06746ab815d",
-  sha256: "0e92076a79082a8d220e27227f37b280fb2ce050af412babd2bc755ab37b871a"
+DEFAULTS = {
+  mlkem: {
+    repo: "https://github.com/pq-code-package/mlkem-native.git",
+    ref: "v1.1.0",
+    target: "mlkem-native"
+  },
+  mldsa: {
+    repo: "https://github.com/pq-code-package/mldsa-native.git",
+    ref: "v1.0.0-beta",
+    target: "mldsa-native"
+  }
 }.freeze
 
-KEEP_DIRS = %w[
-  crypto_kem/ml-kem-512/clean
-  crypto_kem/ml-kem-768/clean
-  crypto_kem/ml-kem-1024/clean
-  crypto_sign/ml-dsa-44/clean
-  crypto_sign/ml-dsa-65/clean
-  crypto_sign/ml-dsa-87/clean
-  common
-].freeze
-
 WARNING = <<~TEXT.freeze
-  WARNING: this script is a manual vendor refresh tool.
+  WARNING: this script vendors PQ Code Package sources and removes PQClean.
 
-  pq_crypto relies on the vendored PQClean snapshot committed to the repository.
-  Running this script will replace ext/pqcrypto/vendor with a fresh upstream copy.
-  Use the pinned defaults unless you are intentionally updating the upstream snapshot.
+  pq_crypto now has no PQClean fallback. Build failures should point at the new
+  native stack only: mlkem-native / mldsa-native.
 TEXT
 
-def load_manifest(path)
-  return {} unless File.exist?(path)
-
-  File.readlines(path, chomp: true).each_with_object({}) do |line, acc|
-    next if line.strip.empty? || line.lstrip.start_with?("#")
-    key, value = line.split("=", 2)
-    next if key.nil? || value.nil?
-
-    acc[key] = value
-  end
-end
-
-def manifest_value(manifest, key)
-  value = manifest[key]
-  return nil if value.nil? || value.strip.empty? || value == "unrecorded"
-
-  value
-end
-
-def commit_archive_url?(url)
-  url.match?(%r{\Ahttps://(?:github\.com|codeload\.github\.com)/PQClean/PQClean/(?:archive|tar\.gz)/[0-9a-f]{40}(?:\.tar\.gz)?\z}i) ||
-    url.match?(%r{\Ahttps://github\.com/PQClean/PQClean/archive/[0-9a-f]{40}\.tar\.gz\z}i)
-end
-
-def build_vendor_config
-  manifest = load_manifest(MANIFEST_PATH)
-
-  version = ENV["PQCLEAN_VERSION"] || manifest_value(manifest, "pqclean_version") || DEFAULT_PQCLEAN[:version]
-  url = ENV["PQCLEAN_URL"] || manifest_value(manifest, "pqclean_url") || DEFAULT_PQCLEAN[:url]
-  sha256 = ENV["PQCLEAN_SHA256"] || manifest_value(manifest, "pqclean_archive_sha256") || DEFAULT_PQCLEAN[:sha256]
-  strip = ENV["PQCLEAN_STRIP"] || manifest_value(manifest, "pqclean_strip") || DEFAULT_PQCLEAN[:strip]
-
-  {
-    version: version,
-    url: url,
-    sha256: sha256,
-    strip: strip,
-    keep: KEEP_DIRS
-  }.freeze
-end
-
-def validate_vendor_config!(config)
-  required = %i[version url strip]
-  missing = required.select { |key| config[key].to_s.strip.empty? }
-  return if missing.empty?
-
-  abort <<~MSG
-    Missing required vendoring configuration: #{missing.join(", ")}
-
-    Example:
-      PQCLEAN_VERSION=<full-git-commit> \
-      PQCLEAN_URL=https://github.com/PQClean/PQClean/archive/<full-git-commit>.tar.gz \
-      PQCLEAN_STRIP=PQClean-<full-git-commit> \
-      PQCLEAN_SHA256=<archive-sha256> \
-      bundle exec ruby script/vendor_libs.rb
-  MSG
-end
-
-def validate_pinning!(config)
-  if config[:sha256].to_s.strip.empty?
-    abort <<~MSG
-      Refusing to vendor without PQCLEAN_SHA256.
-
-      Use the built-in pinned defaults, or provide all of:
-        PQCLEAN_VERSION
-        PQCLEAN_URL
-        PQCLEAN_STRIP
-        PQCLEAN_SHA256
-    MSG
-  end
-
-  return if commit_archive_url?(config[:url])
-
-  abort <<~MSG
-    Refusing to vendor from a non-commit archive URL.
-
-    Use a content-addressed full commit archive URL from the PQClean repository.
-  MSG
-end
-
-def download(url, destination)
-  puts "Downloading #{url}"
-  URI.open(url) { |remote| File.binwrite(destination, remote.read) }
-end
-
-def verify_checksum!(archive, expected_sha256)
-  actual = Digest::SHA256.file(archive).hexdigest
-  abort "SHA256 mismatch: expected #{expected_sha256}, got #{actual}" unless actual == expected_sha256
-  actual
-end
-
-def extract_subset(archive, destination, strip_prefix:, keep_dirs:)
-  prefix_re = /\A#{Regexp.escape(strip_prefix)}\//
-
-  Gem::Package::TarReader.new(Zlib::GzipReader.open(archive)) do |tar|
-    tar.each do |entry|
-      relative_path = entry.full_name.sub(prefix_re, "")
-      next if relative_path.empty? || relative_path == entry.full_name
-      next unless keep_dirs.any? { |dir| relative_path.start_with?(dir) }
-
-      target = File.join(destination, relative_path)
-
-      if entry.directory?
-        FileUtils.mkdir_p(target)
-      elsif entry.file?
-        FileUtils.mkdir_p(File.dirname(target))
-        File.binwrite(target, entry.read)
-      end
-    end
-  end
-end
-
-def write_manifest!(config:, archive_sha256:, tree_sha256:)
-  File.write(
-    MANIFEST_PATH,
-    <<~TEXT
-      pqclean_version=#{config[:version]}
-      pqclean_url=#{config[:url]}
-      pqclean_archive_sha256=#{archive_sha256}
-      pqclean_strip=#{config[:strip]}
-      pqclean_tree_sha256=#{tree_sha256}
-    TEXT
-  )
+def sh!(cmd)
+  puts "+ #{cmd.join(" ")}"
+  system(*cmd) || abort("command failed: #{cmd.join(" ")}")
 end
 
 def tree_sha256_for(directory)
@@ -176,27 +48,44 @@ def tree_sha256_for(directory)
   digest.hexdigest
 end
 
-config = build_vendor_config
-validate_vendor_config!(config)
-validate_pinning!(config)
+def clone_project(name, config)
+  env_prefix = name.to_s.upcase
+  repo = ENV["#{env_prefix}_NATIVE_REPO"] || config[:repo]
+  ref = ENV["#{env_prefix}_NATIVE_REF"] || config[:ref]
+  target = File.join(VENDOR_DIR, config[:target])
+
+  FileUtils.rm_rf(target)
+  sh!(["git", "clone", "--depth", "1", "--branch", ref, repo, target])
+
+  commit, status = Open3.capture2("git", "-C", target, "rev-parse", "HEAD")
+  commit = status.success? ? commit.strip : "unknown"
+
+  [repo, ref, commit, tree_sha256_for(target)]
+end
 
 puts WARNING
-puts "Vendoring PQClean into #{VENDOR_DIR}"
-puts "Pinned ref: #{config[:version]}"
-puts "Archive checksum: #{config[:sha256]}"
+puts "Vendoring into #{VENDOR_DIR}"
 
 FileUtils.rm_rf(VENDOR_DIR)
 FileUtils.mkdir_p(VENDOR_DIR)
 
-Dir.mktmpdir("pq_crypto-vendor") do |tmpdir|
-  archive = File.join(tmpdir, "pqclean.tar.gz")
-  destination = File.join(VENDOR_DIR, "pqclean")
+mlkem_repo, mlkem_ref, mlkem_commit, mlkem_tree = clone_project(:mlkem, DEFAULTS[:mlkem])
+mldsa_repo, mldsa_ref, mldsa_commit, mldsa_tree = clone_project(:mldsa, DEFAULTS[:mldsa])
 
-  download(config[:url], archive)
-  archive_sha256 = verify_checksum!(archive, config[:sha256])
-  extract_subset(archive, destination, strip_prefix: config[:strip], keep_dirs: config[:keep])
-  write_manifest!(config: config, archive_sha256: archive_sha256, tree_sha256: tree_sha256_for(destination))
-end
+File.write(
+  MANIFEST_PATH,
+  <<~TEXT
+    backend=PQ Code Package native only
+    pqclean=removed
+    mlkem_native_repo=#{mlkem_repo}
+    mlkem_native_ref=#{mlkem_ref}
+    mlkem_native_commit=#{mlkem_commit}
+    mlkem_native_tree_sha256=#{mlkem_tree}
+    mldsa_native_repo=#{mldsa_repo}
+    mldsa_native_ref=#{mldsa_ref}
+    mldsa_native_commit=#{mldsa_commit}
+    mldsa_native_tree_sha256=#{mldsa_tree}
+  TEXT
+)
 
-puts "Done. PQClean sources are now available in ext/pqcrypto/vendor/."
-puts "Next step: review vendor diffs, then bundle exec rake compile"
+puts "Done. Next step: bundle exec rake compile"

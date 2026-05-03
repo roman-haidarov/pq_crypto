@@ -66,6 +66,33 @@ original algorithms:
 - Ruby 3.4 or later
 - a C toolchain with C11 support
 - OpenSSL 3.0 or later with SHA3-256 and SHAKE256 available
+- PQ Code Package native sources: either vendored in `ext/pqcrypto/vendor` or available to auto-vendor during installation
+
+## Native backend
+
+Version `0.5.0` moves ML-KEM and ML-DSA to PQ Code Package
+`mlkem-native` / `mldsa-native` sources. PQClean is no longer built and there
+is no runtime or build-time PQClean fallback.
+
+A packaged release gem should include the pinned vendor snapshot. Source and Git
+installs can also auto-vendor the snapshot during native extension build when
+`ext/pqcrypto/vendor/.vendored` is missing. That path requires `git` and network
+access to GitHub. Set `PQCRYPTO_AUTO_VENDOR=0` to disable install-time vendoring
+and fail fast instead.
+
+From a source checkout, you can refresh the native vendor snapshot explicitly:
+
+```bash
+bundle exec rake vendor
+bundle exec rake compile
+```
+
+The default build uses the portable native source path. Upstream native assembly
+can be tested explicitly with:
+
+```bash
+PQCRYPTO_NATIVE_ASM=1 bundle exec rake compile
+```
 
 ## Security status
 
@@ -98,4 +125,5 @@ Detailed usage examples live in [`GET_STARTED.md`](GET_STARTED.md):
 - streaming ML-DSA for large files
 - SPKI and PKCS#8 serialization
 - `pqc_container_*` compatibility serialization
+- native backend / vendoring notes
 - secure wiping and practical safety notes

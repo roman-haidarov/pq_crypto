@@ -21,7 +21,7 @@ https://github.com/usnistgov/ACVP-Server/tree/master/gen-val/json-files
 
 This fixture set contains 10 non-empty vectors per required file, in the schema
 used by the Ruby tests. The vectors were generated deterministically from the
-vendored PQClean implementation and fixed seeds so Patch 8 tests exercise real
+vendored native implementation and fixed seeds so tests exercise real
 byte-level key generation, encapsulation, decapsulation, signing, and
 verification paths instead of empty scaffolds.
 

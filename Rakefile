@@ -5,6 +5,7 @@ require "rake/extensiontask"
 require "rake/testtask"
 
 spec = Gem::Specification.load("pq_crypto.gemspec")
+
 Rake::ExtensionTask.new("pqcrypto_secure", spec) do |ext|
   ext.ext_dir = "ext/pqcrypto"
   ext.lib_dir = "lib/pqcrypto"
@@ -21,12 +22,12 @@ end
 desc "Backward-compatible alias for the old RSpec task name"
 task spec: :test
 
-desc "Download and vendor PQClean sources"
+desc "Download and vendor mlkem-native / mldsa-native sources"
 task :vendor do
   ruby "script/vendor_libs.rb"
 end
 
-desc "Vendor PQClean, compile the extension, and run tests"
+desc "Vendor PQ Code Package native sources, compile the extension, and run tests"
 task full_build: %i[vendor compile test]
 
 task default: %i[compile test]

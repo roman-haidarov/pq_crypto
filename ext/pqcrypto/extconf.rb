@@ -2,6 +2,7 @@
 # frozen_string_literal: true
 
 require "mkmf"
+require "rbconfig"
 require_relative "../../lib/pq_crypto/version"
 
 def generate_version_header!
@@ -24,19 +25,13 @@ end
 
 generate_version_header!
 
-$CFLAGS << " -std=c11 -Wall -Wextra -O2"
+$CFLAGS << " -std=c11 -Wall -Wextra -O3"
 $CFLAGS << " -fstack-protector-strong -D_FORTIFY_SOURCE=2"
-VENDOR_ONLY_CFLAGS = "-Wno-unused-parameter -Wno-unused-function -Wno-strict-prototypes -Wno-pedantic -Wno-c23-extensions -Wno-undef"
-
 $LDFLAGS << " -Wl,-no_warn_duplicate_libraries" if RbConfig::CONFIG["host_os"] =~ /darwin/
 
-USE_SYSTEM = arg_config("--use-system-libraries") || ENV["PQCRYPTO_USE_SYSTEM_LIBRARIES"]
-
-KECCAK_BACKEND = (ENV["PQCRYPTO_KECCAK_BACKEND"] || "clean").strip.downcase
-SUPPORTED_KECCAK_BACKENDS = %w[clean xkcp].freeze
+VENDOR_ONLY_CFLAGS = "-Wno-unused-parameter -Wno-unused-function -Wno-strict-prototypes -Wno-pedantic -Wno-c23-extensions -Wno-undef"
 
 SANITIZE = ENV["PQCRYPTO_SANITIZE"]
-
 if SANITIZE && !SANITIZE.strip.empty?
   sanitize = SANITIZE.strip
   $CFLAGS.gsub!(/\s-D_FORTIFY_SOURCE=\d+/, "")
@@ -44,12 +39,62 @@ if SANITIZE && !SANITIZE.strip.empty?
   $LDFLAGS << " -fsanitize=#{sanitize}"
 end
 
+NATIVE_ASM = (ENV["PQCRYPTO_NATIVE_ASM"] || "0") == "1"
+
 def configure_compiler_environment
   return unless RUBY_PLATFORM.include?("darwin")
 
   dir_config("homebrew", "/opt/homebrew")
   $CPPFLAGS << " -I/opt/homebrew/include"
   $LDFLAGS << " -L/opt/homebrew/lib"
+end
+
+def native_vendor_sources_for(vendor_dir)
+  [
+    File.join(vendor_dir, "mlkem-native", "mlkem", "mlkem_native.c"),
+    File.join(vendor_dir, "mldsa-native", "mldsa", "mldsa_native.c")
+  ]
+end
+
+def native_vendor_ready?(vendor_dir)
+  File.exist?(File.join(vendor_dir, ".vendored")) &&
+    native_vendor_sources_for(vendor_dir).all? { |path| File.exist?(path) }
+end
+
+def vendor_script_path
+  File.expand_path("../../script/vendor_libs.rb", __dir__)
+end
+
+def run_vendor_script!(vendor_dir)
+  script = vendor_script_path
+  abort <<~MSG unless File.exist?(script)
+    PQ Code Package vendored sources are missing and script/vendor_libs.rb was not packaged.
+
+    Expected:
+      #{native_vendor_sources_for(vendor_dir).join("\n  ")}
+
+    Rebuild the gem from a repository that includes script/vendor_libs.rb, or run
+    script/vendor_libs.rb before building the gem package.
+  MSG
+
+  abort <<~MSG if ENV["PQCRYPTO_AUTO_VENDOR"] == "0"
+    PQ Code Package vendored sources are missing and PQCRYPTO_AUTO_VENDOR=0 was set.
+
+    Expected:
+      #{native_vendor_sources_for(vendor_dir).join("\n  ")}
+
+    Run:
+      ruby script/vendor_libs.rb
+  MSG
+
+  puts "PQ Code Package native sources are missing; vendoring now..."
+  ok = system(RbConfig.ruby, script)
+  abort <<~MSG unless ok
+    Failed to vendor PQ Code Package native sources.
+
+    This build intentionally has no PQClean fallback. Install git/network access or
+    vendor mlkem-native and mldsa-native before installing the gem.
+  MSG
 end
 
 def find_vendor_dir
@@ -65,8 +110,13 @@ def find_vendor_dir
     dir = File.dirname(dir)
   end
 
-  candidates.find { |path| File.exist?(File.join(path, ".vendored")) }
-            &.then { |path| File.expand_path(path) }
+  candidates.map! { |path| File.expand_path(path) }
+  candidates.uniq!
+
+  primary = File.expand_path(File.join(__dir__, "vendor"))
+  run_vendor_script!(primary) unless native_vendor_ready?(primary)
+
+  candidates.find { |path| native_vendor_ready?(path) }
 end
 
 def configure_openssl!
@@ -85,7 +135,6 @@ def configure_openssl!
     #endif
     int main(void) { return 0; }
   SRC
-
   abort "OpenSSL 3.0 or later is required" unless try_compile(version_check)
 
   sha3_check = <<~SRC
@@ -104,113 +153,112 @@ def configure_openssl!
         return md == NULL ? 1 : 0;
     }
   SRC
-  abort "OpenSSL SHAKE256 is required (X-Wing key expansion)" unless try_compile(shake_check)
+  abort "OpenSSL SHAKE256 is required (X-Wing key expansion / ML-DSA streaming mu)" unless try_compile(shake_check)
 
   $CFLAGS << " -DHAVE_OPENSSL_EVP_H -DHAVE_OPENSSL_RAND_H"
 end
 
-def configure_keccak_backend(vendor_dir, common_dir)
-  abort "Unsupported PQCRYPTO_KECCAK_BACKEND=#{KECCAK_BACKEND.inspect}. Supported: #{SUPPORTED_KECCAK_BACKENDS.join(", ")}" unless SUPPORTED_KECCAK_BACKENDS.include?(KECCAK_BACKEND)
-
-  case KECCAK_BACKEND
-  when "clean"
-    {
-      name: "clean",
-      include_dirs: [],
-      source_group: ["pqclean_common", [File.join(common_dir, "fips202.c")]]
-    }
-  when "xkcp"
-    # The optimized backend must provide the same fips202.h-compatible API as
-    # PQClean's common/fips202.c. Do not substitute OpenSSL EVP SHAKE here: the
-    # PQClean SHAKE state layout is part of the ML-KEM/ML-DSA call graph.
-    xkcp_dir = File.join(vendor_dir, "xkcp")
-    adapter_source = File.join(xkcp_dir, "pqclean_fips202_xkcp.c")
-
-    abort <<~MSG unless File.exist?(adapter_source)
-      PQCRYPTO_KECCAK_BACKEND=xkcp was requested, but no reviewed XKCP adapter was found.
-
-      Expected:
-        #{adapter_source}
-
-      Refusing to fall back silently to the clean backend. Vendor a fips202.h-compatible
-      XKCP adapter first, then run the full SHAKE-dependent KAT/regression test matrix.
-    MSG
-
-    {
-      name: "xkcp",
-      include_dirs: [xkcp_dir],
-      source_group: ["xkcp_keccak", [adapter_source]]
-    }
-  end
+def recursive_include_dirs(root)
+  Dir.glob(File.join(root, "**", "*")).select { |p| File.directory?(p) }.map { |p| File.expand_path(p) }
 end
 
-def configure_pqclean(vendor_dir)
-  return nil unless vendor_dir
+def native_vendor_config(vendor_dir)
+  abort <<~MSG unless vendor_dir
+    PQ Code Package vendored sources are required.
 
-  pqclean_dir = File.join(vendor_dir, "pqclean")
-  return nil unless Dir.exist?(pqclean_dir)
+    Expected:
+      ext/pqcrypto/vendor/mlkem-native/mlkem/mlkem_native.c
+      ext/pqcrypto/vendor/mldsa-native/mldsa/mldsa_native.c
 
-  mlkem_dirs = {
-    "pqclean_mlkem512" => File.join(pqclean_dir, "crypto_kem", "ml-kem-512", "clean"),
-    "pqclean_mlkem768" => File.join(pqclean_dir, "crypto_kem", "ml-kem-768", "clean"),
-    "pqclean_mlkem1024" => File.join(pqclean_dir, "crypto_kem", "ml-kem-1024", "clean")
-  }
-  mldsa_dirs = {
-    "pqclean_mldsa44" => File.join(pqclean_dir, "crypto_sign", "ml-dsa-44", "clean"),
-    "pqclean_mldsa65" => File.join(pqclean_dir, "crypto_sign", "ml-dsa-65", "clean"),
-    "pqclean_mldsa87" => File.join(pqclean_dir, "crypto_sign", "ml-dsa-87", "clean")
-  }
-  common_dir = File.join(pqclean_dir, "common")
+    Run:
+      bundle exec rake vendor
+  MSG
 
-  keccak_config = configure_keccak_backend(vendor_dir, common_dir)
+  mlkem_dir = File.join(vendor_dir, "mlkem-native", "mlkem")
+  mldsa_dir = File.join(vendor_dir, "mldsa-native", "mldsa")
+  mlkem_c = File.join(mlkem_dir, "mlkem_native.c")
+  mldsa_c = File.join(mldsa_dir, "mldsa_native.c")
 
-  include_dirs = [*mlkem_dirs.values, *mldsa_dirs.values, common_dir, *keccak_config[:include_dirs]]
-  return nil unless include_dirs.all? { |dir| Dir.exist?(dir) }
+  missing = [mlkem_c, mldsa_c].reject { |path| File.exist?(path) }
+  abort <<~MSG unless missing.empty?
+    Missing PQ Code Package native source files:
+      #{missing.join("\n  ")}
 
-  mlkem_source_groups = mlkem_dirs.map do |prefix, dir|
-    [prefix, Dir.glob(File.join(dir, "*.c")).sort]
-  end
-  mldsa_source_groups = mldsa_dirs.map do |prefix, dir|
-    [prefix, Dir.glob(File.join(dir, "*.c")).sort]
-  end
-  common_sources = %w[sha2.c sp800-185.c].map { |name| File.join(common_dir, name) }
+    This build intentionally has no PQClean fallback. Auto-vendoring did not
+    produce the required files. Vendor mlkem-native and mldsa-native, then rebuild.
+  MSG
 
-  source_groups = [
-    *mlkem_source_groups,
-    *mldsa_source_groups,
-    ["pqclean_common", common_sources],
-    keccak_config[:source_group]
-  ]
-
-  return nil unless source_groups.all? { |_, sources| sources.all? { |path| File.exist?(path) } }
-
-  $CFLAGS << " -DHAVE_PQCLEAN"
+  include_dirs = [__dir__, mlkem_dir, mldsa_dir, *recursive_include_dirs(mlkem_dir), *recursive_include_dirs(mldsa_dir)].uniq
   include_dirs.each { |dir| $CPPFLAGS << " -I#{dir}" }
 
   {
-    include_dirs: include_dirs,
-    keccak_backend: keccak_config[:name],
-    source_groups: source_groups
+    mlkem_dir: mlkem_dir,
+    mldsa_dir: mldsa_dir,
+    mlkem_c: mlkem_c,
+    mldsa_c: mldsa_c,
+    mlkem_asm: File.join(mlkem_dir, "mlkem_native_asm.S"),
+    mldsa_asm: File.join(mldsa_dir, "mldsa_native_asm.S")
   }
 end
 
-def inject_pqclean_sources!(pqclean_config)
-  return unless pqclean_config
+def native_flags(kind, level, shared:)
+  prefix = kind == :mlkem ? "MLK" : "MLD"
+  ns = kind == :mlkem ? "pqcr_mlkem" : "pqcr_mldsa"
+  flags = []
+  flags << "-D#{prefix}_CONFIG_MULTILEVEL_BUILD"
+  flags << "-D#{prefix}_CONFIG_PARAMETER_SET=#{level}"
+  flags << "-D#{prefix}_CONFIG_NAMESPACE_PREFIX=#{ns}"
+  flags << "-D#{prefix}_CONFIG_NO_SUPERCOP"
+  flags << (shared ? "-D#{prefix}_CONFIG_MULTILEVEL_WITH_SHARED" : "-D#{prefix}_CONFIG_MULTILEVEL_NO_SHARED")
+  if NATIVE_ASM
+    flags << "-D#{prefix}_CONFIG_USE_NATIVE_BACKEND_ARITH"
+    flags << "-D#{prefix}_CONFIG_USE_NATIVE_BACKEND_FIPS202"
+  end
+  flags.join(" ")
+end
 
+def inject_native_sources!(config)
   makefile = File.read("Makefile")
 
   vendor_objects = []
   build_rules = []
 
-  pqclean_config[:source_groups].each do |prefix, sources|
-    sources.each do |source|
-      base = File.basename(source, ".c").tr("-", "_")
-      object = "#{prefix}_#{base}.o"
+  [
+    [:mlkem, "512", config[:mlkem_c], true],
+    [:mlkem, "768", config[:mlkem_c], false],
+    [:mlkem, "1024", config[:mlkem_c], false],
+    [:mldsa, "44", config[:mldsa_c], true],
+    [:mldsa, "65", config[:mldsa_c], false],
+    [:mldsa, "87", config[:mldsa_c], false]
+  ].each do |kind, level, source, shared|
+    object = "pqnative_#{kind}_#{level}.o"
+    flags = native_flags(kind, level, shared: shared)
+    vendor_objects << object
+    build_rules << <<~RULE
+      #{object}: #{source}
+      	$(ECHO) compiling #{source} [#{kind}-#{level}]
+      	$(Q) $(CC) $(INCFLAGS) $(CPPFLAGS) $(CFLAGS) #{VENDOR_ONLY_CFLAGS} #{flags} $(COUTFLAG)$@ -c $(CSRCFLAG)$<
+    RULE
+  end
+
+  if NATIVE_ASM
+    [
+      [:mlkem, "512", config[:mlkem_asm], true],
+      [:mlkem, "768", config[:mlkem_asm], false],
+      [:mlkem, "1024", config[:mlkem_asm], false],
+      [:mldsa, "44", config[:mldsa_asm], true],
+      [:mldsa, "65", config[:mldsa_asm], false],
+      [:mldsa, "87", config[:mldsa_asm], false]
+    ].each do |kind, level, source, shared|
+      next unless File.exist?(source)
+
+      object = "pqnative_#{kind}_#{level}_asm.o"
+      flags = native_flags(kind, level, shared: shared)
       vendor_objects << object
       build_rules << <<~RULE
         #{object}: #{source}
-        	$(ECHO) compiling #{source}
-        	$(Q) $(CC) $(INCFLAGS) $(CPPFLAGS) $(CFLAGS) #{VENDOR_ONLY_CFLAGS} $(COUTFLAG)$@ -c $(CSRCFLAG)$<
+        	$(ECHO) assembling #{source} [#{kind}-#{level}]
+        	$(Q) $(CC) $(INCFLAGS) $(CPPFLAGS) $(CFLAGS) #{VENDOR_ONLY_CFLAGS} #{flags} $(COUTFLAG)$@ -c $(CSRCFLAG)$<
       RULE
     end
   end
@@ -220,8 +268,8 @@ def inject_pqclean_sources!(pqclean_config)
 
   makefile.sub!(objects_line, objects_line.chomp + " #{vendor_objects.join(' ')}\n")
 
-  unless makefile.include?("# vendored pqclean objects")
-    rules_block = "\n# vendored pqclean objects\n" + build_rules.join("\n") + "\n"
+  unless makefile.include?("# vendored pq-code-package objects")
+    rules_block = "\n# vendored pq-code-package objects\n" + build_rules.join("\n") + "\n"
     anchor = "$(OBJS): $(HDRS) $(ruby_headers)\n"
     raise "Could not find OBJS dependency anchor in generated Makefile" unless makefile.include?(anchor)
 
@@ -231,18 +279,19 @@ def inject_pqclean_sources!(pqclean_config)
   File.write("Makefile", makefile)
 end
 
-vendor_dir = USE_SYSTEM ? nil : find_vendor_dir
+vendor_dir = find_vendor_dir
 
 puts
 puts "=== PQCrypto build configuration ==="
 configure_openssl!
-pqclean_config = configure_pqclean(vendor_dir)
+native_config = native_vendor_config(vendor_dir)
 puts "OpenSSL: system"
-abort "PQClean vendored sources are required. Run: bundle exec rake vendor" unless pqclean_config
-puts "PQClean: vendored (randombytes overridden by pq_randombytes.c)"
-puts "Keccak backend: #{pqclean_config[:keccak_backend]}"
+puts "ML-KEM: mlkem-native vendored"
+puts "ML-DSA: mldsa-native vendored"
+puts "Native asm backends: #{NATIVE_ASM ? 'enabled' : 'disabled'}"
+puts "PQClean fallback: removed"
 puts "Output: pqcrypto/pqcrypto_secure"
 puts "===================================="
 
 create_makefile("pqcrypto/pqcrypto_secure")
-inject_pqclean_sources!(pqclean_config)
+inject_native_sources!(native_config)

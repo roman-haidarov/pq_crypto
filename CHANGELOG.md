@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.5.0] - 2026-05-04
+
+### Changed — native backend migration
+
+- Replaced the PQClean runtime/build path with PQ Code Package `mlkem-native` and `mldsa-native` as the only ML-KEM / ML-DSA backend.
+- Removed the PQClean fallback entirely so backend failures are attributable to the new native path instead of mixed old/new implementations.
+- Updated the native extension build to use `ext/pqcrypto/vendor/mlkem-native/mlkem/mlkem_native.c` and `ext/pqcrypto/vendor/mldsa-native/mldsa/mldsa_native.c`.
+- Added install-time auto-vendoring for source/Git installs when the PQ Code Package snapshot is missing; set `PQCRYPTO_AUTO_VENDOR=0` to require a pre-vendored tree.
+- Switched native compilation to `-O3`; optional upstream native assembly remains opt-in through `PQCRYPTO_NATIVE_ASM=1`.
+- `PQCrypto.backend` now reports `:native_pq_code_package`.
+
+### Fixed
+
+- Corrected deterministic ML-DSA test signing on `mldsa-native` by passing the FIPS 204 pure-mode domain-separation prefix (`00 00` for an empty context) into `signature_internal`. This restores deterministic round-trip verification and ML-DSA siggen KAT compatibility.
+
+### Documentation
+
+- Updated README, GET_STARTED, SECURITY, and migration notes for the native-only backend and the no-PQClean policy.
+- Documented that `pqc_container_*` remains a compatibility serialization format while the cryptographic backend has moved to PQ Code Package native sources.
+
+### Migration notes
+
+- Source checkouts can refresh vendor sources explicitly with `bundle exec rake vendor`; Git installs auto-vendor during extension build when the snapshot is absent.
+- This release intentionally does not support falling back to PQClean. If native sources are absent and auto-vendoring is disabled or unavailable, the extension build fails early.
+
 ## [0.4.2] - 2026-04-29
 
 ### Fixed
