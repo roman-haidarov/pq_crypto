@@ -13,14 +13,20 @@ Gem::Specification.new do |spec|
   spec.required_ruby_version = ">= 3.4.0"
 
   spec.metadata["homepage_uri"]    = spec.homepage
-  spec.metadata["source_code_uri"] = spec.homepage
+  spec.metadata["source_code_uri"] = "#{spec.homepage}/tree/main"
   spec.metadata["changelog_uri"]   = "#{spec.homepage}/blob/main/CHANGELOG.md"
 
-  spec.files = Dir[
-    "lib/**/*.rb",
-    "ext/**/*.{c,h,rb}",
-    "ext/pqcrypto/vendor/**/*",
+  vendor_files = Dir[
     "ext/pqcrypto/vendor/.vendored",
+    "ext/pqcrypto/vendor/mlkem-native/{LICENSE,README.md,SECURITY.md,BUILDING.md,RELEASE.md,META.yml}",
+    "ext/pqcrypto/vendor/mlkem-native/mlkem/**/*",
+    "ext/pqcrypto/vendor/mldsa-native/{LICENSE,README.md,SECURITY.md,BUILDING.md,RELEASE.md,META.yml}",
+    "ext/pqcrypto/vendor/mldsa-native/mldsa/**/*"
+  ]
+
+  spec.files = (Dir[
+    "lib/**/*.rb",
+    "ext/pqcrypto/*.{c,h,rb}",
     "README.md",
     "GET_STARTED.md",
     "CHANGELOG.md",
@@ -28,7 +34,7 @@ Gem::Specification.new do |spec|
     "SECURITY.md",
     "script/vendor_libs.rb",
     ".github/workflows/ci.yml"
-  ]
+  ] + vendor_files).select { |path| File.file?(path) && !File.symlink?(path) }.uniq
 
   spec.bindir        = "exe"
   spec.executables   = []
