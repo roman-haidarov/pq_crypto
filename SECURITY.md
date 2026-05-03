@@ -27,9 +27,14 @@ substitute for a security audit.
 
 ### ML-KEM / ML-DSA
 
-The post-quantum primitives are backed by vendored `PQClean` sources and called
-through PQClean's public `crypto_kem_*` and `crypto_sign_*` entrypoints. The gem
-does not reimplement ML-KEM, ML-DSA, SHAKE, or Keccak.
+As of `0.5.0`, the post-quantum primitives are backed by vendored PQ Code
+Package `mlkem-native` and `mldsa-native` sources. PQClean is not built and
+there is intentionally no PQClean fallback.
+
+The gem calls the native package entrypoints for ML-KEM key generation,
+encapsulation, decapsulation, ML-DSA key generation, signing, verification, and
+test-only deterministic hooks. It does not reimplement ML-KEM, ML-DSA, SHAKE,
+or Keccak.
 
 ### HybridKEM
 
@@ -96,22 +101,23 @@ these encodings, callers must explicitly set:
 PQCrypto::PKCS8.allow_ml_dsa_seed_format = true
 ```
 
-This opt-in exists because PQClean exposes no public ML-DSA
-`crypto_sign_keypair_derand` entrypoint. The implementation therefore reuses the
-same thread-local seed-replay `randombytes()` path introduced for KAT tests to
-expand the RFC 9881 seed into an expanded private key. The replay buffer is
-thread-local, cleared immediately after expansion, and remains inactive for all
-normal production randomness paths.
-
-For `both` encodings, the decoder expands the seed and rejects the key if the
+This opt-in remains explicit because seed and both-form imports are more
+sensitive than expanded-key imports: the decoder expands the seed into an
+expanded private key and, for `both` encodings, rejects the key if the
 expandedKey half does not match the seed-derived key.
+
+The expansion path uses the vendored `mldsa-native` deterministic keypair
+entrypoints rather than a `randombytes()` seed-replay fallback.
 
 ## Deterministic test hooks
 
-`PQCrypto::Testing` deterministic helpers drive the stock PQClean entrypoints
-against caller-supplied seeds. For ML-DSA, which has no derand API upstream, the
-gem installs a thread-local seed-replay buffer inside its `randombytes()`
-implementation; outside of a test call the same `randombytes()` entry delegates
+`PQCrypto::Testing` deterministic helpers drive the vendored PQ Code Package
+native deterministic entrypoints against caller-supplied seeds. ML-DSA
+deterministic signing passes the FIPS 204 pure-mode domain-separation prefix
+into `mldsa-native` `signature_internal`; for an empty context this prefix is
+`00 00`.
+
+Outside of test-only deterministic calls, production randomness delegates
 directly to OpenSSL `RAND_bytes`.
 
 ## Memory wiping
@@ -135,7 +141,7 @@ OpenSSL is used for:
 - SHA3-256 for the X-Wing combiner
 - RAND_bytes as the production entropy source for `randombytes()`
 - CRYPTO_memcmp for constant-time comparison
-- Base64 encode/decode for PEM via OpenSSL BIOs
+- Base64 encode/decode for PEM
 
 OpenSSL 3.5+ is additionally used in interop tests when ML-KEM / ML-DSA EVP
 support is available.

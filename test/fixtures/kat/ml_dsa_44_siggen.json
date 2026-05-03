@@ -1,5 +1,5 @@
 {
-  "source": "ACVP-shaped deterministic KAT fixture generated from vendored PQClean for PATH B Patch 8",
+  "source": "ACVP-shaped deterministic KAT fixture generated from previous native baseline; refresh after PQ Code Package migration",
   "algorithm": "ml_dsa_44",
   "vectors": [
     {

@@ -3,8 +3,8 @@
 require_relative "test_helper"
 
 class TestPQCrypto < Minitest::Test
-  def test_backend_is_native_pqclean
-    assert_equal :native_pqclean, PQCrypto.backend
+  def test_backend_is_native_pq_code_package
+    assert_equal :native_pq_code_package, PQCrypto.backend
     assert PQCrypto.native_extension_loaded?
   end
 

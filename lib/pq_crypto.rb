@@ -129,7 +129,7 @@ module PQCrypto
     end
 
     def backend
-      :native_pqclean
+      :native_pq_code_package
     end
 
     def native_extension_loaded?

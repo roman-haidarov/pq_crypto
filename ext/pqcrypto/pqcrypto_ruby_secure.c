@@ -1255,9 +1255,6 @@ static VALUE pqcrypto__native_mldsa_mu_builder_finalize(VALUE self, VALUE builde
 
     rb_nogvl(pq_mu_finalize_nogvl, &call, NULL, NULL, RB_NOGVL_OFFLOAD_SAFE);
 
-    if (call.result != PQ_SUCCESS) {
-        pq_mu_builder_release(wrapper->builder);
-    }
     wrapper->builder = NULL;
 
     if (call.result != PQ_SUCCESS) {
