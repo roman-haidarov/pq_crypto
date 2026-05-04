@@ -66,28 +66,25 @@ def vendor_script_path
 end
 
 def run_vendor_script!(vendor_dir)
-  script = vendor_script_path
-  abort <<~MSG unless File.exist?(script)
-    PQ Code Package vendored sources are missing and script/vendor_libs.rb was not packaged.
+  abort <<~MSG if ENV["PQCRYPTO_AUTO_VENDOR"] != "1"
+    PQ Code Package vendored sources are missing.
 
     Expected:
       #{native_vendor_sources_for(vendor_dir).join("\n  ")}
 
-    Rebuild the gem from a repository that includes script/vendor_libs.rb, or run
-    script/vendor_libs.rb before building the gem package.
-  MSG
+    The vendor tree is committed to the repository and shipped with the gem.
+    If it is missing, the source tree is incomplete or corrupted.
 
-  abort <<~MSG if ENV["PQCRYPTO_AUTO_VENDOR"] == "0"
-    PQ Code Package vendored sources are missing and PQCRYPTO_AUTO_VENDOR=0 was set.
-
-    Expected:
-      #{native_vendor_sources_for(vendor_dir).join("\n  ")}
-
-    Run:
+    To fetch upstream sources at the pinned commits run:
       ruby script/vendor_libs.rb
+
+    Or to allow extconf.rb to do this for you set PQCRYPTO_AUTO_VENDOR=1.
   MSG
 
-  puts "PQ Code Package native sources are missing; vendoring now..."
+  script = vendor_script_path
+  abort "PQ Code Package vendored sources are missing and script/vendor_libs.rb was not packaged." unless File.exist?(script)
+
+  puts "PQ Code Package native sources are missing; vendoring now (PQCRYPTO_AUTO_VENDOR=1)..."
   ok = system(RbConfig.ruby, script)
   abort <<~MSG unless ok
     Failed to vendor PQ Code Package native sources.
