@@ -79,12 +79,21 @@ module PQCrypto
 
     class SecretKey < KEM::SecretKey
       def decapsulate(ciphertext)
-        PQCrypto.__send__(:native_hybrid_kem_decapsulate, String(ciphertext).b, @bytes)
+        PQCrypto.__send__(:native_hybrid_kem_decapsulate_expanded_object, String(ciphertext).b, expanded_key_for_native)
       rescue ArgumentError => e
         raise InvalidCiphertextError, e.message
       end
 
+      def wipe!
+        @expanded_key = nil
+        super
+      end
+
       private
+
+      def expanded_key_for_native
+        @expanded_key ||= PQCrypto.__send__(:native_hybrid_kem_expand_secret_key_object, @bytes)
+      end
 
       def validate_length!
         expected = HybridKEM.details(@algorithm).fetch(:secret_key_bytes)

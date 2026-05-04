@@ -2,6 +2,14 @@
 
 ## [0.5.1] - 2026-05-04
 
+### Performance
+
+- Enabled native asm/SIMD paths for ML-DSA/ML-KEM where available.
+- Reduced Hybrid KEM X25519 overhead by reusing expanded/native key state and avoiding repeated private/public key reconstruction.
+- Moved hot crypto calls under `rb_nogvl` where applicable.
+- Optimized PEM export path by replacing BIO/streaming base64 with direct encode.
+- Reduced small-buffer streaming overhead by avoiding unnecessary `malloc`/`nogvl` work for tiny chunks.
+
 ### Vendoring
 
 - Committed `mlkem-native` and `mldsa-native` sources to the repository. Builds no longer require git or network.

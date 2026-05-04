@@ -48,6 +48,8 @@ typedef struct {
     uint8_t x25519_pk[X25519_PUBLICKEYBYTES];
 } hybrid_expanded_secret_key_t;
 
+#define HYBRID_EXPANDED_SECRETKEYBYTES (sizeof(hybrid_expanded_secret_key_t))
+
 typedef struct {
     uint8_t mlkem_ct[MLKEM_CIPHERTEXTBYTES];
     uint8_t x25519_ephemeral[X25519_PUBLICKEYBYTES];
@@ -176,9 +178,10 @@ const char *pq_version(void);
 #define PQ_MLKEM_SHAREDSECRETBYTES MLKEM_SHAREDSECRETBYTES
 
 #define PQ_HYBRID_PUBLICKEYBYTES    HYBRID_PUBLICKEYBYTES
-#define PQ_HYBRID_SECRETKEYBYTES    HYBRID_SECRETKEYBYTES
-#define PQ_HYBRID_CIPHERTEXTBYTES   HYBRID_CIPHERTEXTBYTES
-#define PQ_HYBRID_SHAREDSECRETBYTES HYBRID_SHAREDSECRETBYTES
+#define PQ_HYBRID_SECRETKEYBYTES          HYBRID_SECRETKEYBYTES
+#define PQ_HYBRID_EXPANDED_SECRETKEYBYTES HYBRID_EXPANDED_SECRETKEYBYTES
+#define PQ_HYBRID_CIPHERTEXTBYTES         HYBRID_CIPHERTEXTBYTES
+#define PQ_HYBRID_SHAREDSECRETBYTES       HYBRID_SHAREDSECRETBYTES
 
 #define PQ_MLDSA_PUBLICKEYBYTES MLDSA_PUBLICKEYBYTES
 #define PQ_MLDSA_SECRETKEYBYTES MLDSA_SECRETKEYBYTES
@@ -203,6 +206,12 @@ void pq_mu_builder_release(void *state);
 int pq_hybrid_kem_keypair(uint8_t *public_key, uint8_t *secret_key);
 int pq_hybrid_kem_encapsulate(uint8_t *ciphertext, uint8_t *shared_secret,
                               const uint8_t *public_key);
+int pq_hybrid_kem_expand_secret_key(uint8_t *expanded_secret_key, const uint8_t *secret_key);
+int pq_hybrid_kem_decapsulate_expanded(uint8_t *shared_secret, const uint8_t *ciphertext,
+                                       const uint8_t *expanded_secret_key);
+int pq_hybrid_kem_decapsulate_expanded_pkey(uint8_t *shared_secret, const uint8_t *ciphertext,
+                                            const uint8_t *expanded_secret_key,
+                                            void *x25519_private_pkey);
 int pq_hybrid_kem_decapsulate(uint8_t *shared_secret, const uint8_t *ciphertext,
                               const uint8_t *secret_key);
 

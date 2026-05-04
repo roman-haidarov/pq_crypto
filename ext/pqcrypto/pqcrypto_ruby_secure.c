@@ -5,12 +5,15 @@
 #include <string.h>
 
 #include <openssl/crypto.h>
+#include <openssl/evp.h>
 
 #include "pqcrypto_secure.h"
 
 #ifndef RB_NOGVL_OFFLOAD_SAFE
 #define RB_NOGVL_OFFLOAD_SAFE 0
 #endif
+
+#define PQ_MU_ABSORB_NOGVL_MIN_BYTES 16384
 
 typedef struct {
     int result;
@@ -35,6 +38,25 @@ typedef struct {
     const uint8_t *ciphertext;
     const uint8_t *secret_key;
 } kem_decapsulate_call_t;
+
+typedef struct {
+    int result;
+    uint8_t *expanded_secret_key;
+    const uint8_t *secret_key;
+} hybrid_expand_call_t;
+
+typedef struct {
+    int result;
+    uint8_t *shared_secret;
+    const uint8_t *ciphertext;
+    const uint8_t *expanded_secret_key;
+    void *x25519_private_pkey;
+} hybrid_decapsulate_expanded_pkey_call_t;
+
+typedef struct {
+    uint8_t expanded_secret_key[PQ_HYBRID_EXPANDED_SECRETKEYBYTES];
+    EVP_PKEY *x25519_private_pkey;
+} hybrid_expanded_key_wrapper_t;
 
 typedef struct {
     int result;
@@ -68,6 +90,49 @@ static VALUE mPQCrypto;
 static VALUE ePQCryptoError;
 static VALUE ePQCryptoVerificationError;
 
+static void hybrid_expanded_key_wrapper_free(void *ptr) {
+    hybrid_expanded_key_wrapper_t *wrapper = (hybrid_expanded_key_wrapper_t *)ptr;
+    if (!wrapper) {
+        return;
+    }
+    pq_secure_wipe(wrapper->expanded_secret_key, sizeof(wrapper->expanded_secret_key));
+    if (wrapper->x25519_private_pkey) {
+        EVP_PKEY_free(wrapper->x25519_private_pkey);
+        wrapper->x25519_private_pkey = NULL;
+    }
+    xfree(wrapper);
+}
+
+static size_t hybrid_expanded_key_wrapper_size(const void *ptr) {
+    (void)ptr;
+    return sizeof(hybrid_expanded_key_wrapper_t);
+}
+
+static const rb_data_type_t hybrid_expanded_key_data_type = {
+    .wrap_struct_name = "PQCrypto::HybridKEM::ExpandedSecretKey",
+    .function =
+        {
+            .dmark = NULL,
+            .dfree = hybrid_expanded_key_wrapper_free,
+            .dsize = hybrid_expanded_key_wrapper_size,
+            .dcompact = NULL,
+            .reserved = {NULL},
+        },
+    .parent = NULL,
+    .data = NULL,
+    .flags = RUBY_TYPED_FREE_IMMEDIATELY,
+};
+
+static hybrid_expanded_key_wrapper_t *hybrid_expanded_key_unwrap(VALUE obj) {
+    hybrid_expanded_key_wrapper_t *wrapper;
+    TypedData_Get_Struct(obj, hybrid_expanded_key_wrapper_t, &hybrid_expanded_key_data_type,
+                         wrapper);
+    if (!wrapper || !wrapper->x25519_private_pkey) {
+        rb_raise(ePQCryptoError, "hybrid expanded secret key used after release");
+    }
+    return wrapper;
+}
+
 __attribute__((noreturn)) static void pq_raise_general_error(int err);
 
 static const char *const PQC_CONTAINER_ALGORITHMS[] = {
@@ -76,18 +141,35 @@ static const char *const PQC_CONTAINER_ALGORITHMS[] = {
     "ml_dsa_65",
 };
 
-static const char *pq_algorithm_symbol_to_cstr(VALUE algorithm) {
-    ID id;
-    if (SYMBOL_P(algorithm)) {
-        id = SYM2ID(algorithm);
-    } else {
-        VALUE str = StringValue(algorithm);
-        id = rb_intern_str(str);
-    }
+static ID pqc_container_algorithm_ids[sizeof(PQC_CONTAINER_ALGORITHMS) /
+                                      sizeof(PQC_CONTAINER_ALGORITHMS[0])];
+
+static void pq_init_algorithm_ids(void) {
     for (size_t i = 0; i < sizeof(PQC_CONTAINER_ALGORITHMS) / sizeof(PQC_CONTAINER_ALGORITHMS[0]);
          ++i) {
-        if (id == rb_intern(PQC_CONTAINER_ALGORITHMS[i])) {
-            return PQC_CONTAINER_ALGORITHMS[i];
+        pqc_container_algorithm_ids[i] = rb_intern(PQC_CONTAINER_ALGORITHMS[i]);
+    }
+}
+
+static const char *pq_algorithm_symbol_to_cstr(VALUE algorithm) {
+    if (SYMBOL_P(algorithm)) {
+        ID id = SYM2ID(algorithm);
+        for (size_t i = 0; i < sizeof(PQC_CONTAINER_ALGORITHMS) / sizeof(PQC_CONTAINER_ALGORITHMS[0]);
+             ++i) {
+            if (id == pqc_container_algorithm_ids[i]) {
+                return PQC_CONTAINER_ALGORITHMS[i];
+            }
+        }
+    } else {
+        VALUE str = StringValue(algorithm);
+        const char *ptr = RSTRING_PTR(str);
+        size_t len = (size_t)RSTRING_LEN(str);
+        for (size_t i = 0; i < sizeof(PQC_CONTAINER_ALGORITHMS) / sizeof(PQC_CONTAINER_ALGORITHMS[0]);
+             ++i) {
+            size_t algorithm_len = strlen(PQC_CONTAINER_ALGORITHMS[i]);
+            if (len == algorithm_len && memcmp(ptr, PQC_CONTAINER_ALGORITHMS[i], len) == 0) {
+                return PQC_CONTAINER_ALGORITHMS[i];
+            }
         }
     }
     rb_raise(rb_eArgError, "Unsupported serialization algorithm");
@@ -97,7 +179,7 @@ static VALUE pq_algorithm_cstr_to_symbol(const char *algorithm) {
     for (size_t i = 0; i < sizeof(PQC_CONTAINER_ALGORITHMS) / sizeof(PQC_CONTAINER_ALGORITHMS[0]);
          ++i) {
         if (strcmp(algorithm, PQC_CONTAINER_ALGORITHMS[i]) == 0) {
-            return ID2SYM(rb_intern(PQC_CONTAINER_ALGORITHMS[i]));
+            return ID2SYM(pqc_container_algorithm_ids[i]);
         }
     }
     rb_raise(rb_eArgError, "Unsupported serialization algorithm");
@@ -175,10 +257,31 @@ static void *pq_hybrid_kem_encapsulate_nogvl(void *arg) {
     return NULL;
 }
 
+static void *pq_hybrid_kem_expand_secret_key_nogvl(void *arg) {
+    hybrid_expand_call_t *call = (hybrid_expand_call_t *)arg;
+    call->result = pq_hybrid_kem_expand_secret_key(call->expanded_secret_key, call->secret_key);
+    return NULL;
+}
+
 static void *pq_hybrid_kem_decapsulate_nogvl(void *arg) {
     kem_decapsulate_call_t *call = (kem_decapsulate_call_t *)arg;
     call->result =
         pq_hybrid_kem_decapsulate(call->shared_secret, call->ciphertext, call->secret_key);
+    return NULL;
+}
+
+static void *pq_hybrid_kem_decapsulate_expanded_nogvl(void *arg) {
+    kem_decapsulate_call_t *call = (kem_decapsulate_call_t *)arg;
+    call->result = pq_hybrid_kem_decapsulate_expanded(call->shared_secret, call->ciphertext,
+                                                      call->secret_key);
+    return NULL;
+}
+
+static void *pq_hybrid_kem_decapsulate_expanded_pkey_nogvl(void *arg) {
+    hybrid_decapsulate_expanded_pkey_call_t *call =
+        (hybrid_decapsulate_expanded_pkey_call_t *)arg;
+    call->result = pq_hybrid_kem_decapsulate_expanded_pkey(
+        call->shared_secret, call->ciphertext, call->expanded_secret_key, call->x25519_private_pkey);
     return NULL;
 }
 
@@ -640,11 +743,115 @@ static VALUE pqcrypto_hybrid_kem_encapsulate(VALUE self, VALUE public_key) {
                                   PQ_HYBRID_SHAREDSECRETBYTES);
 }
 
+static VALUE pqcrypto_hybrid_kem_expand_secret_key(VALUE self, VALUE secret_key) {
+    (void)self;
+    hybrid_expand_call_t call = {0};
+    VALUE result;
+    size_t copied_secret_key_len = 0;
+
+    pq_validate_bytes_argument(secret_key, PQ_HYBRID_SECRETKEYBYTES, "hybrid secret key");
+
+    call.secret_key = pq_copy_ruby_string(secret_key, &copied_secret_key_len);
+    call.expanded_secret_key = pq_alloc_buffer(PQ_HYBRID_EXPANDED_SECRETKEYBYTES);
+
+    rb_thread_call_without_gvl(pq_hybrid_kem_expand_secret_key_nogvl, &call, NULL, NULL);
+    pq_wipe_and_free((uint8_t *)call.secret_key, copied_secret_key_len);
+
+    if (call.result != PQ_SUCCESS) {
+        pq_wipe_and_free(call.expanded_secret_key, PQ_HYBRID_EXPANDED_SECRETKEYBYTES);
+        pq_raise_general_error(call.result);
+    }
+
+    result = pq_string_from_buffer(call.expanded_secret_key, PQ_HYBRID_EXPANDED_SECRETKEYBYTES);
+    pq_wipe_and_free(call.expanded_secret_key, PQ_HYBRID_EXPANDED_SECRETKEYBYTES);
+    return result;
+}
+
+static VALUE pqcrypto_hybrid_kem_expand_secret_key_object(VALUE self, VALUE secret_key) {
+    (void)self;
+    hybrid_expand_call_t call = {0};
+    size_t copied_secret_key_len = 0;
+
+    pq_validate_bytes_argument(secret_key, PQ_HYBRID_SECRETKEYBYTES, "hybrid secret key");
+
+    hybrid_expanded_key_wrapper_t *wrapper;
+    VALUE obj = TypedData_Make_Struct(rb_cObject, hybrid_expanded_key_wrapper_t,
+                                      &hybrid_expanded_key_data_type, wrapper);
+    memset(wrapper->expanded_secret_key, 0, sizeof(wrapper->expanded_secret_key));
+    wrapper->x25519_private_pkey = NULL;
+
+    call.secret_key = pq_copy_ruby_string(secret_key, &copied_secret_key_len);
+    call.expanded_secret_key = wrapper->expanded_secret_key;
+
+    rb_thread_call_without_gvl(pq_hybrid_kem_expand_secret_key_nogvl, &call, NULL, NULL);
+    pq_wipe_and_free((uint8_t *)call.secret_key, copied_secret_key_len);
+
+    if (call.result != PQ_SUCCESS) {
+        pq_secure_wipe(wrapper->expanded_secret_key, sizeof(wrapper->expanded_secret_key));
+        pq_raise_general_error(call.result);
+    }
+
+    const hybrid_expanded_secret_key_t *expanded =
+        (const hybrid_expanded_secret_key_t *)wrapper->expanded_secret_key;
+    wrapper->x25519_private_pkey = EVP_PKEY_new_raw_private_key(
+        EVP_PKEY_X25519, NULL, expanded->x25519_sk, X25519_SECRETKEYBYTES);
+    if (!wrapper->x25519_private_pkey) {
+        pq_secure_wipe(wrapper->expanded_secret_key, sizeof(wrapper->expanded_secret_key));
+        pq_raise_general_error(PQ_ERROR_OPENSSL);
+    }
+
+    return obj;
+}
+
 static VALUE pqcrypto_hybrid_kem_decapsulate(VALUE self, VALUE ciphertext, VALUE secret_key) {
     (void)self;
     return pq_run_kem_decapsulate(pq_hybrid_kem_decapsulate_nogvl, ciphertext,
                                   PQ_HYBRID_CIPHERTEXTBYTES, secret_key, PQ_HYBRID_SECRETKEYBYTES,
                                   PQ_HYBRID_SHAREDSECRETBYTES);
+}
+
+static VALUE pqcrypto_hybrid_kem_decapsulate_expanded(VALUE self, VALUE ciphertext,
+                                                      VALUE expanded_secret_key) {
+    (void)self;
+    return pq_run_kem_decapsulate(pq_hybrid_kem_decapsulate_expanded_nogvl, ciphertext,
+                                  PQ_HYBRID_CIPHERTEXTBYTES, expanded_secret_key,
+                                  PQ_HYBRID_EXPANDED_SECRETKEYBYTES,
+                                  PQ_HYBRID_SHAREDSECRETBYTES);
+}
+
+static VALUE pqcrypto_hybrid_kem_decapsulate_expanded_object(VALUE self, VALUE ciphertext,
+                                                            VALUE expanded_secret_key_obj) {
+    (void)self;
+    hybrid_expanded_key_wrapper_t *wrapper = hybrid_expanded_key_unwrap(expanded_secret_key_obj);
+    hybrid_decapsulate_expanded_pkey_call_t call = {0};
+    VALUE result;
+    size_t copied_ciphertext_len = 0;
+
+    pq_validate_bytes_argument(ciphertext, PQ_HYBRID_CIPHERTEXTBYTES, "ciphertext");
+
+    call.ciphertext = pq_copy_ruby_string(ciphertext, &copied_ciphertext_len);
+    call.expanded_secret_key = wrapper->expanded_secret_key;
+    call.shared_secret = pq_alloc_buffer(PQ_HYBRID_SHAREDSECRETBYTES);
+
+    if (EVP_PKEY_up_ref(wrapper->x25519_private_pkey) != 1) {
+        pq_wipe_and_free((uint8_t *)call.ciphertext, copied_ciphertext_len);
+        pq_wipe_and_free(call.shared_secret, PQ_HYBRID_SHAREDSECRETBYTES);
+        pq_raise_general_error(PQ_ERROR_OPENSSL);
+    }
+    call.x25519_private_pkey = wrapper->x25519_private_pkey;
+
+    rb_thread_call_without_gvl(pq_hybrid_kem_decapsulate_expanded_pkey_nogvl, &call, NULL, NULL);
+    EVP_PKEY_free((EVP_PKEY *)call.x25519_private_pkey);
+    pq_wipe_and_free((uint8_t *)call.ciphertext, copied_ciphertext_len);
+
+    if (call.result != PQ_SUCCESS) {
+        pq_wipe_and_free(call.shared_secret, PQ_HYBRID_SHAREDSECRETBYTES);
+        pq_raise_general_error(call.result);
+    }
+
+    result = pq_string_from_buffer(call.shared_secret, PQ_HYBRID_SHAREDSECRETBYTES);
+    pq_wipe_and_free(call.shared_secret, PQ_HYBRID_SHAREDSECRETBYTES);
+    return result;
 }
 
 static VALUE pqcrypto__test_ml_kem_keypair_from_seed(VALUE self, VALUE seed) {
@@ -1220,6 +1427,15 @@ static VALUE pqcrypto__native_mldsa_mu_builder_update(VALUE self, VALUE builder_
         return Qnil;
     }
 
+    if (chunk_len < PQ_MU_ABSORB_NOGVL_MIN_BYTES) {
+        int rc = pq_mu_builder_absorb(wrapper->builder, (const uint8_t *)RSTRING_PTR(chunk),
+                                      chunk_len);
+        if (rc != PQ_SUCCESS) {
+            pq_raise_general_error(rc);
+        }
+        return Qnil;
+    }
+
     uint8_t *copy = pq_alloc_buffer(chunk_len);
     memcpy(copy, RSTRING_PTR(chunk), chunk_len);
 
@@ -1432,6 +1648,7 @@ static VALUE pqcrypto_secret_key_from_pqc_container_pem(VALUE self, VALUE pem) {
 
 void Init_pqcrypto_secure(void) {
     mPQCrypto = rb_define_module("PQCrypto");
+    pq_init_algorithm_ids();
     ePQCryptoError = rb_define_class_under(mPQCrypto, "Error", rb_eStandardError);
 
     ePQCryptoVerificationError =
@@ -1478,8 +1695,16 @@ void Init_pqcrypto_secure(void) {
     rb_define_module_function(mPQCrypto, "hybrid_kem_keypair", pqcrypto_hybrid_kem_keypair, 0);
     rb_define_module_function(mPQCrypto, "hybrid_kem_encapsulate", pqcrypto_hybrid_kem_encapsulate,
                               1);
+    rb_define_module_function(mPQCrypto, "hybrid_kem_expand_secret_key",
+                              pqcrypto_hybrid_kem_expand_secret_key, 1);
+    rb_define_module_function(mPQCrypto, "hybrid_kem_expand_secret_key_object",
+                              pqcrypto_hybrid_kem_expand_secret_key_object, 1);
     rb_define_module_function(mPQCrypto, "hybrid_kem_decapsulate", pqcrypto_hybrid_kem_decapsulate,
                               2);
+    rb_define_module_function(mPQCrypto, "hybrid_kem_decapsulate_expanded",
+                              pqcrypto_hybrid_kem_decapsulate_expanded, 2);
+    rb_define_module_function(mPQCrypto, "hybrid_kem_decapsulate_expanded_object",
+                              pqcrypto_hybrid_kem_decapsulate_expanded_object, 2);
     rb_define_module_function(mPQCrypto, "sign_keypair", pqcrypto_sign_keypair, 0);
     rb_define_module_function(mPQCrypto, "sign", pqcrypto_sign, 2);
     rb_define_module_function(mPQCrypto, "verify", pqcrypto_verify, 3);
