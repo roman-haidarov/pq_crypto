@@ -63,7 +63,11 @@ module PQCrypto
       ml_kem_1024_decapsulate
       hybrid_kem_keypair
       hybrid_kem_encapsulate
+      hybrid_kem_expand_secret_key
+      hybrid_kem_expand_secret_key_object
       hybrid_kem_decapsulate
+      hybrid_kem_decapsulate_expanded
+      hybrid_kem_decapsulate_expanded_object
       sign_keypair
       sign
       verify

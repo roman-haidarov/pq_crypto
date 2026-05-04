@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.5.1] - 2026-05-04
+
+### Performance
+
+- Enabled native asm/SIMD paths for ML-DSA/ML-KEM where available.
+- Reduced Hybrid KEM X25519 overhead by reusing expanded/native key state and avoiding repeated private/public key reconstruction.
+- Moved hot crypto calls under `rb_nogvl` where applicable.
+- Optimized PEM export path by replacing BIO/streaming base64 with direct encode.
+- Reduced small-buffer streaming overhead by avoiding unnecessary `malloc`/`nogvl` work for tiny chunks.
+
+### Vendoring
+
+- Committed `mlkem-native` and `mldsa-native` sources to the repository. Builds no longer require git or network.
+- Pinned upstream by `commit` + `tree_sha256` in `script/vendor_libs.rb`; manifest signed with `manifest_sha256`.
+- Deterministic vendor tree (no symlinks, dotfiles, normalized mtime/permissions).
+- `script/vendor_libs.rb` now supports `--verify`, `--sync`, `--bump`.
+
+### Build
+
+- `extconf.rb` no longer auto-fetches upstream. Missing vendor aborts the build; opt in with `PQCRYPTO_AUTO_VENDOR=1`.
+
+### Rakefile
+
+- Added `vendor:verify`, `vendor:sync`, `vendor:bump`. Default task runs `vendor:verify` before `compile` and `test`.
+
+### CI
+
+- Added `vendor-verify` gating job; `vendor:verify` also runs in each test job before compile.
+
+### Repository
+
+- `.gitattributes` enforces `eol=lf` and marks vendor as binary (CRLF protection).
+- `.gitignore` no longer hides `sempls/`.
+
 ## [0.5.0] - 2026-05-04
 
 ### Changed — native backend migration

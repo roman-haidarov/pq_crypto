@@ -1,10 +1,12 @@
+# pq_crypto vendor manifest. Do not edit by hand. Regenerate with: ruby script/vendor_libs.rb
 backend=PQ Code Package native only
 pqclean=removed
 mlkem_native_repo=https://github.com/pq-code-package/mlkem-native.git
 mlkem_native_ref=v1.1.0
 mlkem_native_commit=d2cae2be522a67bfae26100fdb520576f1b2ef90
-mlkem_native_tree_sha256=368ad66b3a8092dd919d5646eb8507b8336e8f9f09c43b779dbf864700b5b8fb
+mlkem_native_tree_sha256=c225de87a69e6d6360cddc4b5839b03e65fa9d5a1112a5f19700c905b7e74512
 mldsa_native_repo=https://github.com/pq-code-package/mldsa-native.git
 mldsa_native_ref=v1.0.0-beta
 mldsa_native_commit=db65535319d9750d75d34c6d170677415f9d2c46
-mldsa_native_tree_sha256=9c73cd6c185bb6885a7cf0ecb56a5282a5657aa5e6c32f68f442d941baa92b3d
+mldsa_native_tree_sha256=3b2cb648dade4540191f08d606b422042bf781fb37b434934ab02b58a0121f5c
+manifest_sha256=aeb28860537e30f4da0d28dc2961ba6bb06e700195a56f1648e5caddf1b6e1be

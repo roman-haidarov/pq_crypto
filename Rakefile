@@ -22,15 +22,30 @@ end
 desc "Backward-compatible alias for the old RSpec task name"
 task spec: :test
 
-desc "Download and vendor mlkem-native / mldsa-native sources"
-task :vendor do
-  ruby "script/vendor_libs.rb"
+namespace :vendor do
+  desc "Sync vendored sources to pinned commits + tree_sha256 (idempotent)"
+  task :sync do
+    ruby "script/vendor_libs.rb", "--sync"
+  end
+
+  desc "Verify vendored sources match pinned tree_sha256 (no network)"
+  task :verify do
+    ruby "script/vendor_libs.rb", "--verify"
+  end
+
+  desc "Re-clone upstream and print new tree_sha256 to update PINS"
+  task :bump do
+    ruby "script/vendor_libs.rb", "--bump"
+  end
 end
 
-desc "Vendor PQ Code Package native sources, compile the extension, and run tests"
+desc "Alias for vendor:sync"
+task vendor: "vendor:sync"
+
+desc "Vendor PQ Code Package sources, compile, run tests"
 task full_build: %i[vendor compile test]
 
-task default: %i[compile test]
+task default: %i[vendor:verify compile test]
 
 task console: :compile do
   require "irb"

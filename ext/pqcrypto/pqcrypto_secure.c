@@ -15,8 +15,6 @@
 #include <openssl/crypto.h>
 #include <openssl/evp.h>
 #include <openssl/rand.h>
-#include <openssl/bio.h>
-#include <openssl/buffer.h>
 
 #if OPENSSL_VERSION_NUMBER < 0x30000000L
 #error "OpenSSL 3.0 or later is required for pq_crypto"
@@ -49,43 +47,6 @@ static int pq_is_pem_whitespace(char c) {
     return c == '\n' || c == '\r' || c == ' ' || c == '\t';
 }
 
-static int x25519_keypair(uint8_t *pk, uint8_t *sk) {
-    EVP_PKEY_CTX *ctx = NULL;
-    EVP_PKEY *pkey = NULL;
-    size_t pklen = X25519_PUBLICKEYBYTES;
-    size_t sklen = X25519_SECRETKEYBYTES;
-    int ret = PQ_ERROR_KEYPAIR;
-
-    ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_X25519, NULL);
-    if (!ctx)
-        goto cleanup;
-
-    if (EVP_PKEY_keygen_init(ctx) <= 0)
-        goto cleanup;
-
-    if (EVP_PKEY_keygen(ctx, &pkey) <= 0)
-        goto cleanup;
-
-    if (EVP_PKEY_get_raw_private_key(pkey, sk, &sklen) <= 0)
-        goto cleanup;
-    if (sklen != X25519_SECRETKEYBYTES)
-        goto cleanup;
-
-    if (EVP_PKEY_get_raw_public_key(pkey, pk, &pklen) <= 0)
-        goto cleanup;
-    if (pklen != X25519_PUBLICKEYBYTES)
-        goto cleanup;
-
-    ret = PQ_SUCCESS;
-
-cleanup:
-    if (pkey)
-        EVP_PKEY_free(pkey);
-    if (ctx)
-        EVP_PKEY_CTX_free(ctx);
-    return ret;
-}
-
 static int x25519_public_from_private(uint8_t *pk, const uint8_t *sk) {
     EVP_PKEY *pkey = NULL;
     size_t pklen = X25519_PUBLICKEYBYTES;
@@ -112,16 +73,15 @@ cleanup:
     return ret;
 }
 
-static int x25519_shared_secret(uint8_t *shared, const uint8_t *their_pk, const uint8_t *my_sk) {
+static int x25519_shared_secret_with_pkey(uint8_t *shared, const uint8_t *their_pk, EVP_PKEY *pkey) {
     EVP_PKEY_CTX *ctx = NULL;
-    EVP_PKEY *pkey = NULL;
     EVP_PKEY *peer_key = NULL;
     size_t shared_len = X25519_SHAREDSECRETBYTES;
     int ret = PQ_ERROR_ENCAPSULATE;
 
-    pkey = EVP_PKEY_new_raw_private_key(EVP_PKEY_X25519, NULL, my_sk, X25519_SECRETKEYBYTES);
-    if (!pkey)
-        goto cleanup;
+    if (!shared || !their_pk || !pkey) {
+        return PQ_ERROR_BUFFER;
+    }
 
     peer_key = EVP_PKEY_new_raw_public_key(EVP_PKEY_X25519, NULL, their_pk, X25519_PUBLICKEYBYTES);
     if (!peer_key)
@@ -150,8 +110,59 @@ cleanup:
         EVP_PKEY_CTX_free(ctx);
     if (peer_key)
         EVP_PKEY_free(peer_key);
-    if (pkey)
-        EVP_PKEY_free(pkey);
+    return ret;
+}
+
+static int x25519_shared_secret(uint8_t *shared, const uint8_t *their_pk, const uint8_t *my_sk) {
+    EVP_PKEY *pkey = NULL;
+    int ret;
+
+    if (!shared || !their_pk || !my_sk) {
+        return PQ_ERROR_BUFFER;
+    }
+
+    pkey = EVP_PKEY_new_raw_private_key(EVP_PKEY_X25519, NULL, my_sk, X25519_SECRETKEYBYTES);
+    if (!pkey)
+        return PQ_ERROR_ENCAPSULATE;
+
+    ret = x25519_shared_secret_with_pkey(shared, their_pk, pkey);
+    EVP_PKEY_free(pkey);
+    return ret;
+}
+
+static int x25519_ephemeral_keypair_and_shared_secret(uint8_t *ephemeral_pk, uint8_t *shared,
+                                                       const uint8_t *their_pk) {
+    EVP_PKEY_CTX *keygen_ctx = NULL;
+    EVP_PKEY *ephemeral_pkey = NULL;
+    size_t pklen = X25519_PUBLICKEYBYTES;
+    int ret = PQ_ERROR_ENCAPSULATE;
+
+    if (!ephemeral_pk || !shared || !their_pk) {
+        return PQ_ERROR_BUFFER;
+    }
+
+    keygen_ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_X25519, NULL);
+    if (!keygen_ctx)
+        goto cleanup;
+
+    if (EVP_PKEY_keygen_init(keygen_ctx) <= 0)
+        goto cleanup;
+
+    if (EVP_PKEY_keygen(keygen_ctx, &ephemeral_pkey) <= 0)
+        goto cleanup;
+
+    if (EVP_PKEY_get_raw_public_key(ephemeral_pkey, ephemeral_pk, &pklen) <= 0)
+        goto cleanup;
+    if (pklen != X25519_PUBLICKEYBYTES)
+        goto cleanup;
+
+    ret = x25519_shared_secret_with_pkey(shared, their_pk, ephemeral_pkey);
+
+cleanup:
+    if (ephemeral_pkey)
+        EVP_PKEY_free(ephemeral_pkey);
+    if (keygen_ctx)
+        EVP_PKEY_CTX_free(keygen_ctx);
     return ret;
 }
 
@@ -162,41 +173,31 @@ static int xwing_combiner(uint8_t shared_secret[HYBRID_SHAREDSECRETBYTES],
                           const uint8_t ss_X[X25519_SHAREDSECRETBYTES],
                           const uint8_t ct_X[X25519_PUBLICKEYBYTES],
                           const uint8_t pk_X[X25519_PUBLICKEYBYTES]) {
-    EVP_MD_CTX *ctx = EVP_MD_CTX_new();
-    unsigned int out_len = 0;
-    int ret = PQ_ERROR_OPENSSL;
+    uint8_t input[MLKEM_SHAREDSECRETBYTES + X25519_SHAREDSECRETBYTES +
+                  X25519_PUBLICKEYBYTES + X25519_PUBLICKEYBYTES + sizeof(XWING_LABEL)];
+    uint8_t *cur = input;
 
-    if (!ctx) {
-        return PQ_ERROR_OPENSSL;
+    if (!shared_secret || !ss_M || !ss_X || !ct_X || !pk_X) {
+        return PQ_ERROR_BUFFER;
     }
 
-    if (EVP_DigestInit_ex(ctx, EVP_sha3_256(), NULL) != 1)
-        goto cleanup;
-    if (EVP_DigestUpdate(ctx, ss_M, MLKEM_SHAREDSECRETBYTES) != 1)
-        goto cleanup;
-    if (EVP_DigestUpdate(ctx, ss_X, X25519_SHAREDSECRETBYTES) != 1)
-        goto cleanup;
-    if (EVP_DigestUpdate(ctx, ct_X, X25519_PUBLICKEYBYTES) != 1)
-        goto cleanup;
-    if (EVP_DigestUpdate(ctx, pk_X, X25519_PUBLICKEYBYTES) != 1)
-        goto cleanup;
-    if (EVP_DigestUpdate(ctx, XWING_LABEL, sizeof(XWING_LABEL)) != 1)
-        goto cleanup;
-    if (EVP_DigestFinal_ex(ctx, shared_secret, &out_len) != 1)
-        goto cleanup;
-    if (out_len != HYBRID_SHAREDSECRETBYTES)
-        goto cleanup;
+    memcpy(cur, ss_M, MLKEM_SHAREDSECRETBYTES);
+    cur += MLKEM_SHAREDSECRETBYTES;
+    memcpy(cur, ss_X, X25519_SHAREDSECRETBYTES);
+    cur += X25519_SHAREDSECRETBYTES;
+    memcpy(cur, ct_X, X25519_PUBLICKEYBYTES);
+    cur += X25519_PUBLICKEYBYTES;
+    memcpy(cur, pk_X, X25519_PUBLICKEYBYTES);
+    cur += X25519_PUBLICKEYBYTES;
+    memcpy(cur, XWING_LABEL, sizeof(XWING_LABEL));
 
-    ret = PQ_SUCCESS;
-
-cleanup:
-    EVP_MD_CTX_free(ctx);
-    return ret;
+    pqcr_mlkem_sha3_256(shared_secret, input, sizeof(input));
+    pq_secure_wipe(input, sizeof(input));
+    return PQ_SUCCESS;
 }
 
 static int xwing_expand_secret_key(hybrid_expanded_secret_key_t *expanded_key,
                                    const uint8_t seed[HYBRID_SECRETKEYBYTES]) {
-    EVP_MD_CTX *ctx = NULL;
     uint8_t expanded[XWING_EXPANDEDBYTES];
     int ret = PQ_ERROR_OPENSSL;
 
@@ -207,16 +208,7 @@ static int xwing_expand_secret_key(hybrid_expanded_secret_key_t *expanded_key,
     memset(expanded_key, 0, sizeof(*expanded_key));
     memset(expanded, 0, sizeof(expanded));
 
-    ctx = EVP_MD_CTX_new();
-    if (!ctx)
-        goto cleanup;
-
-    if (EVP_DigestInit_ex(ctx, EVP_shake256(), NULL) != 1)
-        goto cleanup;
-    if (EVP_DigestUpdate(ctx, seed, HYBRID_SECRETKEYBYTES) != 1)
-        goto cleanup;
-    if (EVP_DigestFinalXOF(ctx, expanded, sizeof(expanded)) != 1)
-        goto cleanup;
+    pqcr_mlkem_shake256(expanded, sizeof(expanded), seed, HYBRID_SECRETKEYBYTES);
 
     ret = pqcr_mlkem768_keypair_derand(expanded_key->mlkem_pk, expanded_key->mlkem_sk, expanded);
     if (ret != 0) {
@@ -233,8 +225,6 @@ static int xwing_expand_secret_key(hybrid_expanded_secret_key_t *expanded_key,
     ret = PQ_SUCCESS;
 
 cleanup:
-    if (ctx)
-        EVP_MD_CTX_free(ctx);
     pq_secure_wipe(expanded, sizeof(expanded));
     if (ret != PQ_SUCCESS && expanded_key) {
         pq_secure_wipe(expanded_key, sizeof(*expanded_key));
@@ -517,7 +507,6 @@ int pq_hybrid_kem_encapsulate(uint8_t *ciphertext, uint8_t *shared_secret,
     hybrid_ciphertext_t ct;
     uint8_t mlkem_ss[MLKEM_SHAREDSECRETBYTES];
     uint8_t x25519_ss[X25519_SHAREDSECRETBYTES];
-    uint8_t x25519_ephemeral_sk[X25519_SECRETKEYBYTES];
     int ret = PQ_SUCCESS;
 
     if (!ciphertext || !shared_secret || !public_key) {
@@ -528,20 +517,14 @@ int pq_hybrid_kem_encapsulate(uint8_t *ciphertext, uint8_t *shared_secret,
     memset(&ct, 0, sizeof(ct));
     memset(mlkem_ss, 0, sizeof(mlkem_ss));
     memset(x25519_ss, 0, sizeof(x25519_ss));
-    memset(x25519_ephemeral_sk, 0, sizeof(x25519_ephemeral_sk));
 
     if (pqcr_mlkem768_enc(ct.mlkem_ct, mlkem_ss, pk.mlkem_pk) != 0) {
         ret = PQ_ERROR_ENCAPSULATE;
         goto cleanup;
     }
 
-    ret = x25519_keypair(ct.x25519_ephemeral, x25519_ephemeral_sk);
-    if (ret != PQ_SUCCESS) {
-        ret = PQ_ERROR_ENCAPSULATE;
-        goto cleanup;
-    }
-
-    ret = x25519_shared_secret(x25519_ss, pk.x25519_pk, x25519_ephemeral_sk);
+    ret = x25519_ephemeral_keypair_and_shared_secret(ct.x25519_ephemeral, x25519_ss,
+                                                     pk.x25519_pk);
     if (ret != PQ_SUCCESS) {
         ret = PQ_ERROR_ENCAPSULATE;
         goto cleanup;
@@ -557,51 +540,121 @@ int pq_hybrid_kem_encapsulate(uint8_t *ciphertext, uint8_t *shared_secret,
 cleanup:
     pq_secure_wipe(mlkem_ss, sizeof(mlkem_ss));
     pq_secure_wipe(x25519_ss, sizeof(x25519_ss));
-    pq_secure_wipe(x25519_ephemeral_sk, sizeof(x25519_ephemeral_sk));
+    return ret;
+}
+
+int pq_hybrid_kem_expand_secret_key(uint8_t *expanded_secret_key, const uint8_t *secret_key) {
+    hybrid_expanded_secret_key_t expanded;
+    int ret;
+
+    if (!expanded_secret_key || !secret_key) {
+        return PQ_ERROR_BUFFER;
+    }
+
+    memset(&expanded, 0, sizeof(expanded));
+    ret = xwing_expand_secret_key(&expanded, secret_key);
+    if (ret == PQ_SUCCESS) {
+        memcpy(expanded_secret_key, &expanded, sizeof(expanded));
+    }
+    pq_secure_wipe(&expanded, sizeof(expanded));
+    return ret == PQ_SUCCESS ? PQ_SUCCESS : PQ_ERROR_DECAPSULATE;
+}
+
+int pq_hybrid_kem_decapsulate_expanded(uint8_t *shared_secret, const uint8_t *ciphertext,
+                                       const uint8_t *expanded_secret_key) {
+    hybrid_ciphertext_t ct;
+    const hybrid_expanded_secret_key_t *expanded;
+    uint8_t mlkem_ss[MLKEM_SHAREDSECRETBYTES];
+    uint8_t x25519_ss[X25519_SHAREDSECRETBYTES];
+    int ret = PQ_SUCCESS;
+
+    if (!shared_secret || !ciphertext || !expanded_secret_key) {
+        return PQ_ERROR_BUFFER;
+    }
+
+    expanded = (const hybrid_expanded_secret_key_t *)expanded_secret_key;
+    memcpy(&ct, ciphertext, HYBRID_CIPHERTEXTBYTES);
+    memset(mlkem_ss, 0, sizeof(mlkem_ss));
+    memset(x25519_ss, 0, sizeof(x25519_ss));
+
+    if (pqcr_mlkem768_dec(mlkem_ss, ct.mlkem_ct, expanded->mlkem_sk) != 0) {
+        ret = PQ_ERROR_DECAPSULATE;
+        goto cleanup;
+    }
+
+    ret = x25519_shared_secret(x25519_ss, ct.x25519_ephemeral, expanded->x25519_sk);
+    if (ret != PQ_SUCCESS) {
+        ret = PQ_ERROR_DECAPSULATE;
+        goto cleanup;
+    }
+
+    ret = xwing_combiner(shared_secret, mlkem_ss, x25519_ss, ct.x25519_ephemeral,
+                         expanded->x25519_pk);
+
+cleanup:
+    pq_secure_wipe(mlkem_ss, sizeof(mlkem_ss));
+    pq_secure_wipe(x25519_ss, sizeof(x25519_ss));
+    return ret;
+}
+
+int pq_hybrid_kem_decapsulate_expanded_pkey(uint8_t *shared_secret, const uint8_t *ciphertext,
+                                            const uint8_t *expanded_secret_key,
+                                            void *x25519_private_pkey) {
+    hybrid_ciphertext_t ct;
+    const hybrid_expanded_secret_key_t *expanded;
+    uint8_t mlkem_ss[MLKEM_SHAREDSECRETBYTES];
+    uint8_t x25519_ss[X25519_SHAREDSECRETBYTES];
+    int ret = PQ_SUCCESS;
+
+    if (!shared_secret || !ciphertext || !expanded_secret_key || !x25519_private_pkey) {
+        return PQ_ERROR_BUFFER;
+    }
+
+    expanded = (const hybrid_expanded_secret_key_t *)expanded_secret_key;
+    memcpy(&ct, ciphertext, HYBRID_CIPHERTEXTBYTES);
+    memset(mlkem_ss, 0, sizeof(mlkem_ss));
+    memset(x25519_ss, 0, sizeof(x25519_ss));
+
+    if (pqcr_mlkem768_dec(mlkem_ss, ct.mlkem_ct, expanded->mlkem_sk) != 0) {
+        ret = PQ_ERROR_DECAPSULATE;
+        goto cleanup;
+    }
+
+    ret = x25519_shared_secret_with_pkey(x25519_ss, ct.x25519_ephemeral,
+                                         (EVP_PKEY *)x25519_private_pkey);
+    if (ret != PQ_SUCCESS) {
+        ret = PQ_ERROR_DECAPSULATE;
+        goto cleanup;
+    }
+
+    ret = xwing_combiner(shared_secret, mlkem_ss, x25519_ss, ct.x25519_ephemeral,
+                         expanded->x25519_pk);
+
+cleanup:
+    pq_secure_wipe(mlkem_ss, sizeof(mlkem_ss));
+    pq_secure_wipe(x25519_ss, sizeof(x25519_ss));
     return ret;
 }
 
 int pq_hybrid_kem_decapsulate(uint8_t *shared_secret, const uint8_t *ciphertext,
                               const uint8_t *secret_key) {
-    hybrid_ciphertext_t ct;
-    hybrid_expanded_secret_key_t expanded;
-    uint8_t mlkem_ss[MLKEM_SHAREDSECRETBYTES];
-    uint8_t x25519_ss[X25519_SHAREDSECRETBYTES];
-    int ret = PQ_SUCCESS;
+    uint8_t expanded[HYBRID_EXPANDED_SECRETKEYBYTES];
+    int ret;
 
     if (!shared_secret || !ciphertext || !secret_key) {
         return PQ_ERROR_BUFFER;
     }
 
-    memcpy(&ct, ciphertext, HYBRID_CIPHERTEXTBYTES);
-    memset(&expanded, 0, sizeof(expanded));
-    memset(mlkem_ss, 0, sizeof(mlkem_ss));
-    memset(x25519_ss, 0, sizeof(x25519_ss));
-
-    ret = xwing_expand_secret_key(&expanded, secret_key);
+    memset(expanded, 0, sizeof(expanded));
+    ret = pq_hybrid_kem_expand_secret_key(expanded, secret_key);
     if (ret != PQ_SUCCESS) {
-        ret = PQ_ERROR_DECAPSULATE;
         goto cleanup;
     }
 
-    if (pqcr_mlkem768_dec(mlkem_ss, ct.mlkem_ct, expanded.mlkem_sk) != 0) {
-        ret = PQ_ERROR_DECAPSULATE;
-        goto cleanup;
-    }
-
-    ret = x25519_shared_secret(x25519_ss, ct.x25519_ephemeral, expanded.x25519_sk);
-    if (ret != PQ_SUCCESS) {
-        ret = PQ_ERROR_DECAPSULATE;
-        goto cleanup;
-    }
-
-    ret =
-        xwing_combiner(shared_secret, mlkem_ss, x25519_ss, ct.x25519_ephemeral, expanded.x25519_pk);
+    ret = pq_hybrid_kem_decapsulate_expanded(shared_secret, ciphertext, expanded);
 
 cleanup:
-    pq_secure_wipe(mlkem_ss, sizeof(mlkem_ss));
-    pq_secure_wipe(x25519_ss, sizeof(x25519_ss));
-    pq_secure_wipe(&expanded, sizeof(expanded));
+    pq_secure_wipe(expanded, sizeof(expanded));
     return ret;
 }
 
@@ -805,24 +858,51 @@ static int pq_decode_serialized_key(const uint8_t *input, size_t input_len, uint
     return PQ_SUCCESS;
 }
 
+static int pq_base64_char_value(unsigned char c) {
+    if (c >= 'A' && c <= 'Z')
+        return (int)(c - 'A');
+    if (c >= 'a' && c <= 'z')
+        return (int)(c - 'a' + 26);
+    if (c >= '0' && c <= '9')
+        return (int)(c - '0' + 52);
+    if (c == '+')
+        return 62;
+    if (c == '/')
+        return 63;
+    if (c == '=')
+        return 64;
+    return -1;
+}
+
+static const char *pq_find_pem_footer(const char *start, size_t len, const char *footer,
+                                      size_t footer_len) {
+    if (!start || !footer || footer_len == 0 || len < footer_len)
+        return NULL;
+
+    for (size_t i = 0; i <= len - footer_len; ++i) {
+        if (start[i] == '-' && memcmp(start + i, footer, footer_len) == 0)
+            return start + i;
+    }
+    return NULL;
+}
+
 static int pq_der_to_pem(const char *label, const uint8_t *der, size_t der_len, char **output,
                          size_t *output_len) {
-    BIO *bio_mem = NULL;
-    BIO *bio_b64 = NULL;
-    BIO *bio_chain = NULL;
-    BUF_MEM *bptr = NULL;
     char header[64];
     char footer[64];
     int header_len, footer_len;
-    int ret = PQ_ERROR_OPENSSL;
     char *pem = NULL;
-    size_t total_len = 0;
-    size_t needed = 0;
+    unsigned char *encoded = NULL;
+    size_t encoded_len;
+    size_t line_count;
+    size_t needed;
+    char *cur;
 
     if (!label || !der || !output || !output_len)
         return PQ_ERROR_BUFFER;
     *output = NULL;
     *output_len = 0;
+
     header_len = snprintf(header, sizeof(header), "-----BEGIN %s-----", label);
     footer_len = snprintf(footer, sizeof(footer), "-----END %s-----", label);
     if (header_len <= 0 || footer_len <= 0)
@@ -830,68 +910,60 @@ static int pq_der_to_pem(const char *label, const uint8_t *der, size_t der_len, 
     if (der_len > (size_t)INT_MAX)
         return PQ_ERROR_BUFFER;
 
-    bio_b64 = BIO_new(BIO_f_base64());
-    bio_mem = BIO_new(BIO_s_mem());
-    if (!bio_b64 || !bio_mem) {
-        ret = PQ_ERROR_NOMEM;
-        goto cleanup;
+    encoded_len = 4 * ((der_len + 2) / 3);
+    if (encoded_len > (size_t)INT_MAX)
+        return PQ_ERROR_BUFFER;
+
+    encoded = malloc(encoded_len + 1);
+    if (!encoded)
+        return PQ_ERROR_NOMEM;
+
+    if (EVP_EncodeBlock(encoded, der, (int)der_len) != (int)encoded_len) {
+        pq_secure_wipe(encoded, encoded_len + 1);
+        free(encoded);
+        return PQ_ERROR_OPENSSL;
     }
 
-    bio_chain = BIO_push(bio_b64, bio_mem);
+    line_count = encoded_len == 0 ? 0 : ((encoded_len + 63) / 64);
+    if (SIZE_MAX - (size_t)header_len < 1 || SIZE_MAX - ((size_t)header_len + 1) < encoded_len ||
+        SIZE_MAX - ((size_t)header_len + 1 + encoded_len) < line_count ||
+        SIZE_MAX - ((size_t)header_len + 1 + encoded_len + line_count) < (size_t)footer_len + 1) {
+        pq_secure_wipe(encoded, encoded_len + 1);
+        free(encoded);
+        return PQ_ERROR_BUFFER;
+    }
+    needed = (size_t)header_len + 1 + encoded_len + line_count + (size_t)footer_len + 1;
 
-    if (BIO_write(bio_chain, der, (int)der_len) != (int)der_len)
-        goto cleanup;
-    if (BIO_flush(bio_chain) != 1)
-        goto cleanup;
-    BIO_get_mem_ptr(bio_chain, &bptr);
-    if (!bptr || !bptr->data)
-        goto cleanup;
+    pem = malloc(needed);
+    if (!pem) {
+        pq_secure_wipe(encoded, encoded_len + 1);
+        free(encoded);
+        return PQ_ERROR_NOMEM;
+    }
 
-    {
-        size_t body_len = bptr->length;
-        needed = (size_t)header_len + 1 + body_len;
-        if (body_len == 0 || bptr->data[body_len - 1] != '\n')
-            needed += 1;
-        needed += (size_t)footer_len + 1;
+    cur = pem;
+    memcpy(cur, header, (size_t)header_len);
+    cur += header_len;
+    *cur++ = '\n';
 
-        pem = malloc(needed);
-        if (!pem) {
-            ret = PQ_ERROR_NOMEM;
-            goto cleanup;
-        }
-        char *cur = pem;
-        memcpy(cur, header, (size_t)header_len);
-        cur += header_len;
+    for (size_t offset = 0; offset < encoded_len; offset += 64) {
+        size_t line_len = encoded_len - offset;
+        if (line_len > 64)
+            line_len = 64;
+        memcpy(cur, encoded + offset, line_len);
+        cur += line_len;
         *cur++ = '\n';
-        memcpy(cur, bptr->data, body_len);
-        cur += body_len;
-        if (body_len == 0 || bptr->data[body_len - 1] != '\n')
-            *cur++ = '\n';
-        memcpy(cur, footer, (size_t)footer_len);
-        cur += footer_len;
-        *cur = '\0';
-        total_len = (size_t)(cur - pem);
     }
+
+    memcpy(cur, footer, (size_t)footer_len);
+    cur += footer_len;
+    *cur = '\0';
 
     *output = pem;
-    *output_len = total_len;
-    pem = NULL;
-    ret = PQ_SUCCESS;
-
-cleanup:
-    if (bio_chain) {
-        BIO_free_all(bio_chain);
-    } else {
-        if (bio_b64)
-            BIO_free(bio_b64);
-        if (bio_mem)
-            BIO_free(bio_mem);
-    }
-    if (pem) {
-        pq_secure_wipe(pem, needed);
-        free(pem);
-    }
-    return ret;
+    *output_len = (size_t)(cur - pem);
+    pq_secure_wipe(encoded, encoded_len + 1);
+    free(encoded);
+    return PQ_SUCCESS;
 }
 
 static int pq_pem_to_der(const char *label, const char *input, size_t input_len, uint8_t **der_out,
@@ -901,17 +973,19 @@ static int pq_pem_to_der(const char *label, const char *input, size_t input_len,
     const char *body_start, *footer_pos;
     const char *tail;
     uint8_t *der = NULL;
+    unsigned char *compact = NULL;
     size_t body_len = 0;
-    int ret;
-    BIO *bio_b64 = NULL;
-    BIO *bio_mem = NULL;
-    BIO *bio_chain = NULL;
+    size_t compact_len = 0;
+    size_t der_cap = 0;
     int decoded_len = 0;
+    int padding = 0;
+    int saw_padding = 0;
 
     if (!label || !input || !der_out || !der_len_out)
         return PQ_ERROR_BUFFER;
     *der_out = NULL;
     *der_len_out = 0;
+
     header_len = snprintf(header, sizeof(header), "-----BEGIN %s-----", label);
     footer_len = snprintf(footer, sizeof(footer), "-----END %s-----", label);
     if (header_len <= 0 || footer_len <= 0)
@@ -920,22 +994,13 @@ static int pq_pem_to_der(const char *label, const char *input, size_t input_len,
         return PQ_ERROR_BUFFER;
     if (strncmp(input, header, (size_t)header_len) != 0)
         return PQ_ERROR_BUFFER;
+
     body_start = input + header_len;
     while ((size_t)(body_start - input) < input_len && pq_is_pem_whitespace(*body_start))
         body_start++;
-    footer_pos = NULL;
-    {
-        size_t remaining = input_len - (size_t)(body_start - input);
-        size_t footer_size = (size_t)footer_len;
-        if (remaining < footer_size)
-            return PQ_ERROR_BUFFER;
-        for (size_t i = 0; i <= remaining - footer_size; ++i) {
-            if (memcmp(body_start + i, footer, footer_size) == 0) {
-                footer_pos = body_start + i;
-                break;
-            }
-        }
-    }
+
+    footer_pos = pq_find_pem_footer(body_start, input_len - (size_t)(body_start - input), footer,
+                                    (size_t)footer_len);
     if (!footer_pos)
         return PQ_ERROR_BUFFER;
 
@@ -950,53 +1015,65 @@ static int pq_pem_to_der(const char *label, const char *input, size_t input_len,
     if (body_len > (size_t)INT_MAX)
         return PQ_ERROR_BUFFER;
 
-    {
-        size_t der_cap = (body_len * 3) / 4 + 3;
-        der = malloc(der_cap ? der_cap : 1);
-        if (!der)
-            return PQ_ERROR_NOMEM;
+    compact = malloc(body_len ? body_len : 1);
+    if (!compact)
+        return PQ_ERROR_NOMEM;
 
-        bio_mem = BIO_new_mem_buf(body_start, (int)body_len);
-        bio_b64 = BIO_new(BIO_f_base64());
-        if (!bio_mem || !bio_b64) {
-            ret = PQ_ERROR_NOMEM;
-            goto cleanup;
-        }
-        bio_chain = BIO_push(bio_b64, bio_mem);
+    for (size_t i = 0; i < body_len; ++i) {
+        unsigned char c = (unsigned char)body_start[i];
+        int value;
+        if (pq_is_pem_whitespace((char)c))
+            continue;
 
-        decoded_len = BIO_read(bio_chain, der, (int)der_cap);
-        if (decoded_len <= 0) {
-            ret = PQ_ERROR_BUFFER;
-            goto cleanup;
+        value = pq_base64_char_value(c);
+        if (value < 0) {
+            pq_secure_wipe(compact, body_len);
+            free(compact);
+            return PQ_ERROR_BUFFER;
         }
-        {
-            unsigned char tail_byte;
-            int extra = BIO_read(bio_chain, &tail_byte, 1);
-            if (extra > 0) {
-                ret = PQ_ERROR_BUFFER;
-                goto cleanup;
+        if (c == '=') {
+            saw_padding = 1;
+            padding++;
+            if (padding > 2) {
+                pq_secure_wipe(compact, body_len);
+                free(compact);
+                return PQ_ERROR_BUFFER;
             }
+        } else if (saw_padding) {
+            pq_secure_wipe(compact, body_len);
+            free(compact);
+            return PQ_ERROR_BUFFER;
         }
-
-        *der_len_out = (size_t)decoded_len;
-        *der_out = der;
-        der = NULL;
-        ret = PQ_SUCCESS;
+        compact[compact_len++] = c;
     }
 
-cleanup:
-    if (bio_chain) {
-        BIO_free_all(bio_chain);
-    } else {
-        if (bio_b64)
-            BIO_free(bio_b64);
-        if (bio_mem)
-            BIO_free(bio_mem);
+    if (compact_len == 0 || (compact_len % 4) != 0 || compact_len > (size_t)INT_MAX) {
+        pq_secure_wipe(compact, body_len);
+        free(compact);
+        return PQ_ERROR_BUFFER;
     }
-    if (der) {
+
+    der_cap = (compact_len / 4) * 3;
+    der = malloc(der_cap ? der_cap : 1);
+    if (!der) {
+        pq_secure_wipe(compact, body_len);
+        free(compact);
+        return PQ_ERROR_NOMEM;
+    }
+
+    decoded_len = EVP_DecodeBlock(der, compact, (int)compact_len);
+    pq_secure_wipe(compact, body_len);
+    free(compact);
+    compact = NULL;
+    if (decoded_len <= 0 || decoded_len < padding) {
+        pq_secure_wipe(der, der_cap);
         free(der);
+        return PQ_ERROR_BUFFER;
     }
-    return ret;
+
+    *der_len_out = (size_t)(decoded_len - padding);
+    *der_out = der;
+    return PQ_SUCCESS;
 }
 
 int pq_public_key_to_pqc_container_der(uint8_t **output, size_t *output_len,

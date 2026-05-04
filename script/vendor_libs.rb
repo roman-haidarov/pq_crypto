@@ -4,48 +4,106 @@
 require "digest"
 require "fileutils"
 require "open3"
+require "optparse"
 require "tmpdir"
 
 VENDOR_DIR = File.expand_path("../ext/pqcrypto/vendor", __dir__)
 MANIFEST_PATH = File.join(VENDOR_DIR, ".vendored")
 
-DEFAULTS = {
+PINS = {
   mlkem: {
     repo: "https://github.com/pq-code-package/mlkem-native.git",
     ref: "v1.1.0",
+    commit: "d2cae2be522a67bfae26100fdb520576f1b2ef90",
+    tree_sha256: "c225de87a69e6d6360cddc4b5839b03e65fa9d5a1112a5f19700c905b7e74512",
     target: "mlkem-native",
     source_dir: "mlkem"
   },
   mldsa: {
     repo: "https://github.com/pq-code-package/mldsa-native.git",
     ref: "v1.0.0-beta",
+    commit: "db65535319d9750d75d34c6d170677415f9d2c46",
+    tree_sha256: "3b2cb648dade4540191f08d606b422042bf781fb37b434934ab02b58a0121f5c",
     target: "mldsa-native",
     source_dir: "mldsa"
   }
 }.freeze
 
-WARNING = <<~TEXT.freeze
-  WARNING: this script vendors a minimal PQ Code Package source snapshot.
+VENDORED_DOCS = %w[LICENSE LICENSE.txt README.md SECURITY.md BUILDING.md RELEASE.md META.yml].freeze
+NORMALIZED_MTIME = Time.utc(2000, 1, 1).freeze
+MANIFEST_HEADER = "# pq_crypto vendor manifest. Do not edit by hand. Regenerate with: ruby script/vendor_libs.rb"
 
-  pq_crypto now has no PQClean fallback. Only the files required by the native
-  extension are copied into ext/pqcrypto/vendor; upstream examples, .git
-  directories, tests, proofs, and symlink-heavy trees are intentionally omitted
-  so source gems are portable and do not emit RubyGems symlink warnings.
-TEXT
+options = { mode: :sync }
+OptionParser.new do |opts|
+  opts.banner = "Usage: vendor_libs.rb [--verify | --sync | --bump]"
+  opts.on("--verify", "Verify existing vendor tree against pinned tree_sha256 (no network)") { options[:mode] = :verify }
+  opts.on("--sync", "Re-clone at pinned commits and rebuild vendor tree (idempotent)") { options[:mode] = :sync }
+  opts.on("--bump", "Re-clone and print new tree_sha256 values to update PINS in this file") { options[:mode] = :bump }
+end.parse!
 
 def sh!(cmd)
-  puts "+ #{cmd.join(" ")}"
   system(*cmd) || abort("command failed: #{cmd.join(" ")}")
+end
+
+def capture!(*cmd)
+  out, status = Open3.capture2(*cmd)
+  abort("command failed: #{cmd.join(" ")}") unless status.success?
+  out.strip
+end
+
+def vendor_candidate?(path)
+  return false if File.symlink?(path)
+  return false unless File.file?(path)
+  return false if path.split(File::SEPARATOR).any? { |seg| seg.start_with?(".") && seg != "." && seg != ".." }
+  true
+end
+
+def normalize_tree!(directory)
+  Dir.glob(File.join(directory, "**", "*"), File::FNM_DOTMATCH).each do |path|
+    base = File.basename(path)
+    next if base == "." || base == ".."
+    next if File.symlink?(path)
+    if File.file?(path)
+      File.chmod(0o644, path)
+      File.utime(NORMALIZED_MTIME, NORMALIZED_MTIME, path)
+    elsif File.directory?(path)
+      File.chmod(0o755, path)
+    end
+  end
+  File.utime(NORMALIZED_MTIME, NORMALIZED_MTIME, directory) if File.directory?(directory)
+end
+
+def copy_sources!(source_root, target_root, source_dir)
+  required = File.join(source_root, source_dir)
+  abort "missing required upstream directory: #{required}" unless Dir.exist?(required)
+
+  FileUtils.rm_rf(File.join(target_root, source_dir))
+  FileUtils.mkdir_p(File.join(target_root, source_dir))
+
+  Dir.glob(File.join(required, "**", "*"), File::FNM_DOTMATCH).sort.each do |path|
+    next unless vendor_candidate?(path)
+    relative = path.sub(/\A#{Regexp.escape(required)}\//, "")
+    dest = File.join(target_root, source_dir, relative)
+    FileUtils.mkdir_p(File.dirname(dest))
+    FileUtils.cp(path, dest, preserve: false)
+  end
+
+  VENDORED_DOCS.each do |relative|
+    src = File.join(source_root, relative)
+    next if File.symlink?(src)
+    next unless File.file?(src)
+    FileUtils.cp(src, File.join(target_root, relative), preserve: false)
+  end
 end
 
 def tree_sha256_for(directory)
   entries = Dir.glob(File.join(directory, "**", "*"), File::FNM_DOTMATCH)
-               .reject { |path| File.directory?(path) }
+               .reject { |p| File.directory?(p) || File.symlink?(p) || %w[. ..].include?(File.basename(p)) }
                .sort
 
   digest = Digest::SHA256.new
   entries.each do |path|
-    relative = path.delete_prefix("#{directory}/")
+    relative = path.sub(/\A#{Regexp.escape(directory)}\/?/, "")
     digest << relative << "\0"
     digest << File.binread(path)
     digest << "\0"
@@ -53,79 +111,166 @@ def tree_sha256_for(directory)
   digest.hexdigest
 end
 
-VENDORED_DOCS = %w[
-  LICENSE
-  README.md
-  SECURITY.md
-  BUILDING.md
-  RELEASE.md
-  META.yml
-].freeze
-
-def copy_file_without_symlink(source, target)
-  return if File.symlink?(source)
-  return unless File.file?(source)
-
-  FileUtils.mkdir_p(File.dirname(target))
-  FileUtils.cp(source, target)
-end
-
-def copy_required_snapshot(source_root, target_root, source_dir)
-  required_source = File.join(source_root, source_dir)
-  abort "missing required upstream directory: #{required_source}" unless Dir.exist?(required_source)
-
-  FileUtils.mkdir_p(target_root)
-  FileUtils.cp_r(required_source, File.join(target_root, source_dir), remove_destination: true)
-
-  VENDORED_DOCS.each do |relative|
-    copy_file_without_symlink(File.join(source_root, relative), File.join(target_root, relative))
-  end
-end
-
-def clone_project(name, config)
-  env_prefix = name.to_s.upcase
-  repo = ENV["#{env_prefix}_NATIVE_REPO"] || config[:repo]
-  ref = ENV["#{env_prefix}_NATIVE_REF"] || config[:ref]
-  target = File.join(VENDOR_DIR, config[:target])
-
+def vendor_one(name, pin)
+  target = File.join(VENDOR_DIR, pin[:target])
   FileUtils.rm_rf(target)
+  FileUtils.mkdir_p(target)
 
   Dir.mktmpdir("pqcrypto-#{name}-") do |tmpdir|
-    clone_dir = File.join(tmpdir, config[:target])
-    sh!(["git", "clone", "--depth", "1", "--branch", ref, repo, clone_dir])
+    clone_dir = File.join(tmpdir, pin[:target])
+    sh!(["git", "clone", "--depth", "1", "--branch", pin[:ref], pin[:repo], clone_dir])
+    actual_commit = capture!("git", "-C", clone_dir, "rev-parse", "HEAD")
 
-    commit, status = Open3.capture2("git", "-C", clone_dir, "rev-parse", "HEAD")
-    commit = status.success? ? commit.strip : "unknown"
+    if actual_commit != pin[:commit]
+      sh!(["git", "-C", clone_dir, "fetch", "--depth", "1", "origin", pin[:commit]])
+      sh!(["git", "-C", clone_dir, "checkout", "--detach", pin[:commit]])
+      actual_commit = capture!("git", "-C", clone_dir, "rev-parse", "HEAD")
+    end
 
-    copy_required_snapshot(clone_dir, target, config[:source_dir])
+    abort "commit mismatch for #{name}: expected #{pin[:commit]}, got #{actual_commit}" unless actual_commit == pin[:commit]
 
-    [repo, ref, commit, tree_sha256_for(target)]
+    copy_sources!(clone_dir, target, pin[:source_dir])
   end
+
+  normalize_tree!(target)
+  tree_sha256_for(target)
 end
 
-puts WARNING
-puts "Vendoring into #{VENDOR_DIR}"
+def manifest_body_lines(results)
+  lines = ["backend=PQ Code Package native only", "pqclean=removed"]
+  results.each do |name, data|
+    prefix = "#{name}_native"
+    lines << "#{prefix}_repo=#{data[:repo]}"
+    lines << "#{prefix}_ref=#{data[:ref]}"
+    lines << "#{prefix}_commit=#{data[:commit]}"
+    lines << "#{prefix}_tree_sha256=#{data[:tree_sha256]}"
+  end
+  lines
+end
 
-FileUtils.rm_rf(VENDOR_DIR)
-FileUtils.mkdir_p(VENDOR_DIR)
+def manifest_signature(body_lines)
+  Digest::SHA256.hexdigest(body_lines.join("\n") + "\n")
+end
 
-mlkem_repo, mlkem_ref, mlkem_commit, mlkem_tree = clone_project(:mlkem, DEFAULTS[:mlkem])
-mldsa_repo, mldsa_ref, mldsa_commit, mldsa_tree = clone_project(:mldsa, DEFAULTS[:mldsa])
+def write_manifest(results)
+  body = manifest_body_lines(results)
+  sig = manifest_signature(body)
+  content = ([MANIFEST_HEADER] + body + ["manifest_sha256=#{sig}"]).join("\n") + "\n"
+  File.write(MANIFEST_PATH, content)
+  File.chmod(0o644, MANIFEST_PATH)
+  File.utime(NORMALIZED_MTIME, NORMALIZED_MTIME, MANIFEST_PATH)
+end
 
-File.write(
-  MANIFEST_PATH,
-  <<~TEXT
-    backend=PQ Code Package native only
-    pqclean=removed
-    mlkem_native_repo=#{mlkem_repo}
-    mlkem_native_ref=#{mlkem_ref}
-    mlkem_native_commit=#{mlkem_commit}
-    mlkem_native_tree_sha256=#{mlkem_tree}
-    mldsa_native_repo=#{mldsa_repo}
-    mldsa_native_ref=#{mldsa_ref}
-    mldsa_native_commit=#{mldsa_commit}
-    mldsa_native_tree_sha256=#{mldsa_tree}
-  TEXT
-)
+def parse_manifest(path)
+  return { kv: {}, body: [], signature: nil } unless File.exist?(path)
+  body = []
+  kv = {}
+  signature = nil
+  File.readlines(path, chomp: true).each do |line|
+    next if line.start_with?("#")
+    next if line.empty?
+    if line.start_with?("manifest_sha256=")
+      signature = line.split("=", 2).last
+    else
+      body << line
+      k, v = line.split("=", 2)
+      kv[k] = v if k && v
+    end
+  end
+  { kv: kv, body: body, signature: signature }
+end
 
-puts "Done. Next step: bundle exec rake compile"
+case options[:mode]
+when :verify
+  manifest = parse_manifest(MANIFEST_PATH)
+  failures = []
+
+  if manifest[:signature].nil?
+    failures << "manifest: missing manifest_sha256 line"
+  else
+    expected_sig = manifest_signature(manifest[:body])
+    failures << "manifest: signature mismatch (manifest_sha256=#{manifest[:signature]}, computed=#{expected_sig})" if expected_sig != manifest[:signature]
+  end
+
+  PINS.each do |name, pin|
+    target = File.join(VENDOR_DIR, pin[:target])
+    unless Dir.exist?(target)
+      failures << "#{name}: vendor directory missing (#{target})"
+      next
+    end
+
+    manifest_commit = manifest[:kv]["#{name}_native_commit"]
+    if manifest_commit != pin[:commit]
+      failures << "#{name}: manifest commit (#{manifest_commit.inspect}) != PINS commit (#{pin[:commit]})"
+    end
+
+    manifest_tree = manifest[:kv]["#{name}_native_tree_sha256"]
+    if manifest_tree != pin[:tree_sha256]
+      failures << "#{name}: manifest tree_sha256 (#{manifest_tree.inspect}) != PINS tree_sha256 (#{pin[:tree_sha256]})"
+    end
+
+    actual_tree = tree_sha256_for(target)
+    if actual_tree != pin[:tree_sha256]
+      failures << "#{name}: filesystem tree_sha256 (#{actual_tree}) != PINS tree_sha256 (#{pin[:tree_sha256]})"
+    end
+  end
+
+  if failures.empty?
+    puts "vendor verify: ok"
+    exit 0
+  else
+    failures.each { |f| warn f }
+    exit 1
+  end
+
+when :sync
+  if Dir.exist?(VENDOR_DIR) && File.exist?(MANIFEST_PATH)
+    manifest = parse_manifest(MANIFEST_PATH)
+    sig_ok = manifest[:signature] && manifest_signature(manifest[:body]) == manifest[:signature]
+    pins_ok = sig_ok && PINS.all? do |name, pin|
+      target = File.join(VENDOR_DIR, pin[:target])
+      Dir.exist?(target) &&
+        manifest[:kv]["#{name}_native_commit"] == pin[:commit] &&
+        manifest[:kv]["#{name}_native_tree_sha256"] == pin[:tree_sha256] &&
+        tree_sha256_for(target) == pin[:tree_sha256]
+    end
+
+    if pins_ok
+      puts "vendor already at pinned commits and tree_sha256; nothing to do"
+      exit 0
+    end
+  end
+
+  FileUtils.rm_rf(VENDOR_DIR)
+  FileUtils.mkdir_p(VENDOR_DIR)
+
+  results = {}
+  PINS.each do |name, pin|
+    actual_tree = vendor_one(name, pin)
+    if actual_tree != pin[:tree_sha256]
+      abort "#{name}: tree_sha256 drift (PINS=#{pin[:tree_sha256]}, actual=#{actual_tree}). " \
+            "Upstream changed under the pinned commit, or the vendor algorithm changed. " \
+            "If intentional, run with --bump to print new pins."
+    end
+    results[name] = pin.merge(tree_sha256: actual_tree)
+  end
+  write_manifest(results)
+  puts "vendor sync: ok"
+  results.each { |name, data| puts "  #{name}: commit=#{data[:commit]} tree_sha256=#{data[:tree_sha256]}" }
+
+when :bump
+  FileUtils.rm_rf(VENDOR_DIR)
+  FileUtils.mkdir_p(VENDOR_DIR)
+
+  results = {}
+  PINS.each do |name, pin|
+    actual_tree = vendor_one(name, pin)
+    results[name] = pin.merge(tree_sha256: actual_tree)
+  end
+  write_manifest(results)
+
+  puts "Update PINS in script/vendor_libs.rb to:"
+  results.each do |name, data|
+    puts "  PINS[:#{name}][:tree_sha256] = #{data[:tree_sha256].inspect}"
+  end
+end

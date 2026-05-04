@@ -39,7 +39,45 @@ if SANITIZE && !SANITIZE.strip.empty?
   $LDFLAGS << " -fsanitize=#{sanitize}"
 end
 
-NATIVE_ASM = (ENV["PQCRYPTO_NATIVE_ASM"] || "0") == "1"
+def native_asm_supported_by_default?
+  host_cpu = RbConfig::CONFIG.fetch("host_cpu", "")
+  host_os = RbConfig::CONFIG.fetch("host_os", "")
+  return false if host_os =~ /mswin|mingw|cygwin/i
+
+  host_cpu =~ /\A(?:arm64|aarch64)\z/i
+end
+
+def parse_native_asm_env(value)
+  return native_asm_supported_by_default? if value.nil? || value.strip.empty? || value == "auto"
+
+  case value.strip.downcase
+  when "1", "true", "yes", "on", "auto"
+    true
+  when "0", "false", "no", "off"
+    false
+  else
+    abort "Invalid PQCRYPTO_NATIVE_ASM=#{value.inspect}; use 1, 0, or auto"
+  end
+end
+
+NATIVE_ASM = parse_native_asm_env(ENV["PQCRYPTO_NATIVE_ASM"])
+
+def parse_native_backend_env(name)
+  value = ENV[name]
+  return NATIVE_ASM if value.nil? || value.strip.empty? || value == "auto"
+
+  case value.strip.downcase
+  when "1", "true", "yes", "on"
+    true
+  when "0", "false", "no", "off"
+    false
+  else
+    abort "Invalid #{name}=#{value.inspect}; use 1, 0, or auto"
+  end
+end
+
+NATIVE_ARITH = parse_native_backend_env("PQCRYPTO_NATIVE_ARITH")
+NATIVE_FIPS202 = parse_native_backend_env("PQCRYPTO_NATIVE_FIPS202")
 
 def configure_compiler_environment
   return unless RUBY_PLATFORM.include?("darwin")
@@ -66,28 +104,25 @@ def vendor_script_path
 end
 
 def run_vendor_script!(vendor_dir)
-  script = vendor_script_path
-  abort <<~MSG unless File.exist?(script)
-    PQ Code Package vendored sources are missing and script/vendor_libs.rb was not packaged.
+  abort <<~MSG if ENV["PQCRYPTO_AUTO_VENDOR"] != "1"
+    PQ Code Package vendored sources are missing.
 
     Expected:
       #{native_vendor_sources_for(vendor_dir).join("\n  ")}
 
-    Rebuild the gem from a repository that includes script/vendor_libs.rb, or run
-    script/vendor_libs.rb before building the gem package.
-  MSG
+    The vendor tree is committed to the repository and shipped with the gem.
+    If it is missing, the source tree is incomplete or corrupted.
 
-  abort <<~MSG if ENV["PQCRYPTO_AUTO_VENDOR"] == "0"
-    PQ Code Package vendored sources are missing and PQCRYPTO_AUTO_VENDOR=0 was set.
-
-    Expected:
-      #{native_vendor_sources_for(vendor_dir).join("\n  ")}
-
-    Run:
+    To fetch upstream sources at the pinned commits run:
       ruby script/vendor_libs.rb
+
+    Or to allow extconf.rb to do this for you set PQCRYPTO_AUTO_VENDOR=1.
   MSG
 
-  puts "PQ Code Package native sources are missing; vendoring now..."
+  script = vendor_script_path
+  abort "PQ Code Package vendored sources are missing and script/vendor_libs.rb was not packaged." unless File.exist?(script)
+
+  puts "PQ Code Package native sources are missing; vendoring now (PQCRYPTO_AUTO_VENDOR=1)..."
   ok = system(RbConfig.ruby, script)
   abort <<~MSG unless ok
     Failed to vendor PQ Code Package native sources.
@@ -210,10 +245,8 @@ def native_flags(kind, level, shared:)
   flags << "-D#{prefix}_CONFIG_NAMESPACE_PREFIX=#{ns}"
   flags << "-D#{prefix}_CONFIG_NO_SUPERCOP"
   flags << (shared ? "-D#{prefix}_CONFIG_MULTILEVEL_WITH_SHARED" : "-D#{prefix}_CONFIG_MULTILEVEL_NO_SHARED")
-  if NATIVE_ASM
-    flags << "-D#{prefix}_CONFIG_USE_NATIVE_BACKEND_ARITH"
-    flags << "-D#{prefix}_CONFIG_USE_NATIVE_BACKEND_FIPS202"
-  end
+  flags << "-D#{prefix}_CONFIG_USE_NATIVE_BACKEND_ARITH" if NATIVE_ARITH
+  flags << "-D#{prefix}_CONFIG_USE_NATIVE_BACKEND_FIPS202" if NATIVE_FIPS202
   flags.join(" ")
 end
 
@@ -241,7 +274,7 @@ def inject_native_sources!(config)
     RULE
   end
 
-  if NATIVE_ASM
+  if NATIVE_ARITH || NATIVE_FIPS202
     [
       [:mlkem, "512", config[:mlkem_asm], true],
       [:mlkem, "768", config[:mlkem_asm], false],
@@ -288,7 +321,9 @@ native_config = native_vendor_config(vendor_dir)
 puts "OpenSSL: system"
 puts "ML-KEM: mlkem-native vendored"
 puts "ML-DSA: mldsa-native vendored"
-puts "Native asm backends: #{NATIVE_ASM ? 'enabled' : 'disabled'}"
+puts "Native asm auto/forced: #{NATIVE_ASM ? 'enabled' : 'disabled'}"
+puts "Native arithmetic backend: #{NATIVE_ARITH ? 'enabled' : 'disabled'}"
+puts "Native FIPS202 backend: #{NATIVE_FIPS202 ? 'enabled' : 'disabled'}"
 puts "PQClean fallback: removed"
 puts "Output: pqcrypto/pqcrypto_secure"
 puts "===================================="
