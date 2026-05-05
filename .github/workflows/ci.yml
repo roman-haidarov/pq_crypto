@@ -116,3 +116,50 @@ jobs:
             echo "OpenSSL 3.5 interop tests must NOT skip on this matrix entry."
             exit 1
           fi
+
+  linux-native-backend:
+    needs: test
+    name: linux-native-backend
+    runs-on: ubuntu-latest
+    env:
+      PQCRYPTO_NATIVE_ASM: "1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+          bundler-cache: true
+
+      - name: Verify vendored sources
+        run: bundle exec rake vendor:verify
+
+      - name: Compile extension with native x86_64 backend
+        run: |
+          rm -rf tmp lib/pqcrypto/pqcrypto_secure.so
+          bundle exec rake compile
+
+      - name: Smoke native backend
+        run: |
+          bundle exec ruby -Ilib -e '
+            require "pq_crypto"
+
+            kem = PQCrypto::KEM.generate(:ml_kem_768)
+            enc = kem.public_key.encapsulate
+            raise "ML-KEM mismatch" unless kem.secret_key.decapsulate(enc.ciphertext) == enc.shared_secret
+
+            sig = PQCrypto::Signature.generate(:ml_dsa_65)
+            msg = "linux-native-backend".b
+            signature = sig.secret_key.sign(msg)
+            raise "ML-DSA verify failed" unless sig.public_key.verify(msg, signature)
+          '
+
+      - name: Verify AVX2 native symbols
+        run: |
+          set -euxo pipefail
+          so="lib/pqcrypto/pqcrypto_secure.so"
+          test -f "$so"
+          nm "$so" | grep -E "pqcr_(mlkem|mldsa).*avx2|keccak.*avx2"

@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.5.2] - 2026-05-06
+
+### Build
+
+- Added Linux/OpenSSL discovery via `OPENSSL_ROOT_DIR`, `OPENSSL_DIR`, and `pkg-config`.
+- Preserved `$(CFLAGS)`/`$(CCDLFLAGS)` for vendored native objects so Linux shared-object builds keep `-fPIC`.
+- Added opt-in Linux x86_64 native-backend support through `PQCRYPTO_NATIVE_ASM=1`.
+- Added x86_64 AVX2 vendor flags for mlkem-native/mldsa-native when native backends are explicitly enabled.
+- Added separate `PQCRYPTO_NATIVE_ARITH` and `PQCRYPTO_NATIVE_FIPS202` switches for native arithmetic and Keccak/FIPS202 backends.
+- Kept AArch64 native asm enabled by default; verified macOS arm64 still builds ML-KEM/ML-DSA native asm paths.
+
+### CI
+
+- Added a Linux native-backend job that compiles with `PQCRYPTO_NATIVE_ASM=1`, runs ML-KEM/ML-DSA smoke checks, and verifies AVX2 symbols in the extension.
+
 ## [0.5.1] - 2026-05-04
 
 ### Performance

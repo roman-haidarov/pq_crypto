@@ -39,32 +39,31 @@ if SANITIZE && !SANITIZE.strip.empty?
   $LDFLAGS << " -fsanitize=#{sanitize}"
 end
 
-def native_asm_supported_by_default?
-  host_cpu = RbConfig::CONFIG.fetch("host_cpu", "")
-  host_os = RbConfig::CONFIG.fetch("host_os", "")
-  return false if host_os =~ /mswin|mingw|cygwin/i
+def host_cpu
+  RbConfig::CONFIG.fetch("host_cpu", "")
+end
 
+def host_os
+  RbConfig::CONFIG.fetch("host_os", "")
+end
+
+def aarch64_host?
   host_cpu =~ /\A(?:arm64|aarch64)\z/i
 end
 
-def parse_native_asm_env(value)
-  return native_asm_supported_by_default? if value.nil? || value.strip.empty? || value == "auto"
-
-  case value.strip.downcase
-  when "1", "true", "yes", "on", "auto"
-    true
-  when "0", "false", "no", "off"
-    false
-  else
-    abort "Invalid PQCRYPTO_NATIVE_ASM=#{value.inspect}; use 1, 0, or auto"
-  end
+def x86_64_host?
+  host_cpu =~ /\A(?:x86_64|amd64|x64)\z/i
 end
 
-NATIVE_ASM = parse_native_asm_env(ENV["PQCRYPTO_NATIVE_ASM"])
+def native_asm_supported_by_default?
+  return false if host_os =~ /mswin|mingw|cygwin/i
 
-def parse_native_backend_env(name)
+  aarch64_host?
+end
+
+def env_bool(name, default)
   value = ENV[name]
-  return NATIVE_ASM if value.nil? || value.strip.empty? || value == "auto"
+  return default if value.nil? || value.strip.empty? || value.strip.downcase == "auto"
 
   case value.strip.downcase
   when "1", "true", "yes", "on"
@@ -72,19 +71,53 @@ def parse_native_backend_env(name)
   when "0", "false", "no", "off"
     false
   else
-    abort "Invalid #{name}=#{value.inspect}; use 1, 0, or auto"
+    abort "Invalid #{name}=#{value.inspect}; use 1, 0, true, false, or auto"
   end
 end
 
-NATIVE_ARITH = parse_native_backend_env("PQCRYPTO_NATIVE_ARITH")
-NATIVE_FIPS202 = parse_native_backend_env("PQCRYPTO_NATIVE_FIPS202")
+NATIVE_ASM = env_bool("PQCRYPTO_NATIVE_ASM", native_asm_supported_by_default?)
+NATIVE_ARITH = env_bool("PQCRYPTO_NATIVE_ARITH", NATIVE_ASM)
+NATIVE_FIPS202 = env_bool("PQCRYPTO_NATIVE_FIPS202", NATIVE_ASM)
+
+X86_VENDOR_ARCH_FLAGS = "-mavx2 -mbmi -mbmi2 -mpopcnt -maes -mssse3 -msse4.1 -msse4.2"
+
+VENDOR_C_ARCH_FLAGS = +""
+VENDOR_ASM_ARCH_FLAGS = +""
+
+if x86_64_host? && (NATIVE_ARITH || NATIVE_FIPS202)
+  VENDOR_C_ARCH_FLAGS << "#{X86_VENDOR_ARCH_FLAGS} -fno-tree-vectorize"
+  VENDOR_ASM_ARCH_FLAGS << X86_VENDOR_ARCH_FLAGS
+end
+
+if ENV["PQCRYPTO_NATIVE_TUNE"] == "1"
+  VENDOR_C_ARCH_FLAGS << " -march=native -mtune=native"
+  VENDOR_ASM_ARCH_FLAGS << " -march=native -mtune=native"
+end
 
 def configure_compiler_environment
-  return unless RUBY_PLATFORM.include?("darwin")
+  if RUBY_PLATFORM.include?("darwin")
+    dir_config("homebrew", "/opt/homebrew")
+    $CPPFLAGS << " -I/opt/homebrew/include"
+    $LDFLAGS << " -L/opt/homebrew/lib"
+    return
+  end
 
-  dir_config("homebrew", "/opt/homebrew")
-  $CPPFLAGS << " -I/opt/homebrew/include"
-  $LDFLAGS << " -L/opt/homebrew/lib"
+  openssl_root = ENV["OPENSSL_ROOT_DIR"] || ENV["OPENSSL_DIR"]
+  if openssl_root && !openssl_root.strip.empty? && File.directory?(openssl_root)
+    $CPPFLAGS << " -I#{openssl_root}/include"
+    %w[lib64 lib].each do |suffix|
+      libdir = File.join(openssl_root, suffix)
+      next unless File.directory?(libdir)
+
+      $LDFLAGS << " -L#{libdir} -Wl,-rpath,#{libdir}"
+      break
+    end
+  elsif find_executable("pkg-config")
+    cflags = `pkg-config --cflags openssl 2>/dev/null`.strip
+    libs = `pkg-config --libs-only-L openssl 2>/dev/null`.strip
+    $CPPFLAGS << " #{cflags}" unless cflags.empty?
+    $LDFLAGS << " #{libs}" unless libs.empty?
+  end
 end
 
 def native_vendor_sources_for(vendor_dir)
@@ -270,7 +303,7 @@ def inject_native_sources!(config)
     build_rules << <<~RULE
       #{object}: #{source}
       	$(ECHO) compiling #{source} [#{kind}-#{level}]
-      	$(Q) $(CC) $(INCFLAGS) $(CPPFLAGS) $(CFLAGS) #{VENDOR_ONLY_CFLAGS} #{flags} $(COUTFLAG)$@ -c $(CSRCFLAG)$<
+      	$(Q) $(CC) $(INCFLAGS) $(CPPFLAGS) $(CFLAGS) $(CCDLFLAGS) #{VENDOR_ONLY_CFLAGS} #{VENDOR_C_ARCH_FLAGS} #{flags} $(COUTFLAG)$@ -c $(CSRCFLAG)$<
     RULE
   end
 
@@ -291,7 +324,7 @@ def inject_native_sources!(config)
       build_rules << <<~RULE
         #{object}: #{source}
         	$(ECHO) assembling #{source} [#{kind}-#{level}]
-        	$(Q) $(CC) $(INCFLAGS) $(CPPFLAGS) $(CFLAGS) #{VENDOR_ONLY_CFLAGS} #{flags} $(COUTFLAG)$@ -c $(CSRCFLAG)$<
+        	$(Q) $(CC) $(INCFLAGS) $(CPPFLAGS) $(CFLAGS) $(CCDLFLAGS) #{VENDOR_ONLY_CFLAGS} #{VENDOR_ASM_ARCH_FLAGS} #{flags} $(COUTFLAG)$@ -c $(CSRCFLAG)$<
       RULE
     end
   end
@@ -321,9 +354,15 @@ native_config = native_vendor_config(vendor_dir)
 puts "OpenSSL: system"
 puts "ML-KEM: mlkem-native vendored"
 puts "ML-DSA: mldsa-native vendored"
+puts "Host CPU: #{host_cpu} (#{host_os})"
 puts "Native asm auto/forced: #{NATIVE_ASM ? 'enabled' : 'disabled'}"
 puts "Native arithmetic backend: #{NATIVE_ARITH ? 'enabled' : 'disabled'}"
 puts "Native FIPS202 backend: #{NATIVE_FIPS202 ? 'enabled' : 'disabled'}"
+puts "Vendor C arch flags: #{VENDOR_C_ARCH_FLAGS.empty? ? '(none)' : VENDOR_C_ARCH_FLAGS}"
+puts "Vendor ASM arch flags: #{VENDOR_ASM_ARCH_FLAGS.empty? ? '(none)' : VENDOR_ASM_ARCH_FLAGS}"
+if x86_64_host? && (NATIVE_ARITH || NATIVE_FIPS202)
+  puts "x86_64 native backend: AVX2 build flags enabled"
+end
 puts "PQClean fallback: removed"
 puts "Output: pqcrypto/pqcrypto_secure"
 puts "===================================="
