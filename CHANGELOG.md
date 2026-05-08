@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.5.3] - 2026-05-08
+
+### Compatibility
+
+- Lowered the minimum supported Ruby version from `>= 3.4.0` to `>= 3.1`.
+- Kept the Ruby 3.4+ optimized `rb_nogvl(..., RB_NOGVL_OFFLOAD_SAFE)` path intact.
+- Added explicit native build probes for `ruby/thread.h`, `rb_thread_call_without_gvl`, and `rb_nogvl`.
+- Ruby 3.1-3.3 now build the same selected `rb_nogvl` calls with a local `PQ_RB_NOGVL_OFFLOAD_SAFE` fallback of `0`, preserving ordinary no-GVL behavior without claiming scheduler offload guarantees.
+
+### CI
+
+- Added Ruby 3.1-3.3 compatibility coverage as compile + smoke checks while keeping full test coverage on Ruby 3.4 and 4.0.
+- Scoped the strict Async/Fiber Scheduler integration assertion to Ruby 3.4+ so compatibility runtimes do not claim `RB_NOGVL_OFFLOAD_SAFE` behavior.
+- Pinned the test-only `async` dependency to the Ruby 3.1-compatible `2.21.x` line, which still contains the worker-pool support needed for the Ruby 3.4+ offload test.
+
+### Documentation
+
+- Documented the Ruby 3.1+ support policy and the difference between compatibility no-GVL behavior and Ruby 3.4+ scheduler-aware offload.
+
 ## [0.5.2] - 2026-05-06
 
 ### Build
