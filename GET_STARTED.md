@@ -379,10 +379,14 @@ PQCRYPTO_NATIVE_ASM=1 bundle exec rake compile
 
 ## 14. Async / Fiber scheduler behavior
 
-On Ruby 3.4, signing and verification use Ruby's scheduler-aware
+On Ruby 3.4 and later, signing and verification keep Ruby's scheduler-aware
 `rb_nogvl(..., RB_NOGVL_OFFLOAD_SAFE)` path automatically. With a scheduler
 that implements `blocking_operation_wait`, blocking native work can be moved
 off the event loop.
+
+Ruby 3.1-3.3 are supported as a compatibility path: native operations still
+release the GVL, but `RB_NOGVL_OFFLOAD_SAFE` is not available there, so the gem
+does not claim Fiber Scheduler offload guarantees on those runtimes.
 
 ## 15. Test-only deterministic helpers
 

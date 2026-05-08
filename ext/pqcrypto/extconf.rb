@@ -187,6 +187,12 @@ def find_vendor_dir
   candidates.find { |path| native_vendor_ready?(path) }
 end
 
+def configure_ruby_c_api!
+  abort "ruby/thread.h is required" unless have_header("ruby/thread.h")
+  abort "rb_thread_call_without_gvl is required" unless have_func("rb_thread_call_without_gvl", "ruby/thread.h")
+  abort "rb_nogvl is required" unless have_func("rb_nogvl", "ruby/thread.h")
+end
+
 def configure_openssl!
   configure_compiler_environment
 
@@ -349,6 +355,7 @@ vendor_dir = find_vendor_dir
 
 puts
 puts "=== PQCrypto build configuration ==="
+configure_ruby_c_api!
 configure_openssl!
 native_config = native_vendor_config(vendor_dir)
 puts "OpenSSL: system"

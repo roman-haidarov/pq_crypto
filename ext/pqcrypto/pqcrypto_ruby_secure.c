@@ -1,6 +1,13 @@
+#if defined(__clang__) || defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-parameter"
+#endif
 #include <ruby.h>
 #include <ruby/thread.h>
 #include <ruby/encoding.h>
+#if defined(__clang__) || defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
 #include <stdlib.h>
 #include <string.h>
 
@@ -10,7 +17,9 @@
 #include "pqcrypto_secure.h"
 
 #ifndef RB_NOGVL_OFFLOAD_SAFE
-#define RB_NOGVL_OFFLOAD_SAFE 0
+#define PQ_RB_NOGVL_OFFLOAD_SAFE 0
+#else
+#define PQ_RB_NOGVL_OFFLOAD_SAFE RB_NOGVL_OFFLOAD_SAFE
 #endif
 
 #define PQ_MU_ABSORB_NOGVL_MIN_BYTES 16384
@@ -154,8 +163,8 @@ static void pq_init_algorithm_ids(void) {
 static const char *pq_algorithm_symbol_to_cstr(VALUE algorithm) {
     if (SYMBOL_P(algorithm)) {
         ID id = SYM2ID(algorithm);
-        for (size_t i = 0; i < sizeof(PQC_CONTAINER_ALGORITHMS) / sizeof(PQC_CONTAINER_ALGORITHMS[0]);
-             ++i) {
+        for (size_t i = 0;
+             i < sizeof(PQC_CONTAINER_ALGORITHMS) / sizeof(PQC_CONTAINER_ALGORITHMS[0]); ++i) {
             if (id == pqc_container_algorithm_ids[i]) {
                 return PQC_CONTAINER_ALGORITHMS[i];
             }
@@ -164,8 +173,8 @@ static const char *pq_algorithm_symbol_to_cstr(VALUE algorithm) {
         VALUE str = StringValue(algorithm);
         const char *ptr = RSTRING_PTR(str);
         size_t len = (size_t)RSTRING_LEN(str);
-        for (size_t i = 0; i < sizeof(PQC_CONTAINER_ALGORITHMS) / sizeof(PQC_CONTAINER_ALGORITHMS[0]);
-             ++i) {
+        for (size_t i = 0;
+             i < sizeof(PQC_CONTAINER_ALGORITHMS) / sizeof(PQC_CONTAINER_ALGORITHMS[0]); ++i) {
             size_t algorithm_len = strlen(PQC_CONTAINER_ALGORITHMS[i]);
             if (len == algorithm_len && memcmp(ptr, PQC_CONTAINER_ALGORITHMS[i], len) == 0) {
                 return PQC_CONTAINER_ALGORITHMS[i];
@@ -272,16 +281,16 @@ static void *pq_hybrid_kem_decapsulate_nogvl(void *arg) {
 
 static void *pq_hybrid_kem_decapsulate_expanded_nogvl(void *arg) {
     kem_decapsulate_call_t *call = (kem_decapsulate_call_t *)arg;
-    call->result = pq_hybrid_kem_decapsulate_expanded(call->shared_secret, call->ciphertext,
-                                                      call->secret_key);
+    call->result =
+        pq_hybrid_kem_decapsulate_expanded(call->shared_secret, call->ciphertext, call->secret_key);
     return NULL;
 }
 
 static void *pq_hybrid_kem_decapsulate_expanded_pkey_nogvl(void *arg) {
-    hybrid_decapsulate_expanded_pkey_call_t *call =
-        (hybrid_decapsulate_expanded_pkey_call_t *)arg;
-    call->result = pq_hybrid_kem_decapsulate_expanded_pkey(
-        call->shared_secret, call->ciphertext, call->expanded_secret_key, call->x25519_private_pkey);
+    hybrid_decapsulate_expanded_pkey_call_t *call = (hybrid_decapsulate_expanded_pkey_call_t *)arg;
+    call->result = pq_hybrid_kem_decapsulate_expanded_pkey(call->shared_secret, call->ciphertext,
+                                                           call->expanded_secret_key,
+                                                           call->x25519_private_pkey);
     return NULL;
 }
 
@@ -815,12 +824,11 @@ static VALUE pqcrypto_hybrid_kem_decapsulate_expanded(VALUE self, VALUE cipherte
     (void)self;
     return pq_run_kem_decapsulate(pq_hybrid_kem_decapsulate_expanded_nogvl, ciphertext,
                                   PQ_HYBRID_CIPHERTEXTBYTES, expanded_secret_key,
-                                  PQ_HYBRID_EXPANDED_SECRETKEYBYTES,
-                                  PQ_HYBRID_SHAREDSECRETBYTES);
+                                  PQ_HYBRID_EXPANDED_SECRETKEYBYTES, PQ_HYBRID_SHAREDSECRETBYTES);
 }
 
 static VALUE pqcrypto_hybrid_kem_decapsulate_expanded_object(VALUE self, VALUE ciphertext,
-                                                            VALUE expanded_secret_key_obj) {
+                                                             VALUE expanded_secret_key_obj) {
     (void)self;
     hybrid_expanded_key_wrapper_t *wrapper = hybrid_expanded_key_unwrap(expanded_secret_key_obj);
     hybrid_decapsulate_expanded_pkey_call_t call = {0};
@@ -1184,7 +1192,7 @@ static VALUE pq_run_sign(void *(*nogvl)(void *), VALUE message, VALUE secret_key
     call.signature = pq_alloc_buffer(signature_len_expected);
     call.message = pq_copy_ruby_string(message, &call.message_len);
 
-    rb_nogvl(nogvl, &call, NULL, NULL, RB_NOGVL_OFFLOAD_SAFE);
+    rb_nogvl(nogvl, &call, NULL, NULL, PQ_RB_NOGVL_OFFLOAD_SAFE);
 
     pq_free_buffer(call.message);
     pq_wipe_and_free((uint8_t *)call.secret_key, secret_key_len);
@@ -1224,7 +1232,7 @@ static VALUE pq_run_verify(void *(*nogvl)(void *), VALUE message, VALUE signatur
     call.signature_len = signature_len;
     call.message = pq_copy_ruby_string(message, &call.message_len);
 
-    rb_nogvl(nogvl, &call, NULL, NULL, RB_NOGVL_OFFLOAD_SAFE);
+    rb_nogvl(nogvl, &call, NULL, NULL, PQ_RB_NOGVL_OFFLOAD_SAFE);
 
     pq_free_buffer(call.message);
     pq_free_buffer((uint8_t *)call.public_key);
@@ -1428,8 +1436,8 @@ static VALUE pqcrypto__native_mldsa_mu_builder_update(VALUE self, VALUE builder_
     }
 
     if (chunk_len < PQ_MU_ABSORB_NOGVL_MIN_BYTES) {
-        int rc = pq_mu_builder_absorb(wrapper->builder, (const uint8_t *)RSTRING_PTR(chunk),
-                                      chunk_len);
+        int rc =
+            pq_mu_builder_absorb(wrapper->builder, (const uint8_t *)RSTRING_PTR(chunk), chunk_len);
         if (rc != PQ_SUCCESS) {
             pq_raise_general_error(rc);
         }
@@ -1444,7 +1452,7 @@ static VALUE pqcrypto__native_mldsa_mu_builder_update(VALUE self, VALUE builder_
     call.chunk = copy;
     call.chunk_len = chunk_len;
 
-    rb_nogvl(pq_mu_absorb_nogvl, &call, NULL, NULL, RB_NOGVL_OFFLOAD_SAFE);
+    rb_nogvl(pq_mu_absorb_nogvl, &call, NULL, NULL, PQ_RB_NOGVL_OFFLOAD_SAFE);
     free(copy);
 
     if (call.result != PQ_SUCCESS) {
@@ -1469,7 +1477,7 @@ static VALUE pqcrypto__native_mldsa_mu_builder_finalize(VALUE self, VALUE builde
     call.builder = wrapper->builder;
     call.mu_out = mu;
 
-    rb_nogvl(pq_mu_finalize_nogvl, &call, NULL, NULL, RB_NOGVL_OFFLOAD_SAFE);
+    rb_nogvl(pq_mu_finalize_nogvl, &call, NULL, NULL, PQ_RB_NOGVL_OFFLOAD_SAFE);
 
     wrapper->builder = NULL;
 
@@ -1516,7 +1524,7 @@ static VALUE pqcrypto__native_mldsa_sign_mu(VALUE self, VALUE mu, VALUE secret_k
     call.signature_len = PQ_MLDSA_BYTES;
     call.signature = pq_alloc_buffer(PQ_MLDSA_BYTES);
 
-    rb_nogvl(pq_sign_mu_nogvl, &call, NULL, NULL, RB_NOGVL_OFFLOAD_SAFE);
+    rb_nogvl(pq_sign_mu_nogvl, &call, NULL, NULL, PQ_RB_NOGVL_OFFLOAD_SAFE);
 
     pq_wipe_and_free(mu_copy, mu_len);
     pq_wipe_and_free(sk_copy, secret_key_len);
@@ -1557,7 +1565,7 @@ static VALUE pqcrypto__native_mldsa_verify_mu(VALUE self, VALUE mu, VALUE signat
     call.signature = sig_copy;
     call.signature_len = signature_len;
 
-    rb_nogvl(pq_verify_mu_nogvl, &call, NULL, NULL, RB_NOGVL_OFFLOAD_SAFE);
+    rb_nogvl(pq_verify_mu_nogvl, &call, NULL, NULL, PQ_RB_NOGVL_OFFLOAD_SAFE);
     pq_wipe_and_free(mu_copy, mu_len);
     pq_free_buffer(pk_copy);
     pq_free_buffer(sig_copy);

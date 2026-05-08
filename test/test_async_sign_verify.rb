@@ -1,6 +1,11 @@
 # frozen_string_literal: true
 
-require "async"
+begin
+  require "async"
+  ASYNC_LOAD_ERROR = nil
+rescue LoadError => e
+  ASYNC_LOAD_ERROR = e
+end
 require_relative "test_helper"
 
 class TestPQCryptoAsyncSignVerify < Minitest::Test
@@ -8,6 +13,14 @@ class TestPQCryptoAsyncSignVerify < Minitest::Test
 
   TICK_SLEEP_SECONDS = 0.001
   MIN_WORK_SECONDS = 0.05
+
+  def setup
+    skip "async test dependency is not installed" if ASYNC_LOAD_ERROR
+
+    if Gem::Version.new(RUBY_VERSION) < Gem::Version.new("3.4")
+      skip "Fiber Scheduler offload path is only asserted on Ruby >= 3.4"
+    end
+  end
 
   def test_sign_does_not_block_sibling_async_task
     keypair = PQCrypto::Signature.generate(:ml_dsa_65)
