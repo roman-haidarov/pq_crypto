@@ -189,7 +189,7 @@ module PQCrypto
         builder = PQCrypto.__send__(:_native_mldsa_mu_builder_new, tr, context)
         builder_consumed = false
         mu = nil
-        sig_bytes = String(signature).b
+        sig_bytes = Internal.binary_string(signature)
         begin
           _drain_io_into_builder(io, builder, chunk_size)
           mu = PQCrypto.__send__(:_native_mldsa_mu_builder_finalize, builder)
@@ -230,7 +230,7 @@ module PQCrypto
       end
 
       def validate_context!(context)
-        ctx = String(context).b
+        ctx = Internal.binary_string(context)
         if ctx.bytesize > 255
           raise ArgumentError, "context must be at most 255 bytes (FIPS 204)"
         end
@@ -264,7 +264,7 @@ module PQCrypto
 
       def initialize(algorithm, bytes)
         @algorithm = algorithm
-        @bytes = String(bytes).b
+        @bytes = Internal.binary_string(bytes)
         validate_length!
       end
 
@@ -291,7 +291,7 @@ module PQCrypto
       def verify(message, signature, context: "".b)
         context = Signature.send(:validate_context!, context)
         begin
-          PQCrypto.__send__(Signature.send(:native_method_for, @algorithm, :verify), String(message).b, String(signature).b, @bytes, context)
+          PQCrypto.__send__(Signature.send(:native_method_for, @algorithm, :verify), Internal.binary_string(message), Internal.binary_string(signature), @bytes, context)
         rescue ArgumentError => e
           raise InvalidKeyError, e.message
         end
@@ -315,7 +315,7 @@ module PQCrypto
 
       def ==(other)
         return false unless other.is_a?(PublicKey) && other.algorithm == algorithm
-        PQCrypto.__send__(:native_ct_equals, other.send(:bytes_for_native), @bytes)
+        Internal.constant_time_equal?(other.send(:bytes_for_native), @bytes)
       end
 
       alias eql? ==
@@ -345,14 +345,14 @@ module PQCrypto
 
       def initialize(algorithm, bytes, seed: nil)
         @algorithm = algorithm
-        @bytes = String(bytes).b
-        @seed = seed.nil? ? nil : String(seed).b
+        @bytes = Internal.binary_string(bytes)
+        @seed = seed.nil? ? nil : Internal.binary_string(seed)
         validate_length!
         validate_seed_length! if @seed
       end
 
       def self.from_seed(algorithm, seed)
-        seed_bytes = String(seed).b
+        seed_bytes = Internal.binary_string(seed)
         _public_key, expanded = PQCrypto.__send__(Signature.send(:native_method_for, algorithm, :keypair_from_seed), seed_bytes)
         new(algorithm, expanded, seed: seed_bytes)
       rescue ArgumentError => e
@@ -372,39 +372,17 @@ module PQCrypto
       end
 
       def to_pkcs8_der(format: :expanded, passphrase: nil, iterations: PKCS8::ENCRYPTED_PKCS8_DEFAULT_ITERATIONS)
-        case format
-        when :expanded
-          PKCS8.encode_der(@algorithm, @bytes, format: :expanded, passphrase: passphrase, iterations: iterations)
-        when :seed
-          ensure_seed_available!(format)
-          PKCS8.encode_der(@algorithm, @seed, format: :seed, passphrase: passphrase, iterations: iterations)
-        when :both
-          ensure_seed_available!(format)
-          PKCS8.encode_der(@algorithm, [@seed, @bytes], format: :both, passphrase: passphrase, iterations: iterations)
-        else
-          raise SerializationError, "Unsupported PKCS#8 private key format: #{format.inspect}"
-        end
+        PKCS8.encode_der(@algorithm, pkcs8_material(format), format: format, passphrase: passphrase, iterations: iterations)
       end
 
       def to_pkcs8_pem(format: :expanded, passphrase: nil, iterations: PKCS8::ENCRYPTED_PKCS8_DEFAULT_ITERATIONS)
-        case format
-        when :expanded
-          PKCS8.encode_pem(@algorithm, @bytes, format: :expanded, passphrase: passphrase, iterations: iterations)
-        when :seed
-          ensure_seed_available!(format)
-          PKCS8.encode_pem(@algorithm, @seed, format: :seed, passphrase: passphrase, iterations: iterations)
-        when :both
-          ensure_seed_available!(format)
-          PKCS8.encode_pem(@algorithm, [@seed, @bytes], format: :both, passphrase: passphrase, iterations: iterations)
-        else
-          raise SerializationError, "Unsupported PKCS#8 private key format: #{format.inspect}"
-        end
+        PKCS8.encode_pem(@algorithm, pkcs8_material(format), format: format, passphrase: passphrase, iterations: iterations)
       end
 
       def sign(message, context: "".b)
         context = Signature.send(:validate_context!, context)
         begin
-          PQCrypto.__send__(Signature.send(:native_method_for, @algorithm, :sign), String(message).b, @bytes, context)
+          PQCrypto.__send__(Signature.send(:native_method_for, @algorithm, :sign), Internal.binary_string(message), @bytes, context)
         rescue ArgumentError => e
           raise InvalidKeyError, e.message
         end
@@ -422,7 +400,7 @@ module PQCrypto
 
       def ==(other)
         return false unless other.is_a?(SecretKey) && other.algorithm == algorithm
-        PQCrypto.__send__(:native_ct_equals, other.send(:bytes_for_native), @bytes)
+        Internal.constant_time_equal?(other.send(:bytes_for_native), @bytes)
       end
 
       alias eql? ==
@@ -446,8 +424,23 @@ module PQCrypto
         raise InvalidKeyError, "Invalid signature secret key length" unless @bytes.bytesize == expected
       end
 
+      def pkcs8_material(format)
+        case format
+        when :expanded
+          @bytes
+        when :seed
+          ensure_seed_available!(format)
+          @seed
+        when :both
+          ensure_seed_available!(format)
+          [@seed, @bytes]
+        else
+          raise SerializationError, "Unsupported PKCS#8 private key format: #{format.inspect}"
+        end
+      end
+
       def validate_seed_length!
-        expected = PKCS8::PRIVATE_KEY_CHOICES.fetch(@algorithm).fetch(:seed_bytes)
+        expected = PKCS8::PrivateKeyChoice.seed_bytes(@algorithm)
         raise InvalidKeyError, "Invalid signature seed length" unless @seed.bytesize == expected
       end
 

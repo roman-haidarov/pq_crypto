@@ -30,9 +30,12 @@ end
 
 require_relative "pq_crypto/errors"
 require_relative "pq_crypto/version"
+require_relative "pq_crypto/internal"
 require_relative "pq_crypto/algorithm_registry"
 require_relative "pq_crypto/serialization"
 require_relative "pq_crypto/spki"
+require_relative "pq_crypto/pkcs8/der"
+require_relative "pq_crypto/pkcs8/private_key_choice"
 require_relative "pq_crypto/pkcs8"
 require_relative "pq_crypto/kem"
 require_relative "pq_crypto/signature"
