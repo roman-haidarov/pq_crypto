@@ -73,7 +73,8 @@ cleanup:
     return ret;
 }
 
-static int x25519_shared_secret_with_pkey(uint8_t *shared, const uint8_t *their_pk, EVP_PKEY *pkey) {
+static int x25519_shared_secret_with_pkey(uint8_t *shared, const uint8_t *their_pk,
+                                          EVP_PKEY *pkey) {
     EVP_PKEY_CTX *ctx = NULL;
     EVP_PKEY *peer_key = NULL;
     size_t shared_len = X25519_SHAREDSECRETBYTES;
@@ -131,7 +132,7 @@ static int x25519_shared_secret(uint8_t *shared, const uint8_t *their_pk, const 
 }
 
 static int x25519_ephemeral_keypair_and_shared_secret(uint8_t *ephemeral_pk, uint8_t *shared,
-                                                       const uint8_t *their_pk) {
+                                                      const uint8_t *their_pk) {
     EVP_PKEY_CTX *keygen_ctx = NULL;
     EVP_PKEY *ephemeral_pkey = NULL;
     size_t pklen = X25519_PUBLICKEYBYTES;
@@ -173,8 +174,8 @@ static int xwing_combiner(uint8_t shared_secret[HYBRID_SHAREDSECRETBYTES],
                           const uint8_t ss_X[X25519_SHAREDSECRETBYTES],
                           const uint8_t ct_X[X25519_PUBLICKEYBYTES],
                           const uint8_t pk_X[X25519_PUBLICKEYBYTES]) {
-    uint8_t input[MLKEM_SHAREDSECRETBYTES + X25519_SHAREDSECRETBYTES +
-                  X25519_PUBLICKEYBYTES + X25519_PUBLICKEYBYTES + sizeof(XWING_LABEL)];
+    uint8_t input[MLKEM_SHAREDSECRETBYTES + X25519_SHAREDSECRETBYTES + X25519_PUBLICKEYBYTES +
+                  X25519_PUBLICKEYBYTES + sizeof(XWING_LABEL)];
     uint8_t *cur = input;
 
     if (!shared_secret || !ss_M || !ss_X || !ct_X || !pk_X) {
@@ -232,36 +233,35 @@ cleanup:
     return ret;
 }
 
-#define PQ_MLKEM_VARIANTS(X)             \
-    X(mlkem, pqcr_mlkem768)             \
-    X(mlkem512, pqcr_mlkem512)          \
+#define PQ_MLKEM_VARIANTS(X)   \
+    X(mlkem, pqcr_mlkem768)    \
+    X(mlkem512, pqcr_mlkem512) \
     X(mlkem1024, pqcr_mlkem1024)
 
-#define PQ_DEFINE_MLKEM_SHIMS(prefix, native)                                             \
-    int pq_##prefix##_keypair(uint8_t *pk, uint8_t *sk) {                                \
-        if (!pk || !sk) {                                                                 \
-            return PQ_ERROR_BUFFER;                                                       \
-        }                                                                                 \
-        return native##_keypair(pk, sk) == 0 ? PQ_SUCCESS : PQ_ERROR_KEYPAIR;             \
-    }                                                                                     \
-    int pq_##prefix##_keypair_from_seed(uint8_t *pk, uint8_t *sk, const uint8_t *seed64) {\
-        if (!pk || !sk || !seed64) {                                                      \
-            return PQ_ERROR_BUFFER;                                                       \
-        }                                                                                 \
-        return native##_keypair_derand(pk, sk, seed64) == 0 ? PQ_SUCCESS                  \
-                                                            : PQ_ERROR_KEYPAIR;           \
-    }                                                                                     \
-    int pq_##prefix##_encapsulate(uint8_t *ct, uint8_t *ss, const uint8_t *pk) {          \
-        if (!ct || !ss || !pk) {                                                          \
-            return PQ_ERROR_BUFFER;                                                       \
-        }                                                                                 \
-        return native##_enc(ct, ss, pk) == 0 ? PQ_SUCCESS : PQ_ERROR_ENCAPSULATE;         \
-    }                                                                                     \
-    int pq_##prefix##_decapsulate(uint8_t *ss, const uint8_t *ct, const uint8_t *sk) {    \
-        if (!ss || !ct || !sk) {                                                          \
-            return PQ_ERROR_BUFFER;                                                       \
-        }                                                                                 \
-        return native##_dec(ss, ct, sk) == 0 ? PQ_SUCCESS : PQ_ERROR_DECAPSULATE;         \
+#define PQ_DEFINE_MLKEM_SHIMS(prefix, native)                                                \
+    int pq_##prefix##_keypair(uint8_t *pk, uint8_t *sk) {                                    \
+        if (!pk || !sk) {                                                                    \
+            return PQ_ERROR_BUFFER;                                                          \
+        }                                                                                    \
+        return native##_keypair(pk, sk) == 0 ? PQ_SUCCESS : PQ_ERROR_KEYPAIR;                \
+    }                                                                                        \
+    int pq_##prefix##_keypair_from_seed(uint8_t *pk, uint8_t *sk, const uint8_t *seed64) {   \
+        if (!pk || !sk || !seed64) {                                                         \
+            return PQ_ERROR_BUFFER;                                                          \
+        }                                                                                    \
+        return native##_keypair_derand(pk, sk, seed64) == 0 ? PQ_SUCCESS : PQ_ERROR_KEYPAIR; \
+    }                                                                                        \
+    int pq_##prefix##_encapsulate(uint8_t *ct, uint8_t *ss, const uint8_t *pk) {             \
+        if (!ct || !ss || !pk) {                                                             \
+            return PQ_ERROR_BUFFER;                                                          \
+        }                                                                                    \
+        return native##_enc(ct, ss, pk) == 0 ? PQ_SUCCESS : PQ_ERROR_ENCAPSULATE;            \
+    }                                                                                        \
+    int pq_##prefix##_decapsulate(uint8_t *ss, const uint8_t *ct, const uint8_t *sk) {       \
+        if (!ss || !ct || !sk) {                                                             \
+            return PQ_ERROR_BUFFER;                                                          \
+        }                                                                                    \
+        return native##_dec(ss, ct, sk) == 0 ? PQ_SUCCESS : PQ_ERROR_DECAPSULATE;            \
     }
 
 PQ_MLKEM_VARIANTS(PQ_DEFINE_MLKEM_SHIMS)
@@ -288,30 +288,29 @@ static int pq_testing_mlkem_encapsulate_from_seed_with(
                                                                         : PQ_ERROR_ENCAPSULATE;
 }
 
-#define PQ_DEFINE_MLKEM_TESTING_SHIMS(prefix, native)                                         \
-    int pq_testing_##prefix##_keypair_from_seed(uint8_t *public_key, uint8_t *secret_key,      \
-                                                const uint8_t *seed, size_t seed_len) {        \
-        return pq_testing_mlkem_keypair_from_seed_with(public_key, secret_key, seed, seed_len, \
-                                                       native##_keypair_derand);               \
-    }                                                                                          \
-    int pq_testing_##prefix##_encapsulate_from_seed(uint8_t *ciphertext, uint8_t *shared_secret,\
-                                                    const uint8_t *public_key,                 \
-                                                    const uint8_t *seed, size_t seed_len) {    \
-        return pq_testing_mlkem_encapsulate_from_seed_with(ciphertext, shared_secret, public_key,\
-                                                           seed, seed_len, native##_enc_derand);\
+#define PQ_DEFINE_MLKEM_TESTING_SHIMS(prefix, native)                                             \
+    int pq_testing_##prefix##_keypair_from_seed(uint8_t *public_key, uint8_t *secret_key,         \
+                                                const uint8_t *seed, size_t seed_len) {           \
+        return pq_testing_mlkem_keypair_from_seed_with(public_key, secret_key, seed, seed_len,    \
+                                                       native##_keypair_derand);                  \
+    }                                                                                             \
+    int pq_testing_##prefix##_encapsulate_from_seed(uint8_t *ciphertext, uint8_t *shared_secret,  \
+                                                    const uint8_t *public_key,                    \
+                                                    const uint8_t *seed, size_t seed_len) {       \
+        return pq_testing_mlkem_encapsulate_from_seed_with(ciphertext, shared_secret, public_key, \
+                                                           seed, seed_len, native##_enc_derand);  \
     }
 
 PQ_MLKEM_VARIANTS(PQ_DEFINE_MLKEM_TESTING_SHIMS)
 
 #undef PQ_DEFINE_MLKEM_TESTING_SHIMS
 
-#define PQ_DEFINE_MLDSA_SIGN_KEYPAIR(prefix, native)                              \
-    int pq_##prefix##_keypair(uint8_t *public_key, uint8_t *secret_key) {         \
-        if (!public_key || !secret_key) {                                         \
-            return PQ_ERROR_BUFFER;                                               \
-        }                                                                         \
-        return native##_keypair(public_key, secret_key) == 0 ? PQ_SUCCESS         \
-                                                            : PQ_ERROR_KEYPAIR;   \
+#define PQ_DEFINE_MLDSA_SIGN_KEYPAIR(prefix, native)                                          \
+    int pq_##prefix##_keypair(uint8_t *public_key, uint8_t *secret_key) {                     \
+        if (!public_key || !secret_key) {                                                     \
+            return PQ_ERROR_BUFFER;                                                           \
+        }                                                                                     \
+        return native##_keypair(public_key, secret_key) == 0 ? PQ_SUCCESS : PQ_ERROR_KEYPAIR; \
     }
 
 PQ_DEFINE_MLDSA_SIGN_KEYPAIR(sign, pqcr_mldsa65)
@@ -320,16 +319,18 @@ PQ_DEFINE_MLDSA_SIGN_KEYPAIR(mldsa87_sign, pqcr_mldsa87)
 
 #undef PQ_DEFINE_MLDSA_SIGN_KEYPAIR
 
-#define PQ_DEFINE_MLDSA_SIGN(name, native)                                                \
-    int pq_##name(uint8_t *signature, size_t *signature_len, const uint8_t *message,      \
-                  size_t message_len, const uint8_t *secret_key) {                        \
-        if (!signature || !signature_len || !secret_key || (message_len > 0 && !message)) {\
-            return PQ_ERROR_BUFFER;                                                       \
-        }                                                                                 \
-        return native##_signature(signature, signature_len, message, message_len, NULL, 0,\
-                                  secret_key) == 0                                        \
-                   ? PQ_SUCCESS                                                           \
-                   : PQ_ERROR_SIGN;                                                       \
+#define PQ_DEFINE_MLDSA_SIGN(name, native)                                                      \
+    int pq_##name(uint8_t *signature, size_t *signature_len, const uint8_t *message,            \
+                  size_t message_len, const uint8_t *ctx, size_t ctx_len,                       \
+                  const uint8_t *secret_key) {                                                  \
+        if (!signature || !signature_len || !secret_key || (message_len > 0 && !message) ||     \
+            (ctx_len > 0 && !ctx) || ctx_len > 255) {                                           \
+            return PQ_ERROR_BUFFER;                                                             \
+        }                                                                                       \
+        return native##_signature(signature, signature_len, message, message_len, ctx, ctx_len, \
+                                  secret_key) == 0                                              \
+                   ? PQ_SUCCESS                                                                 \
+                   : PQ_ERROR_SIGN;                                                             \
     }
 
 PQ_DEFINE_MLDSA_SIGN(sign, pqcr_mldsa65)
@@ -338,16 +339,18 @@ PQ_DEFINE_MLDSA_SIGN(mldsa87_sign, pqcr_mldsa87)
 
 #undef PQ_DEFINE_MLDSA_SIGN
 
-#define PQ_DEFINE_MLDSA_VERIFY(name, native)                                             \
-    int pq_##name(const uint8_t *signature, size_t signature_len, const uint8_t *message, \
-                  size_t message_len, const uint8_t *public_key) {                       \
-        if (!signature || !public_key || (message_len > 0 && !message)) {                 \
-            return PQ_ERROR_BUFFER;                                                       \
-        }                                                                                 \
-        return native##_verify(signature, signature_len, message, message_len, NULL, 0,   \
-                               public_key) == 0                                          \
-                   ? PQ_SUCCESS                                                           \
-                   : PQ_ERROR_VERIFY;                                                     \
+#define PQ_DEFINE_MLDSA_VERIFY(name, native)                                                       \
+    int pq_##name(const uint8_t *signature, size_t signature_len, const uint8_t *message,          \
+                  size_t message_len, const uint8_t *ctx, size_t ctx_len,                          \
+                  const uint8_t *public_key) {                                                     \
+        if (!signature || !public_key || (message_len > 0 && !message) || (ctx_len > 0 && !ctx) || \
+            ctx_len > 255) {                                                                       \
+            return PQ_ERROR_BUFFER;                                                                \
+        }                                                                                          \
+        return native##_verify(signature, signature_len, message, message_len, ctx, ctx_len,       \
+                               public_key) == 0                                                    \
+                   ? PQ_SUCCESS                                                                    \
+                   : PQ_ERROR_VERIFY;                                                              \
     }
 
 PQ_DEFINE_MLDSA_VERIFY(verify, pqcr_mldsa65)
@@ -440,30 +443,27 @@ int pq_testing_mldsa_sign_from_seed(uint8_t *signature, size_t *signature_len,
                                     const uint8_t *message, size_t message_len,
                                     const uint8_t *secret_key, const uint8_t *seed,
                                     size_t seed_len) {
-    return pq_testing_mldsa_sign_from_seed_with(signature, signature_len, message, message_len,
-                                                secret_key, seed, seed_len,
-                                                pqcr_mldsa65_signature_internal,
-                                                pqcr_mldsa65_prepare_domain_separation_prefix);
+    return pq_testing_mldsa_sign_from_seed_with(
+        signature, signature_len, message, message_len, secret_key, seed, seed_len,
+        pqcr_mldsa65_signature_internal, pqcr_mldsa65_prepare_domain_separation_prefix);
 }
 
 int pq_testing_mldsa44_sign_from_seed(uint8_t *signature, size_t *signature_len,
                                       const uint8_t *message, size_t message_len,
                                       const uint8_t *secret_key, const uint8_t *seed,
                                       size_t seed_len) {
-    return pq_testing_mldsa_sign_from_seed_with(signature, signature_len, message, message_len,
-                                                secret_key, seed, seed_len,
-                                                pqcr_mldsa44_signature_internal,
-                                                pqcr_mldsa44_prepare_domain_separation_prefix);
+    return pq_testing_mldsa_sign_from_seed_with(
+        signature, signature_len, message, message_len, secret_key, seed, seed_len,
+        pqcr_mldsa44_signature_internal, pqcr_mldsa44_prepare_domain_separation_prefix);
 }
 
 int pq_testing_mldsa87_sign_from_seed(uint8_t *signature, size_t *signature_len,
                                       const uint8_t *message, size_t message_len,
                                       const uint8_t *secret_key, const uint8_t *seed,
                                       size_t seed_len) {
-    return pq_testing_mldsa_sign_from_seed_with(signature, signature_len, message, message_len,
-                                                secret_key, seed, seed_len,
-                                                pqcr_mldsa87_signature_internal,
-                                                pqcr_mldsa87_prepare_domain_separation_prefix);
+    return pq_testing_mldsa_sign_from_seed_with(
+        signature, signature_len, message, message_len, secret_key, seed, seed_len,
+        pqcr_mldsa87_signature_internal, pqcr_mldsa87_prepare_domain_separation_prefix);
 }
 
 int pq_hybrid_kem_keypair(uint8_t *public_key, uint8_t *secret_key) {
@@ -523,8 +523,7 @@ int pq_hybrid_kem_encapsulate(uint8_t *ciphertext, uint8_t *shared_secret,
         goto cleanup;
     }
 
-    ret = x25519_ephemeral_keypair_and_shared_secret(ct.x25519_ephemeral, x25519_ss,
-                                                     pk.x25519_pk);
+    ret = x25519_ephemeral_keypair_and_shared_secret(ct.x25519_ephemeral, x25519_ss, pk.x25519_pk);
     if (ret != PQ_SUCCESS) {
         ret = PQ_ERROR_ENCAPSULATE;
         goto cleanup;

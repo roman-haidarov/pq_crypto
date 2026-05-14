@@ -37,6 +37,7 @@ require_relative "pq_crypto/pkcs8"
 require_relative "pq_crypto/kem"
 require_relative "pq_crypto/signature"
 require_relative "pq_crypto/hybrid_kem"
+require_relative "pq_crypto/key"
 
 module PQCrypto
   SUITES = {
@@ -65,6 +66,7 @@ module PQCrypto
       hybrid_kem_encapsulate
       hybrid_kem_expand_secret_key
       hybrid_kem_expand_secret_key_object
+      hybrid_kem_expanded_secret_key_wipe
       hybrid_kem_decapsulate
       hybrid_kem_decapsulate_expanded
       hybrid_kem_decapsulate_expanded_object
@@ -164,25 +166,25 @@ module PQCrypto
     KEM_KEYPAIR_METHODS = {
       ml_kem_512: :native_ml_kem_512_keypair_from_seed,
       ml_kem_768: :native_ml_kem_keypair_from_seed,
-      ml_kem_1024: :native_ml_kem_1024_keypair_from_seed,
+      ml_kem_1024: :native_ml_kem_1024_keypair_from_seed
     }.freeze
 
     KEM_ENCAPSULATE_METHODS = {
       ml_kem_512: :native_test_ml_kem_512_encapsulate_from_seed,
       ml_kem_768: :native_test_ml_kem_encapsulate_from_seed,
-      ml_kem_1024: :native_test_ml_kem_1024_encapsulate_from_seed,
+      ml_kem_1024: :native_test_ml_kem_1024_encapsulate_from_seed
     }.freeze
 
     MLDSA_KEYPAIR_METHODS = {
       ml_dsa_44: :native_test_ml_dsa_44_keypair_from_seed,
       ml_dsa_65: :native_test_sign_keypair_from_seed,
-      ml_dsa_87: :native_test_ml_dsa_87_keypair_from_seed,
+      ml_dsa_87: :native_test_ml_dsa_87_keypair_from_seed
     }.freeze
 
     MLDSA_SIGN_METHODS = {
       ml_dsa_44: :native_test_ml_dsa_44_sign_from_seed,
       ml_dsa_65: :native_test_sign_from_seed,
-      ml_dsa_87: :native_test_ml_dsa_87_sign_from_seed,
+      ml_dsa_87: :native_test_ml_dsa_87_sign_from_seed
     }.freeze
 
     def self.ml_kem_keypair_from_seed(seed, algorithm: :ml_kem_768)

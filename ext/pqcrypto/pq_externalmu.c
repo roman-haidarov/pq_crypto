@@ -34,57 +34,62 @@ cleanup:
     return ret;
 }
 
-int pq_mldsa_extract_tr_from_secret_key(uint8_t *tr_out, const uint8_t *secret_key) {
-    uint8_t public_key[MLDSA_PUBLICKEYBYTES];
+int pq_mldsa_extract_tr_from_secret_key(uint8_t *tr_out, const uint8_t *secret_key,
+                                        size_t public_key_len,
+                                        int (*pk_from_sk)(uint8_t *, const uint8_t *)) {
+    uint8_t public_key[MLDSA87_PUBLICKEYBYTES];
     int rc;
 
-    if (tr_out == NULL || secret_key == NULL) {
+    if (tr_out == NULL || secret_key == NULL || pk_from_sk == NULL || public_key_len == 0 ||
+        public_key_len > sizeof(public_key)) {
         return PQ_ERROR_BUFFER;
     }
 
     memset(public_key, 0, sizeof(public_key));
-    rc = pqcr_mldsa65_pk_from_sk(public_key, secret_key);
+    rc = pk_from_sk(public_key, secret_key);
     if (rc != 0) {
         pq_secure_wipe(public_key, sizeof(public_key));
         return PQ_ERROR_KEYPAIR;
     }
 
-    rc = pq_shake256(tr_out, PQ_MLDSA_TRBYTES, public_key, sizeof(public_key));
+    rc = pq_shake256(tr_out, PQ_MLDSA_TRBYTES, public_key, public_key_len);
     pq_secure_wipe(public_key, sizeof(public_key));
     return rc;
 }
 
-int pq_mldsa_compute_tr_from_public_key(uint8_t *tr_out, const uint8_t *public_key) {
+int pq_mldsa_compute_tr_from_public_key(uint8_t *tr_out, const uint8_t *public_key,
+                                        size_t public_key_len) {
     if (tr_out == NULL || public_key == NULL) {
         return PQ_ERROR_BUFFER;
     }
 
-    return pq_shake256(tr_out, PQ_MLDSA_TRBYTES, public_key, MLDSA_PUBLICKEYBYTES);
+    return pq_shake256(tr_out, PQ_MLDSA_TRBYTES, public_key, public_key_len);
 }
 
 int pq_sign_mu(uint8_t *signature, size_t *signature_len, const uint8_t *mu,
-               const uint8_t *secret_key) {
-    if (signature == NULL || signature_len == NULL || mu == NULL || secret_key == NULL) {
+               const uint8_t *secret_key,
+               int (*signature_extmu)(uint8_t *, size_t *, const uint8_t *, const uint8_t *)) {
+    if (signature == NULL || signature_len == NULL || mu == NULL || secret_key == NULL ||
+        signature_extmu == NULL) {
         return PQ_ERROR_BUFFER;
     }
 
-    return pqcr_mldsa65_signature_extmu(signature, signature_len, mu, secret_key) == 0
-               ? PQ_SUCCESS
-               : PQ_ERROR_SIGN;
+    return signature_extmu(signature, signature_len, mu, secret_key) == 0 ? PQ_SUCCESS
+                                                                          : PQ_ERROR_SIGN;
 }
 
 int pq_verify_mu(const uint8_t *signature, size_t signature_len, const uint8_t *mu,
-                 const uint8_t *public_key) {
-    if (signature == NULL || mu == NULL || public_key == NULL) {
+                 const uint8_t *public_key, size_t expected_signature_len,
+                 int (*verify_extmu)(const uint8_t *, size_t, const uint8_t *, const uint8_t *)) {
+    if (signature == NULL || mu == NULL || public_key == NULL || verify_extmu == NULL) {
         return PQ_ERROR_BUFFER;
     }
-    if (signature_len != MLDSA_BYTES) {
+    if (signature_len != expected_signature_len) {
         return PQ_ERROR_VERIFY;
     }
 
-    return pqcr_mldsa65_verify_extmu(signature, signature_len, mu, public_key) == 0
-               ? PQ_SUCCESS
-               : PQ_ERROR_VERIFY;
+    return verify_extmu(signature, signature_len, mu, public_key) == 0 ? PQ_SUCCESS
+                                                                       : PQ_ERROR_VERIFY;
 }
 
 void *pq_mu_builder_new(void) {

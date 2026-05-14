@@ -81,6 +81,8 @@ typedef struct {
     size_t signature_len;
     uint8_t *message;
     size_t message_len;
+    uint8_t *context;
+    size_t context_len;
     const uint8_t *secret_key;
     const uint8_t *seed;
     size_t seed_len;
@@ -92,6 +94,8 @@ typedef struct {
     size_t signature_len;
     uint8_t *message;
     size_t message_len;
+    uint8_t *context;
+    size_t context_len;
     const uint8_t *public_key;
 } verify_call_t;
 
@@ -152,6 +156,52 @@ static const char *const PQC_CONTAINER_ALGORITHMS[] = {
 
 static ID pqc_container_algorithm_ids[sizeof(PQC_CONTAINER_ALGORITHMS) /
                                       sizeof(PQC_CONTAINER_ALGORITHMS[0])];
+
+typedef int (*pq_mldsa_pk_from_sk_fn)(uint8_t *, const uint8_t *);
+typedef int (*pq_mldsa_signature_extmu_fn)(uint8_t *, size_t *, const uint8_t *, const uint8_t *);
+typedef int (*pq_mldsa_verify_extmu_fn)(const uint8_t *, size_t, const uint8_t *, const uint8_t *);
+
+typedef struct {
+    const char *name;
+    size_t public_key_len;
+    size_t secret_key_len;
+    size_t signature_len;
+    pq_mldsa_pk_from_sk_fn pk_from_sk;
+    pq_mldsa_signature_extmu_fn signature_extmu;
+    pq_mldsa_verify_extmu_fn verify_extmu;
+} pq_mldsa_profile_t;
+
+static const pq_mldsa_profile_t MLDSA_PROFILES[] = {
+    {"ml_dsa_44", MLDSA44_PUBLICKEYBYTES, MLDSA44_SECRETKEYBYTES, MLDSA44_BYTES,
+     pqcr_mldsa44_pk_from_sk, pqcr_mldsa44_signature_extmu, pqcr_mldsa44_verify_extmu},
+    {"ml_dsa_65", MLDSA65_PUBLICKEYBYTES, MLDSA65_SECRETKEYBYTES, MLDSA65_BYTES,
+     pqcr_mldsa65_pk_from_sk, pqcr_mldsa65_signature_extmu, pqcr_mldsa65_verify_extmu},
+    {"ml_dsa_87", MLDSA87_PUBLICKEYBYTES, MLDSA87_SECRETKEYBYTES, MLDSA87_BYTES,
+     pqcr_mldsa87_pk_from_sk, pqcr_mldsa87_signature_extmu, pqcr_mldsa87_verify_extmu},
+};
+
+static const pq_mldsa_profile_t *pq_mldsa_profile_from_value(VALUE algorithm) {
+    ID id;
+    const char *name;
+
+    if (!SYMBOL_P(algorithm)) {
+        rb_raise(rb_eArgError, "ML-DSA algorithm must be a Symbol");
+    }
+
+    id = SYM2ID(algorithm);
+    name = rb_id2name(id);
+    if (!name) {
+        rb_raise(rb_eArgError, "Invalid ML-DSA algorithm symbol");
+    }
+
+    for (size_t i = 0; i < sizeof(MLDSA_PROFILES) / sizeof(MLDSA_PROFILES[0]); ++i) {
+        if (strcmp(name, MLDSA_PROFILES[i].name) == 0) {
+            return &MLDSA_PROFILES[i];
+        }
+    }
+
+    rb_raise(ePQCryptoError, "Unsupported ML-DSA algorithm: %s", name);
+}
 
 static void pq_init_algorithm_ids(void) {
     for (size_t i = 0; i < sizeof(PQC_CONTAINER_ALGORITHMS) / sizeof(PQC_CONTAINER_ALGORITHMS[0]);
@@ -320,12 +370,13 @@ PQ_DEFINE_SIGN_KEYPAIR_FROM_SEED_NOGVL(mldsa_87_keypair_from_seed, pq_mldsa87_ke
 
 #undef PQ_DEFINE_SIGN_KEYPAIR_FROM_SEED_NOGVL
 
-#define PQ_DEFINE_SIGN_NOGVL(rb_name, c_call)                                       \
-    static void *pq_##rb_name##_nogvl(void *arg) {                                  \
-        sign_call_t *call = (sign_call_t *)arg;                                     \
-        call->result = c_call(call->signature, &call->signature_len, call->message, \
-                              call->message_len, call->secret_key);                 \
-        return NULL;                                                                \
+#define PQ_DEFINE_SIGN_NOGVL(rb_name, c_call)                                               \
+    static void *pq_##rb_name##_nogvl(void *arg) {                                          \
+        sign_call_t *call = (sign_call_t *)arg;                                             \
+        call->result =                                                                      \
+            c_call(call->signature, &call->signature_len, call->message, call->message_len, \
+                   call->context, call->context_len, call->secret_key);                     \
+        return NULL;                                                                        \
     }
 
 PQ_DEFINE_SIGN_NOGVL(sign, pq_sign)
@@ -373,12 +424,13 @@ PQ_DEFINE_TESTING_SIGN_FROM_SEED(mldsa_87, pq_testing_mldsa87_sign_from_seed)
 #undef PQ_DEFINE_TESTING_KEYPAIR_FROM_SEED
 #undef PQ_DEFINE_TESTING_SIGN_FROM_SEED
 
-#define PQ_DEFINE_VERIFY_NOGVL(rb_name, c_call)                                    \
-    static void *pq_##rb_name##_nogvl(void *arg) {                                 \
-        verify_call_t *call = (verify_call_t *)arg;                                \
-        call->result = c_call(call->signature, call->signature_len, call->message, \
-                              call->message_len, call->public_key);                \
-        return NULL;                                                               \
+#define PQ_DEFINE_VERIFY_NOGVL(rb_name, c_call)                                            \
+    static void *pq_##rb_name##_nogvl(void *arg) {                                         \
+        verify_call_t *call = (verify_call_t *)arg;                                        \
+        call->result =                                                                     \
+            c_call(call->signature, call->signature_len, call->message, call->message_len, \
+                   call->context, call->context_len, call->public_key);                    \
+        return NULL;                                                                       \
     }
 
 PQ_DEFINE_VERIFY_NOGVL(verify, pq_verify)
@@ -812,6 +864,26 @@ static VALUE pqcrypto_hybrid_kem_expand_secret_key_object(VALUE self, VALUE secr
     return obj;
 }
 
+static VALUE pqcrypto_hybrid_kem_expanded_secret_key_wipe(VALUE self,
+                                                          VALUE expanded_secret_key_obj) {
+    (void)self;
+    hybrid_expanded_key_wrapper_t *wrapper;
+
+    TypedData_Get_Struct(expanded_secret_key_obj, hybrid_expanded_key_wrapper_t,
+                         &hybrid_expanded_key_data_type, wrapper);
+    if (!wrapper) {
+        return Qnil;
+    }
+
+    pq_secure_wipe(wrapper->expanded_secret_key, sizeof(wrapper->expanded_secret_key));
+    if (wrapper->x25519_private_pkey) {
+        EVP_PKEY_free(wrapper->x25519_private_pkey);
+        wrapper->x25519_private_pkey = NULL;
+    }
+
+    return Qnil;
+}
+
 static VALUE pqcrypto_hybrid_kem_decapsulate(VALUE self, VALUE ciphertext, VALUE secret_key) {
     (void)self;
     return pq_run_kem_decapsulate(pq_hybrid_kem_decapsulate_nogvl, ciphertext,
@@ -1181,20 +1253,28 @@ PQ_DEFINE_RUBY_MLDSA_KEYPAIR(ml_dsa_87_keypair, mldsa_87_sign_keypair, MLDSA87_P
 
 #undef PQ_DEFINE_RUBY_MLDSA_KEYPAIR
 
-static VALUE pq_run_sign(void *(*nogvl)(void *), VALUE message, VALUE secret_key,
+static VALUE pq_run_sign(void *(*nogvl)(void *), VALUE message, VALUE secret_key, VALUE context,
                          size_t secret_key_len_expected, size_t signature_len_expected) {
     pq_validate_bytes_argument(secret_key, secret_key_len_expected, "secret key");
+    StringValue(context);
+    if (RSTRING_LEN(context) > 255) {
+        rb_raise(rb_eArgError, "ML-DSA context length must be <= 255 bytes");
+    }
 
     sign_call_t call = {0};
     size_t secret_key_len = 0;
+    size_t context_len = 0;
     call.secret_key = pq_copy_ruby_string(secret_key, &secret_key_len);
     call.signature_len = signature_len_expected;
     call.signature = pq_alloc_buffer(signature_len_expected);
     call.message = pq_copy_ruby_string(message, &call.message_len);
+    call.context = pq_copy_ruby_string(context, &context_len);
+    call.context_len = context_len;
 
     rb_nogvl(nogvl, &call, NULL, NULL, PQ_RB_NOGVL_OFFLOAD_SAFE);
 
     pq_free_buffer(call.message);
+    pq_free_buffer(call.context);
     pq_wipe_and_free((uint8_t *)call.secret_key, secret_key_len);
 
     if (call.result != PQ_SUCCESS) {
@@ -1207,10 +1287,16 @@ static VALUE pq_run_sign(void *(*nogvl)(void *), VALUE message, VALUE secret_key
     return result;
 }
 
-#define PQ_DEFINE_RUBY_MLDSA_SIGN(rb_name, nogvl_stem, sk_bytes, sig_bytes)                    \
-    static VALUE pqcrypto_##rb_name(VALUE self, VALUE message, VALUE secret_key) {             \
-        (void)self;                                                                            \
-        return pq_run_sign(pq_##nogvl_stem##_nogvl, message, secret_key, sk_bytes, sig_bytes); \
+#define PQ_DEFINE_RUBY_MLDSA_SIGN(rb_name, nogvl_stem, sk_bytes, sig_bytes)                 \
+    static VALUE pqcrypto_##rb_name(int argc, VALUE *argv, VALUE self) {                    \
+        (void)self;                                                                         \
+        VALUE message, secret_key, context;                                                 \
+        rb_scan_args(argc, argv, "21", &message, &secret_key, &context);                    \
+        if (NIL_P(context)) {                                                               \
+            context = rb_str_new("", 0);                                                    \
+        }                                                                                   \
+        return pq_run_sign(pq_##nogvl_stem##_nogvl, message, secret_key, context, sk_bytes, \
+                           sig_bytes);                                                      \
     }
 
 PQ_DEFINE_RUBY_MLDSA_SIGN(sign, sign, PQ_MLDSA_SECRETKEYBYTES, PQ_MLDSA_BYTES)
@@ -1220,21 +1306,29 @@ PQ_DEFINE_RUBY_MLDSA_SIGN(ml_dsa_87_sign, mldsa_87_sign, MLDSA87_SECRETKEYBYTES,
 #undef PQ_DEFINE_RUBY_MLDSA_SIGN
 
 static VALUE pq_run_verify(void *(*nogvl)(void *), VALUE message, VALUE signature, VALUE public_key,
-                           size_t public_key_len_expected) {
+                           VALUE context, size_t public_key_len_expected) {
     StringValue(signature);
     pq_validate_bytes_argument(public_key, public_key_len_expected, "public key");
+    StringValue(context);
+    if (RSTRING_LEN(context) > 255) {
+        rb_raise(rb_eArgError, "ML-DSA context length must be <= 255 bytes");
+    }
 
     verify_call_t call = {0};
     size_t public_key_len = 0;
     size_t signature_len = 0;
+    size_t context_len = 0;
     call.public_key = pq_copy_ruby_string(public_key, &public_key_len);
     call.signature = pq_copy_ruby_string(signature, &signature_len);
     call.signature_len = signature_len;
     call.message = pq_copy_ruby_string(message, &call.message_len);
+    call.context = pq_copy_ruby_string(context, &context_len);
+    call.context_len = context_len;
 
     rb_nogvl(nogvl, &call, NULL, NULL, PQ_RB_NOGVL_OFFLOAD_SAFE);
 
     pq_free_buffer(call.message);
+    pq_free_buffer(call.context);
     pq_free_buffer((uint8_t *)call.public_key);
     pq_free_buffer((uint8_t *)call.signature);
 
@@ -1247,11 +1341,16 @@ static VALUE pq_run_verify(void *(*nogvl)(void *), VALUE message, VALUE signatur
     pq_raise_general_error(call.result);
 }
 
-#define PQ_DEFINE_RUBY_MLDSA_VERIFY(rb_name, nogvl_stem, pk_bytes)                               \
-    static VALUE pqcrypto_##rb_name(VALUE self, VALUE message, VALUE signature,                  \
-                                    VALUE public_key) {                                          \
-        (void)self;                                                                              \
-        return pq_run_verify(pq_##nogvl_stem##_nogvl, message, signature, public_key, pk_bytes); \
+#define PQ_DEFINE_RUBY_MLDSA_VERIFY(rb_name, nogvl_stem, pk_bytes)                             \
+    static VALUE pqcrypto_##rb_name(int argc, VALUE *argv, VALUE self) {                       \
+        (void)self;                                                                            \
+        VALUE message, signature, public_key, context;                                         \
+        rb_scan_args(argc, argv, "31", &message, &signature, &public_key, &context);           \
+        if (NIL_P(context)) {                                                                  \
+            context = rb_str_new("", 0);                                                       \
+        }                                                                                      \
+        return pq_run_verify(pq_##nogvl_stem##_nogvl, message, signature, public_key, context, \
+                             pk_bytes);                                                        \
     }
 
 PQ_DEFINE_RUBY_MLDSA_VERIFY(verify, verify, PQ_MLDSA_PUBLICKEYBYTES)
@@ -1312,6 +1411,7 @@ typedef struct {
     size_t signature_len;
     const uint8_t *mu;
     const uint8_t *secret_key;
+    pq_mldsa_signature_extmu_fn signature_extmu;
 } sign_mu_call_t;
 
 typedef struct {
@@ -1320,6 +1420,8 @@ typedef struct {
     size_t signature_len;
     const uint8_t *mu;
     const uint8_t *public_key;
+    size_t expected_signature_len;
+    pq_mldsa_verify_extmu_fn verify_extmu;
 } verify_mu_call_t;
 
 static void mu_builder_wrapper_free(void *ptr) {
@@ -1363,12 +1465,25 @@ static mu_builder_wrapper_t *mu_builder_unwrap(VALUE obj) {
     return wrapper;
 }
 
-static VALUE pqcrypto__native_mldsa_extract_tr(VALUE self, VALUE secret_key) {
+static VALUE pqcrypto__native_mldsa_extract_tr(int argc, VALUE *argv, VALUE self) {
     (void)self;
-    pq_validate_bytes_argument(secret_key, PQ_MLDSA_SECRETKEYBYTES, "secret key");
+    VALUE algorithm = ID2SYM(rb_intern("ml_dsa_65"));
+    VALUE secret_key;
+    if (argc == 1) {
+        secret_key = argv[0];
+    } else if (argc == 2) {
+        algorithm = argv[0];
+        secret_key = argv[1];
+    } else {
+        rb_raise(rb_eArgError, "wrong number of arguments (given %d, expected 1..2)", argc);
+    }
+
+    const pq_mldsa_profile_t *profile = pq_mldsa_profile_from_value(algorithm);
+    pq_validate_bytes_argument(secret_key, profile->secret_key_len, "secret key");
 
     uint8_t tr[PQ_MLDSA_TRBYTES];
-    int rc = pq_mldsa_extract_tr_from_secret_key(tr, (const uint8_t *)RSTRING_PTR(secret_key));
+    int rc = pq_mldsa_extract_tr_from_secret_key(tr, (const uint8_t *)RSTRING_PTR(secret_key),
+                                                 profile->public_key_len, profile->pk_from_sk);
     if (rc != PQ_SUCCESS) {
         pq_secure_wipe(tr, sizeof(tr));
         pq_raise_general_error(rc);
@@ -1378,12 +1493,25 @@ static VALUE pqcrypto__native_mldsa_extract_tr(VALUE self, VALUE secret_key) {
     return result;
 }
 
-static VALUE pqcrypto__native_mldsa_compute_tr(VALUE self, VALUE public_key) {
+static VALUE pqcrypto__native_mldsa_compute_tr(int argc, VALUE *argv, VALUE self) {
     (void)self;
-    pq_validate_bytes_argument(public_key, PQ_MLDSA_PUBLICKEYBYTES, "public key");
+    VALUE algorithm = ID2SYM(rb_intern("ml_dsa_65"));
+    VALUE public_key;
+    if (argc == 1) {
+        public_key = argv[0];
+    } else if (argc == 2) {
+        algorithm = argv[0];
+        public_key = argv[1];
+    } else {
+        rb_raise(rb_eArgError, "wrong number of arguments (given %d, expected 1..2)", argc);
+    }
+
+    const pq_mldsa_profile_t *profile = pq_mldsa_profile_from_value(algorithm);
+    pq_validate_bytes_argument(public_key, profile->public_key_len, "public key");
 
     uint8_t tr[PQ_MLDSA_TRBYTES];
-    int rc = pq_mldsa_compute_tr_from_public_key(tr, (const uint8_t *)RSTRING_PTR(public_key));
+    int rc = pq_mldsa_compute_tr_from_public_key(tr, (const uint8_t *)RSTRING_PTR(public_key),
+                                                 profile->public_key_len);
     if (rc != PQ_SUCCESS) {
         pq_raise_general_error(rc);
     }
@@ -1504,14 +1632,29 @@ static VALUE pqcrypto__native_mldsa_mu_builder_release(VALUE self, VALUE builder
 
 static void *pq_sign_mu_nogvl(void *arg) {
     sign_mu_call_t *call = (sign_mu_call_t *)arg;
-    call->result = pq_sign_mu(call->signature, &call->signature_len, call->mu, call->secret_key);
+    call->result = pq_sign_mu(call->signature, &call->signature_len, call->mu, call->secret_key,
+                              call->signature_extmu);
     return NULL;
 }
 
-static VALUE pqcrypto__native_mldsa_sign_mu(VALUE self, VALUE mu, VALUE secret_key) {
+static VALUE pqcrypto__native_mldsa_sign_mu(int argc, VALUE *argv, VALUE self) {
     (void)self;
+    VALUE algorithm = ID2SYM(rb_intern("ml_dsa_65"));
+    VALUE mu, secret_key;
+    if (argc == 2) {
+        mu = argv[0];
+        secret_key = argv[1];
+    } else if (argc == 3) {
+        algorithm = argv[0];
+        mu = argv[1];
+        secret_key = argv[2];
+    } else {
+        rb_raise(rb_eArgError, "wrong number of arguments (given %d, expected 2..3)", argc);
+    }
+
+    const pq_mldsa_profile_t *profile = pq_mldsa_profile_from_value(algorithm);
     pq_validate_bytes_argument(mu, PQ_MLDSA_MUBYTES, "mu");
-    pq_validate_bytes_argument(secret_key, PQ_MLDSA_SECRETKEYBYTES, "secret key");
+    pq_validate_bytes_argument(secret_key, profile->secret_key_len, "secret key");
 
     sign_mu_call_t call = {0};
     size_t secret_key_len = 0;
@@ -1521,8 +1664,9 @@ static VALUE pqcrypto__native_mldsa_sign_mu(VALUE self, VALUE mu, VALUE secret_k
 
     call.mu = mu_copy;
     call.secret_key = sk_copy;
-    call.signature_len = PQ_MLDSA_BYTES;
-    call.signature = pq_alloc_buffer(PQ_MLDSA_BYTES);
+    call.signature_extmu = profile->signature_extmu;
+    call.signature_len = profile->signature_len;
+    call.signature = pq_alloc_buffer(profile->signature_len);
 
     rb_nogvl(pq_sign_mu_nogvl, &call, NULL, NULL, PQ_RB_NOGVL_OFFLOAD_SAFE);
 
@@ -1541,16 +1685,32 @@ static VALUE pqcrypto__native_mldsa_sign_mu(VALUE self, VALUE mu, VALUE secret_k
 
 static void *pq_verify_mu_nogvl(void *arg) {
     verify_mu_call_t *call = (verify_mu_call_t *)arg;
-    call->result = pq_verify_mu(call->signature, call->signature_len, call->mu, call->public_key);
+    call->result = pq_verify_mu(call->signature, call->signature_len, call->mu, call->public_key,
+                                call->expected_signature_len, call->verify_extmu);
     return NULL;
 }
 
-static VALUE pqcrypto__native_mldsa_verify_mu(VALUE self, VALUE mu, VALUE signature,
-                                              VALUE public_key) {
+static VALUE pqcrypto__native_mldsa_verify_mu(int argc, VALUE *argv, VALUE self) {
     (void)self;
+    VALUE algorithm = ID2SYM(rb_intern("ml_dsa_65"));
+    VALUE mu, signature, public_key;
+    if (argc == 3) {
+        mu = argv[0];
+        signature = argv[1];
+        public_key = argv[2];
+    } else if (argc == 4) {
+        algorithm = argv[0];
+        mu = argv[1];
+        signature = argv[2];
+        public_key = argv[3];
+    } else {
+        rb_raise(rb_eArgError, "wrong number of arguments (given %d, expected 3..4)", argc);
+    }
+
+    const pq_mldsa_profile_t *profile = pq_mldsa_profile_from_value(algorithm);
     StringValue(signature);
     pq_validate_bytes_argument(mu, PQ_MLDSA_MUBYTES, "mu");
-    pq_validate_bytes_argument(public_key, PQ_MLDSA_PUBLICKEYBYTES, "public key");
+    pq_validate_bytes_argument(public_key, profile->public_key_len, "public key");
 
     verify_mu_call_t call = {0};
     size_t public_key_len = 0;
@@ -1564,6 +1724,8 @@ static VALUE pqcrypto__native_mldsa_verify_mu(VALUE self, VALUE mu, VALUE signat
     call.public_key = pk_copy;
     call.signature = sig_copy;
     call.signature_len = signature_len;
+    call.expected_signature_len = profile->signature_len;
+    call.verify_extmu = profile->verify_extmu;
 
     rb_nogvl(pq_verify_mu_nogvl, &call, NULL, NULL, PQ_RB_NOGVL_OFFLOAD_SAFE);
     pq_wipe_and_free(mu_copy, mu_len);
@@ -1707,6 +1869,8 @@ void Init_pqcrypto_secure(void) {
                               pqcrypto_hybrid_kem_expand_secret_key, 1);
     rb_define_module_function(mPQCrypto, "hybrid_kem_expand_secret_key_object",
                               pqcrypto_hybrid_kem_expand_secret_key_object, 1);
+    rb_define_module_function(mPQCrypto, "hybrid_kem_expanded_secret_key_wipe",
+                              pqcrypto_hybrid_kem_expanded_secret_key_wipe, 1);
     rb_define_module_function(mPQCrypto, "hybrid_kem_decapsulate", pqcrypto_hybrid_kem_decapsulate,
                               2);
     rb_define_module_function(mPQCrypto, "hybrid_kem_decapsulate_expanded",
@@ -1714,20 +1878,20 @@ void Init_pqcrypto_secure(void) {
     rb_define_module_function(mPQCrypto, "hybrid_kem_decapsulate_expanded_object",
                               pqcrypto_hybrid_kem_decapsulate_expanded_object, 2);
     rb_define_module_function(mPQCrypto, "sign_keypair", pqcrypto_sign_keypair, 0);
-    rb_define_module_function(mPQCrypto, "sign", pqcrypto_sign, 2);
-    rb_define_module_function(mPQCrypto, "verify", pqcrypto_verify, 3);
+    rb_define_module_function(mPQCrypto, "sign", pqcrypto_sign, -1);
+    rb_define_module_function(mPQCrypto, "verify", pqcrypto_verify, -1);
     rb_define_module_function(mPQCrypto, "ml_dsa_44_keypair", pqcrypto_ml_dsa_44_keypair, 0);
     rb_define_module_function(mPQCrypto, "ml_dsa_44_keypair_from_seed",
                               pqcrypto_ml_dsa_44_keypair_from_seed, 1);
     rb_define_module_function(mPQCrypto, "ml_dsa_keypair_from_seed",
                               pqcrypto_ml_dsa_keypair_from_seed, 1);
-    rb_define_module_function(mPQCrypto, "ml_dsa_44_sign", pqcrypto_ml_dsa_44_sign, 2);
-    rb_define_module_function(mPQCrypto, "ml_dsa_44_verify", pqcrypto_ml_dsa_44_verify, 3);
+    rb_define_module_function(mPQCrypto, "ml_dsa_44_sign", pqcrypto_ml_dsa_44_sign, -1);
+    rb_define_module_function(mPQCrypto, "ml_dsa_44_verify", pqcrypto_ml_dsa_44_verify, -1);
     rb_define_module_function(mPQCrypto, "ml_dsa_87_keypair", pqcrypto_ml_dsa_87_keypair, 0);
     rb_define_module_function(mPQCrypto, "ml_dsa_87_keypair_from_seed",
                               pqcrypto_ml_dsa_87_keypair_from_seed, 1);
-    rb_define_module_function(mPQCrypto, "ml_dsa_87_sign", pqcrypto_ml_dsa_87_sign, 2);
-    rb_define_module_function(mPQCrypto, "ml_dsa_87_verify", pqcrypto_ml_dsa_87_verify, 3);
+    rb_define_module_function(mPQCrypto, "ml_dsa_87_sign", pqcrypto_ml_dsa_87_sign, -1);
+    rb_define_module_function(mPQCrypto, "ml_dsa_87_verify", pqcrypto_ml_dsa_87_verify, -1);
     rb_define_module_function(mPQCrypto, "ct_equals", pqcrypto_ct_equals, 2);
     rb_define_module_function(mPQCrypto, "secure_wipe", pqcrypto_secure_wipe, 1);
     rb_define_module_function(mPQCrypto, "version", pqcrypto_version, 0);
@@ -1748,9 +1912,9 @@ void Init_pqcrypto_secure(void) {
     rb_define_module_function(mPQCrypto, "secret_key_from_pqc_container_pem",
                               pqcrypto_secret_key_from_pqc_container_pem, 1);
     rb_define_module_function(mPQCrypto, "_native_mldsa_extract_tr",
-                              pqcrypto__native_mldsa_extract_tr, 1);
+                              pqcrypto__native_mldsa_extract_tr, -1);
     rb_define_module_function(mPQCrypto, "_native_mldsa_compute_tr",
-                              pqcrypto__native_mldsa_compute_tr, 1);
+                              pqcrypto__native_mldsa_compute_tr, -1);
     rb_define_module_function(mPQCrypto, "_native_mldsa_mu_builder_new",
                               pqcrypto__native_mldsa_mu_builder_new, 2);
     rb_define_module_function(mPQCrypto, "_native_mldsa_mu_builder_update",
@@ -1760,9 +1924,9 @@ void Init_pqcrypto_secure(void) {
     rb_define_module_function(mPQCrypto, "_native_mldsa_mu_builder_release",
                               pqcrypto__native_mldsa_mu_builder_release, 1);
     rb_define_module_function(mPQCrypto, "_native_mldsa_sign_mu", pqcrypto__native_mldsa_sign_mu,
-                              2);
+                              -1);
     rb_define_module_function(mPQCrypto, "_native_mldsa_verify_mu",
-                              pqcrypto__native_mldsa_verify_mu, 3);
+                              pqcrypto__native_mldsa_verify_mu, -1);
 
     define_constants();
 }

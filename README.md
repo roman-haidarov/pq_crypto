@@ -35,10 +35,10 @@ bundle exec rake test
 
 | Area | Capabilities |
 | --- | --- |
-| ML-KEM | Key generation, encapsulation, decapsulation, raw key import/export, SPKI public keys, PKCS#8 private keys. |
-| ML-DSA | Key generation, signing, verification, streaming signing/verification for large inputs, raw key import/export, SPKI public keys, PKCS#8 private keys. |
+| ML-KEM | Key generation, seed-aware secret keys, encapsulation, decapsulation, raw key import/export, SPKI public keys, PKCS#8 private keys. |
+| ML-DSA | Key generation, seed-aware secret keys, signing/verification with optional FIPS 204 context, streaming signing/verification for large inputs, raw key import/export, SPKI public keys, PKCS#8 private keys. |
 | Hybrid KEM | ML-KEM-768 + X25519 using the X-Wing combiner. |
-| Serialization | Standard SPKI / PKCS#8 for NIST PQC keys, plus frozen `pqc_container_*` compatibility formats for the original algorithms. |
+| Serialization | Standard SPKI / PKCS#8 for NIST PQC keys, encrypted PKCS#8 private keys, auto-dispatch key loading, plus frozen `pqc_container_*` compatibility formats for the original algorithms. |
 | Safety helpers | Best-effort secret wiping and constant-time equality for key comparisons. |
 | Introspection | Supported algorithm lists, algorithm metadata, backend/version helpers. |
 
@@ -111,8 +111,13 @@ PQCrypto.supported_signatures
 PQCrypto.supported_hybrid_kems
 
 PQCrypto::KEM.generate(:ml_kem_768)
+PQCrypto::KEM.secret_key_from_seed(:ml_kem_768, seed_64_bytes)
+
 PQCrypto::Signature.generate(:ml_dsa_65)
+PQCrypto::Signature.secret_key_from_seed(:ml_dsa_65, seed_32_bytes)
+
 PQCrypto::HybridKEM.generate(:ml_kem_768_x25519_xwing)
+PQCrypto::Key.from_pem(pem, passphrase: passphrase)
 ```
 
 ## More examples
@@ -121,9 +126,9 @@ Detailed usage examples live in [`GET_STARTED.md`](GET_STARTED.md):
 
 - generating keys
 - ML-KEM encapsulation / decapsulation
-- ML-DSA signing / verification
+- ML-DSA signing / verification with optional FIPS 204 context
 - streaming ML-DSA for large files
-- SPKI and PKCS#8 serialization
+- SPKI, PKCS#8, encrypted PKCS#8, and auto-dispatch key loading
 - `pqc_container_*` compatibility serialization
 - native backend / vendoring notes
-- secure wiping and practical safety notes
+- seed-aware keys, secure wiping, and practical safety notes

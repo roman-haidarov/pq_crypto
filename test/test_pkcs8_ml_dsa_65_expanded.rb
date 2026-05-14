@@ -47,7 +47,7 @@ class TestPQCryptoPKCS8MLDSA65Expanded < Minitest::Test
       error = assert_raises(PQCrypto::SerializationError) do
         secret_key.to_pkcs8_der(format: format)
       end
-      assert_match(/ML-DSA seed\/both PKCS#8 export requires original seed material/, error.message)
+      assert_match(/ML-DSA .* PKCS#8 export requires original seed material/, error.message)
     end
   end
 

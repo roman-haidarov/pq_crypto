@@ -178,23 +178,26 @@ class TestStreamingSignVerify < Minitest::Test
     end
   end
 
-  def test_sign_io_rejects_non_canonical_ml_dsa_variants_explicitly
-    keypair = PQCrypto::Signature.generate(:ml_dsa_44)
+  def test_sign_io_supports_all_ml_dsa_variants
+    PQCrypto::Signature.supported.each do |algorithm|
+      keypair = PQCrypto::Signature.generate(algorithm)
+      message = "message for #{algorithm}".b
+      sig = keypair.secret_key.sign_io(StringIO.new(message))
 
-    error = assert_raises(PQCrypto::UnsupportedAlgorithmError) do
-      keypair.secret_key.sign_io(StringIO.new("message".b))
+      assert_equal PQCrypto::Signature.details(algorithm).fetch(:signature_bytes), sig.bytesize
+      assert keypair.public_key.verify(message, sig), "streaming signature did not verify for #{algorithm.inspect}"
     end
-    assert_match(/supports only :ml_dsa_65/, error.message)
   end
 
-  def test_verify_io_rejects_non_canonical_ml_dsa_variants_explicitly
-    keypair = PQCrypto::Signature.generate(:ml_dsa_44)
-    sig = keypair.secret_key.sign("message".b)
+  def test_verify_io_supports_all_ml_dsa_variants
+    PQCrypto::Signature.supported.each do |algorithm|
+      keypair = PQCrypto::Signature.generate(algorithm)
+      message = "message for #{algorithm}".b
+      sig = keypair.secret_key.sign(message)
 
-    error = assert_raises(PQCrypto::UnsupportedAlgorithmError) do
-      keypair.public_key.verify_io(StringIO.new("message".b), sig)
+      assert keypair.public_key.verify_io(StringIO.new(message), sig),
+             "one-shot signature did not stream-verify for #{algorithm.inspect}"
     end
-    assert_match(/supports only :ml_dsa_65/, error.message)
   end
 
   def test_context_tied_to_signature
