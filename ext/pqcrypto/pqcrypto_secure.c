@@ -15,6 +15,9 @@
 #include <openssl/crypto.h>
 #include <openssl/evp.h>
 #include <openssl/rand.h>
+#include <openssl/x509.h>
+#include <openssl/pkcs12.h>
+#include <openssl/objects.h>
 
 #if OPENSSL_VERSION_NUMBER < 0x30000000L
 #error "OpenSSL 3.0 or later is required for pq_crypto"
@@ -1157,6 +1160,535 @@ int pq_secret_key_from_pqc_container_pem(char **algorithm_out, uint8_t **key_out
     pq_secure_wipe(der, der_len);
     free(der);
     return ret;
+}
+
+#define PQ_PKCS8_PRIVATE_KEY_PEM_LABEL           "PRIVATE KEY"
+#define PQ_PKCS8_ENCRYPTED_PRIVATE_KEY_PEM_LABEL "ENCRYPTED PRIVATE KEY"
+
+static size_t pq_der_length_octets(size_t len) {
+    size_t octets = 0;
+    size_t v = len;
+
+    if (len < 0x80)
+        return 1;
+    do {
+        octets++;
+        v >>= 8;
+    } while (v != 0);
+    return 1 + octets;
+}
+
+static int pq_der_write_length(uint8_t **cursor, size_t len) {
+    uint8_t *p;
+    size_t octets = 0;
+    size_t v = len;
+
+    if (!cursor || !*cursor)
+        return PQ_ERROR_BUFFER;
+
+    p = *cursor;
+    if (len < 0x80) {
+        *p++ = (uint8_t)len;
+        *cursor = p;
+        return PQ_SUCCESS;
+    }
+
+    do {
+        octets++;
+        v >>= 8;
+    } while (v != 0);
+    if (octets > sizeof(size_t))
+        return PQ_ERROR_BUFFER;
+
+    *p++ = (uint8_t)(0x80u | (uint8_t)octets);
+    for (size_t i = 0; i < octets; ++i) {
+        size_t shift = 8 * (octets - 1 - i);
+        *p++ = (uint8_t)((len >> shift) & 0xffu);
+    }
+    *cursor = p;
+    return PQ_SUCCESS;
+}
+
+static int pq_der_read_length(const uint8_t *input, size_t input_len, size_t *offset,
+                              size_t *len_out) {
+    uint8_t first;
+    size_t len = 0;
+    size_t length_octets;
+
+    if (!input || !offset || !len_out || *offset >= input_len)
+        return PQ_ERROR_BUFFER;
+
+    first = input[(*offset)++];
+    if (first < 0x80) {
+        *len_out = (size_t)first;
+        return PQ_SUCCESS;
+    }
+
+    length_octets = (size_t)(first & 0x7fu);
+    if (length_octets == 0 || length_octets > sizeof(size_t))
+        return PQ_ERROR_BUFFER;
+    if (input_len - *offset < length_octets)
+        return PQ_ERROR_BUFFER;
+    if (input[*offset] == 0)
+        return PQ_ERROR_BUFFER;
+
+    for (size_t i = 0; i < length_octets; ++i) {
+        if (len > (SIZE_MAX >> 8))
+            return PQ_ERROR_BUFFER;
+        len = (len << 8) | (size_t)input[*offset + i];
+    }
+    if (len < 0x80)
+        return PQ_ERROR_BUFFER;
+
+    *offset += length_octets;
+    *len_out = len;
+    return PQ_SUCCESS;
+}
+
+static int pq_der_expect_tlv(const uint8_t *input, size_t input_len, size_t *offset,
+                             uint8_t expected_tag, size_t *value_offset_out,
+                             size_t *value_len_out) {
+    size_t value_len;
+    size_t value_offset;
+
+    if (!input || !offset || !value_offset_out || !value_len_out || *offset >= input_len)
+        return PQ_ERROR_BUFFER;
+    if (input[(*offset)++] != expected_tag)
+        return PQ_ERROR_BUFFER;
+    if (pq_der_read_length(input, input_len, offset, &value_len) != PQ_SUCCESS)
+        return PQ_ERROR_BUFFER;
+    value_offset = *offset;
+    if (input_len - value_offset < value_len)
+        return PQ_ERROR_BUFFER;
+    *offset = value_offset + value_len;
+    *value_offset_out = value_offset;
+    *value_len_out = value_len;
+    return PQ_SUCCESS;
+}
+
+static int pq_oid_text_to_der(const char *oid_text, uint8_t **oid_der_out,
+                              size_t *oid_der_len_out) {
+    ASN1_OBJECT *obj = NULL;
+    uint8_t *der = NULL;
+    unsigned char *cursor;
+    int der_len;
+    int ret = PQ_ERROR_OPENSSL;
+
+    if (!oid_text || !oid_der_out || !oid_der_len_out)
+        return PQ_ERROR_BUFFER;
+    *oid_der_out = NULL;
+    *oid_der_len_out = 0;
+
+    obj = OBJ_txt2obj(oid_text, 1);
+    if (!obj)
+        goto cleanup;
+    der_len = i2d_ASN1_OBJECT(obj, NULL);
+    if (der_len <= 0)
+        goto cleanup;
+    der = malloc((size_t)der_len);
+    if (!der) {
+        ret = PQ_ERROR_NOMEM;
+        goto cleanup;
+    }
+    cursor = der;
+    if (i2d_ASN1_OBJECT(obj, &cursor) != der_len || (size_t)(cursor - der) != (size_t)der_len)
+        goto cleanup;
+
+    *oid_der_out = der;
+    *oid_der_len_out = (size_t)der_len;
+    der = NULL;
+    ret = PQ_SUCCESS;
+
+cleanup:
+    if (der) {
+        pq_secure_wipe(der, (size_t)(der_len > 0 ? der_len : 0));
+        free(der);
+    }
+    if (obj)
+        ASN1_OBJECT_free(obj);
+    return ret;
+}
+
+static int pq_oid_der_to_text(const uint8_t *oid_der, size_t oid_der_len, char **oid_text_out) {
+    ASN1_OBJECT *obj = NULL;
+    const unsigned char *cursor;
+    char tmp[128];
+    int text_len;
+    char *copy = NULL;
+    int ret = PQ_ERROR_OPENSSL;
+
+    if (!oid_der || oid_der_len == 0 || oid_der_len > (size_t)LONG_MAX || !oid_text_out)
+        return PQ_ERROR_BUFFER;
+    *oid_text_out = NULL;
+
+    cursor = oid_der;
+    obj = d2i_ASN1_OBJECT(NULL, &cursor, (long)oid_der_len);
+    if (!obj || cursor != oid_der + oid_der_len)
+        goto cleanup;
+    text_len = OBJ_obj2txt(tmp, sizeof(tmp), obj, 1);
+    if (text_len <= 0 || (size_t)text_len >= sizeof(tmp))
+        goto cleanup;
+    copy = malloc((size_t)text_len + 1);
+    if (!copy) {
+        ret = PQ_ERROR_NOMEM;
+        goto cleanup;
+    }
+    memcpy(copy, tmp, (size_t)text_len + 1);
+    *oid_text_out = copy;
+    copy = NULL;
+    ret = PQ_SUCCESS;
+
+cleanup:
+    if (copy)
+        free(copy);
+    if (obj)
+        ASN1_OBJECT_free(obj);
+    return ret;
+}
+
+int pq_pkcs8_private_key_info_to_der(uint8_t **output, size_t *output_len, const char *oid_text,
+                                     const uint8_t *private_key, size_t private_key_len) {
+    uint8_t *oid_der = NULL;
+    size_t oid_der_len = 0;
+    size_t alg_body_len, alg_len, priv_len, inner_len, total_len;
+    uint8_t *buf = NULL;
+    uint8_t *cur;
+    int ret;
+
+    if (!output || !output_len || !oid_text || !private_key)
+        return PQ_ERROR_BUFFER;
+    *output = NULL;
+    *output_len = 0;
+
+    ret = pq_oid_text_to_der(oid_text, &oid_der, &oid_der_len);
+    if (ret != PQ_SUCCESS)
+        return ret;
+
+    alg_body_len = oid_der_len;
+    alg_len = 1 + pq_der_length_octets(alg_body_len) + alg_body_len;
+    priv_len = 1 + pq_der_length_octets(private_key_len) + private_key_len;
+    if (pq_size_add(3, alg_len, &inner_len) != PQ_SUCCESS ||
+        pq_size_add(inner_len, priv_len, &inner_len) != PQ_SUCCESS) {
+        ret = PQ_ERROR_BUFFER;
+        goto cleanup;
+    }
+    if (pq_size_add(1 + pq_der_length_octets(inner_len), inner_len, &total_len) != PQ_SUCCESS) {
+        ret = PQ_ERROR_BUFFER;
+        goto cleanup;
+    }
+
+    buf = malloc(total_len);
+    if (!buf) {
+        ret = PQ_ERROR_NOMEM;
+        goto cleanup;
+    }
+
+    cur = buf;
+    *cur++ = 0x30;
+    ret = pq_der_write_length(&cur, inner_len);
+    if (ret != PQ_SUCCESS)
+        goto cleanup;
+    *cur++ = 0x02;
+    *cur++ = 0x01;
+    *cur++ = 0x00;
+    *cur++ = 0x30;
+    ret = pq_der_write_length(&cur, alg_body_len);
+    if (ret != PQ_SUCCESS)
+        goto cleanup;
+    memcpy(cur, oid_der, oid_der_len);
+    cur += oid_der_len;
+    *cur++ = 0x04;
+    ret = pq_der_write_length(&cur, private_key_len);
+    if (ret != PQ_SUCCESS)
+        goto cleanup;
+    memcpy(cur, private_key, private_key_len);
+    cur += private_key_len;
+    if ((size_t)(cur - buf) != total_len) {
+        ret = PQ_ERROR_BUFFER;
+        goto cleanup;
+    }
+
+    *output = buf;
+    *output_len = total_len;
+    buf = NULL;
+    ret = PQ_SUCCESS;
+
+cleanup:
+    if (buf) {
+        pq_secure_wipe(buf, total_len);
+        free(buf);
+    }
+    if (oid_der) {
+        pq_secure_wipe(oid_der, oid_der_len);
+        free(oid_der);
+    }
+    return ret;
+}
+
+int pq_pkcs8_private_key_info_from_der(char **oid_text_out, uint8_t **private_key_out,
+                                       size_t *private_key_len_out, const uint8_t *input,
+                                       size_t input_len) {
+    size_t offset = 0;
+    size_t outer_off = 0, outer_len = 0, outer_end;
+    size_t alg_off = 0, alg_len = 0, alg_end;
+    size_t oid_off = 0, oid_len = 0;
+    size_t priv_off = 0, priv_len = 0;
+    uint8_t *private_key = NULL;
+    char *oid_text = NULL;
+    int ret;
+
+    if (!oid_text_out || !private_key_out || !private_key_len_out || !input)
+        return PQ_ERROR_BUFFER;
+    *oid_text_out = NULL;
+    *private_key_out = NULL;
+    *private_key_len_out = 0;
+
+    ret = pq_der_expect_tlv(input, input_len, &offset, 0x30, &outer_off, &outer_len);
+    if (ret != PQ_SUCCESS)
+        return ret;
+    outer_end = outer_off + outer_len;
+    if (offset != input_len || outer_end != input_len)
+        return PQ_ERROR_BUFFER;
+
+    offset = outer_off;
+    {
+        size_t version_off = 0, version_len = 0;
+        ret = pq_der_expect_tlv(input, outer_end, &offset, 0x02, &version_off, &version_len);
+        if (ret != PQ_SUCCESS)
+            return ret;
+        if (version_len != 1 || input[version_off] != 0x00)
+            return PQ_ERROR_BUFFER;
+    }
+
+    ret = pq_der_expect_tlv(input, outer_end, &offset, 0x30, &alg_off, &alg_len);
+    if (ret != PQ_SUCCESS)
+        return ret;
+    alg_end = alg_off + alg_len;
+    {
+        size_t alg_cursor = alg_off;
+        size_t oid_tlv_start = alg_cursor;
+        ret = pq_der_expect_tlv(input, alg_end, &alg_cursor, 0x06, &oid_off, &oid_len);
+        if (ret != PQ_SUCCESS)
+            return ret;
+        if (alg_cursor != alg_end)
+            return PQ_ERROR_BUFFER;
+        ret = pq_oid_der_to_text(input + oid_tlv_start, alg_cursor - oid_tlv_start, &oid_text);
+    }
+    if (ret != PQ_SUCCESS)
+        return ret;
+
+    ret = pq_der_expect_tlv(input, outer_end, &offset, 0x04, &priv_off, &priv_len);
+    if (ret != PQ_SUCCESS)
+        goto cleanup;
+    if (offset != outer_end) {
+        ret = PQ_ERROR_BUFFER;
+        goto cleanup;
+    }
+    private_key = malloc(priv_len ? priv_len : 1);
+    if (!private_key) {
+        ret = PQ_ERROR_NOMEM;
+        goto cleanup;
+    }
+    if (priv_len)
+        memcpy(private_key, input + priv_off, priv_len);
+
+    *oid_text_out = oid_text;
+    *private_key_out = private_key;
+    *private_key_len_out = priv_len;
+    oid_text = NULL;
+    private_key = NULL;
+    ret = PQ_SUCCESS;
+
+cleanup:
+    if (oid_text)
+        free(oid_text);
+    if (private_key) {
+        pq_secure_wipe(private_key, priv_len);
+        free(private_key);
+    }
+    return ret;
+}
+
+int pq_pkcs8_encrypt_private_key_info_der(uint8_t **output, size_t *output_len,
+                                          const uint8_t *plain_der, size_t plain_der_len,
+                                          const char *passphrase, size_t passphrase_len,
+                                          int iterations) {
+    const unsigned char *cursor;
+    PKCS8_PRIV_KEY_INFO *p8 = NULL;
+    X509_SIG *encrypted = NULL;
+    unsigned char salt[16];
+    unsigned char *der = NULL;
+    unsigned char *der_cursor;
+    int der_len;
+    int ret = PQ_ERROR_OPENSSL;
+
+    if (!output || !output_len || !plain_der || !passphrase || iterations <= 0 ||
+        passphrase_len > (size_t)INT_MAX || plain_der_len > (size_t)LONG_MAX)
+        return PQ_ERROR_BUFFER;
+    *output = NULL;
+    *output_len = 0;
+
+    cursor = plain_der;
+    p8 = d2i_PKCS8_PRIV_KEY_INFO(NULL, &cursor, (long)plain_der_len);
+    if (!p8 || cursor != plain_der + plain_der_len)
+        goto cleanup;
+    if (RAND_bytes(salt, sizeof(salt)) != 1)
+        goto cleanup;
+
+    encrypted = PKCS8_encrypt(-1, EVP_aes_256_cbc(), passphrase, (int)passphrase_len, salt,
+                              (int)sizeof(salt), iterations, p8);
+    if (!encrypted)
+        goto cleanup;
+
+    der_len = i2d_X509_SIG(encrypted, NULL);
+    if (der_len <= 0) {
+        ret = PQ_ERROR_OPENSSL;
+        goto cleanup;
+    }
+    der = malloc((size_t)der_len);
+    if (!der) {
+        ret = PQ_ERROR_NOMEM;
+        goto cleanup;
+    }
+    der_cursor = der;
+    if (i2d_X509_SIG(encrypted, &der_cursor) != der_len ||
+        (size_t)(der_cursor - der) != (size_t)der_len)
+        goto cleanup;
+
+    *output = der;
+    *output_len = (size_t)der_len;
+    der = NULL;
+    ret = PQ_SUCCESS;
+
+cleanup:
+    pq_secure_wipe(salt, sizeof(salt));
+    if (der) {
+        pq_secure_wipe(der, (size_t)(der_len > 0 ? der_len : 0));
+        free(der);
+    }
+    if (encrypted)
+        X509_SIG_free(encrypted);
+    if (p8)
+        PKCS8_PRIV_KEY_INFO_free(p8);
+    return ret;
+}
+
+int pq_pkcs8_decrypt_private_key_info_der(uint8_t **output, size_t *output_len,
+                                          const uint8_t *encrypted_der, size_t encrypted_der_len,
+                                          const char *passphrase, size_t passphrase_len) {
+    const unsigned char *cursor;
+    X509_SIG *encrypted = NULL;
+    PKCS8_PRIV_KEY_INFO *p8 = NULL;
+    unsigned char *der = NULL;
+    unsigned char *der_cursor;
+    int der_len;
+    int ret = PQ_ERROR_OPENSSL;
+
+    if (!output || !output_len || !encrypted_der || !passphrase ||
+        passphrase_len > (size_t)INT_MAX || encrypted_der_len > (size_t)LONG_MAX)
+        return PQ_ERROR_BUFFER;
+    *output = NULL;
+    *output_len = 0;
+
+    cursor = encrypted_der;
+    encrypted = d2i_X509_SIG(NULL, &cursor, (long)encrypted_der_len);
+    if (!encrypted || cursor != encrypted_der + encrypted_der_len)
+        goto cleanup;
+    p8 = PKCS8_decrypt(encrypted, passphrase, (int)passphrase_len);
+    if (!p8)
+        goto cleanup;
+
+    der_len = i2d_PKCS8_PRIV_KEY_INFO(p8, NULL);
+    if (der_len <= 0)
+        goto cleanup;
+    der = malloc((size_t)der_len);
+    if (!der) {
+        ret = PQ_ERROR_NOMEM;
+        goto cleanup;
+    }
+    der_cursor = der;
+    if (i2d_PKCS8_PRIV_KEY_INFO(p8, &der_cursor) != der_len ||
+        (size_t)(der_cursor - der) != (size_t)der_len)
+        goto cleanup;
+
+    *output = der;
+    *output_len = (size_t)der_len;
+    der = NULL;
+    ret = PQ_SUCCESS;
+
+cleanup:
+    if (der) {
+        pq_secure_wipe(der, (size_t)(der_len > 0 ? der_len : 0));
+        free(der);
+    }
+    if (p8)
+        PKCS8_PRIV_KEY_INFO_free(p8);
+    if (encrypted)
+        X509_SIG_free(encrypted);
+    return ret;
+}
+
+int pq_pkcs8_der_is_encrypted_private_key_info(const uint8_t *input, size_t input_len) {
+    const unsigned char *cursor;
+    X509_SIG *encrypted = NULL;
+    const X509_ALGOR *alg = NULL;
+    const ASN1_OCTET_STRING *digest = NULL;
+    const ASN1_OBJECT *obj = NULL;
+    int ptype = 0;
+    const void *pval = NULL;
+    int ret = 0;
+
+    if (!input || input_len > (size_t)LONG_MAX)
+        return 0;
+    cursor = input;
+    encrypted = d2i_X509_SIG(NULL, &cursor, (long)input_len);
+    if (!encrypted || cursor != input + input_len)
+        goto cleanup;
+    X509_SIG_get0(encrypted, &alg, &digest);
+    if (!alg || !digest)
+        goto cleanup;
+    X509_ALGOR_get0(&obj, &ptype, &pval, alg);
+    (void)ptype;
+    (void)pval;
+    if (obj && OBJ_obj2nid(obj) == NID_pbes2)
+        ret = 1;
+
+cleanup:
+    if (encrypted)
+        X509_SIG_free(encrypted);
+    return ret;
+}
+
+int pq_pkcs8_der_to_pem(char **output, size_t *output_len, const uint8_t *der, size_t der_len,
+                        int encrypted) {
+    return pq_der_to_pem(encrypted ? PQ_PKCS8_ENCRYPTED_PRIVATE_KEY_PEM_LABEL
+                                   : PQ_PKCS8_PRIVATE_KEY_PEM_LABEL,
+                         der, der_len, output, output_len);
+}
+
+int pq_pkcs8_pem_to_der(uint8_t **der_out, size_t *der_len_out, int *encrypted_out,
+                        const char *input, size_t input_len) {
+    int ret;
+
+    if (!der_out || !der_len_out || !encrypted_out || !input)
+        return PQ_ERROR_BUFFER;
+    *der_out = NULL;
+    *der_len_out = 0;
+    *encrypted_out = 0;
+
+    ret = pq_pem_to_der(PQ_PKCS8_PRIVATE_KEY_PEM_LABEL, input, input_len, der_out, der_len_out);
+    if (ret == PQ_SUCCESS) {
+        *encrypted_out = 0;
+        return PQ_SUCCESS;
+    }
+
+    ret = pq_pem_to_der(PQ_PKCS8_ENCRYPTED_PRIVATE_KEY_PEM_LABEL, input, input_len, der_out,
+                        der_len_out);
+    if (ret == PQ_SUCCESS) {
+        *encrypted_out = 1;
+        return PQ_SUCCESS;
+    }
+    return PQ_ERROR_BUFFER;
 }
 
 const char *pq_version(void) {

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.1] - 2026-05-14
+
+### Security
+
+- Moved PKCS#8 PEM handling, PrivateKeyInfo wrapping/unwrapping, and encrypted PKCS#8 encryption/decryption to native C/OpenSSL helpers.
+- Removed Ruby `OpenSSL::ASN1` parsing/building from the PKCS#8 path while preserving the existing Ruby API.
+
 ## [0.6.0] - 2026-05-14
 
 ### Added

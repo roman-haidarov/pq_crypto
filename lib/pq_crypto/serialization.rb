@@ -21,62 +21,52 @@ module PQCrypto
       end
 
       def public_key_to_pqc_container_der(algorithm, bytes)
-        PQCrypto.__send__(:native_public_key_to_pqc_container_der, String(algorithm), String(bytes).b)
-      rescue ArgumentError, PQCrypto::Error => e
-        raise SerializationError, e.message
+        dump(:native_public_key_to_pqc_container_der, algorithm, bytes)
       end
 
       def public_key_to_pqc_container_pem(algorithm, bytes)
-        PQCrypto.__send__(:native_public_key_to_pqc_container_pem, String(algorithm), String(bytes).b)
-      rescue ArgumentError, PQCrypto::Error => e
-        raise SerializationError, e.message
+        dump(:native_public_key_to_pqc_container_pem, algorithm, bytes)
       end
 
       def secret_key_to_pqc_container_der(algorithm, bytes)
-        PQCrypto.__send__(:native_secret_key_to_pqc_container_der, String(algorithm), String(bytes).b)
-      rescue ArgumentError, PQCrypto::Error => e
-        raise SerializationError, e.message
+        dump(:native_secret_key_to_pqc_container_der, algorithm, bytes)
       end
 
       def secret_key_to_pqc_container_pem(algorithm, bytes)
-        PQCrypto.__send__(:native_secret_key_to_pqc_container_pem, String(algorithm), String(bytes).b)
-      rescue ArgumentError, PQCrypto::Error => e
-        raise SerializationError, e.message
+        dump(:native_secret_key_to_pqc_container_pem, algorithm, bytes)
       end
 
       def public_key_from_pqc_container_der(expected_algorithm, der)
-        algorithm, bytes = PQCrypto.__send__(:native_public_key_from_pqc_container_der, String(der).b)
-        validate_algorithm_expectation!(expected_algorithm, algorithm)
-        [algorithm, bytes]
-      rescue ArgumentError, PQCrypto::Error => e
-        raise SerializationError, e.message
+        load(:native_public_key_from_pqc_container_der, expected_algorithm, der)
       end
 
       def public_key_from_pqc_container_pem(expected_algorithm, pem)
-        algorithm, bytes = PQCrypto.__send__(:native_public_key_from_pqc_container_pem, String(pem).b)
-        validate_algorithm_expectation!(expected_algorithm, algorithm)
-        [algorithm, bytes]
-      rescue ArgumentError, PQCrypto::Error => e
-        raise SerializationError, e.message
+        load(:native_public_key_from_pqc_container_pem, expected_algorithm, pem)
       end
 
       def secret_key_from_pqc_container_der(expected_algorithm, der)
-        algorithm, bytes = PQCrypto.__send__(:native_secret_key_from_pqc_container_der, String(der).b)
-        validate_algorithm_expectation!(expected_algorithm, algorithm)
-        [algorithm, bytes]
-      rescue ArgumentError, PQCrypto::Error => e
-        raise SerializationError, e.message
+        load(:native_secret_key_from_pqc_container_der, expected_algorithm, der)
       end
 
       def secret_key_from_pqc_container_pem(expected_algorithm, pem)
-        algorithm, bytes = PQCrypto.__send__(:native_secret_key_from_pqc_container_pem, String(pem).b)
+        load(:native_secret_key_from_pqc_container_pem, expected_algorithm, pem)
+      end
+
+      private
+
+      def dump(native_method, algorithm, bytes)
+        PQCrypto.__send__(native_method, String(algorithm), Internal.binary_string(bytes))
+      rescue ArgumentError, PQCrypto::Error => e
+        raise SerializationError, e.message
+      end
+
+      def load(native_method, expected_algorithm, source)
+        algorithm, bytes = PQCrypto.__send__(native_method, Internal.binary_string(source))
         validate_algorithm_expectation!(expected_algorithm, algorithm)
         [algorithm, bytes]
       rescue ArgumentError, PQCrypto::Error => e
         raise SerializationError, e.message
       end
-
-      private
 
       def validate_algorithm_expectation!(expected_algorithm, actual_algorithm)
         return if expected_algorithm.nil? || expected_algorithm == actual_algorithm

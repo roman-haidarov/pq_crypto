@@ -201,6 +201,8 @@ def configure_openssl!
   abort "openssl/evp.h is required" unless have_header("openssl/evp.h")
   abort "openssl/rand.h is required" unless have_header("openssl/rand.h")
   abort "openssl/crypto.h is required" unless have_header("openssl/crypto.h")
+  abort "openssl/x509.h is required" unless have_header("openssl/x509.h")
+  abort "openssl/pkcs12.h is required" unless have_header("openssl/pkcs12.h")
 
   version_check = <<~SRC
     #include <openssl/opensslv.h>
