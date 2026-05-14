@@ -85,6 +85,7 @@ module PQCrypto
       end
 
       def wipe!
+        PQCrypto.__send__(:native_hybrid_kem_expanded_secret_key_wipe, @expanded_key) if @expanded_key
         @expanded_key = nil
         super
       end

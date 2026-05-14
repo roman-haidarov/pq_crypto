@@ -95,17 +95,17 @@ int pq_mldsa_keypair_from_seed(uint8_t *public_key, uint8_t *secret_key,
 int pq_mldsa87_keypair_from_seed(uint8_t *public_key, uint8_t *secret_key,
                                   const uint8_t *seed32);
 int pq_sign(uint8_t *signature, size_t *signature_len, const uint8_t *message, size_t message_len,
-            const uint8_t *secret_key);
+            const uint8_t *ctx, size_t ctx_len, const uint8_t *secret_key);
 int pq_mldsa44_sign(uint8_t *signature, size_t *signature_len, const uint8_t *message, size_t message_len,
-                    const uint8_t *secret_key);
+                    const uint8_t *ctx, size_t ctx_len, const uint8_t *secret_key);
 int pq_mldsa87_sign(uint8_t *signature, size_t *signature_len, const uint8_t *message, size_t message_len,
-                    const uint8_t *secret_key);
+                    const uint8_t *ctx, size_t ctx_len, const uint8_t *secret_key);
 int pq_verify(const uint8_t *signature, size_t signature_len, const uint8_t *message,
-              size_t message_len, const uint8_t *public_key);
+              size_t message_len, const uint8_t *ctx, size_t ctx_len, const uint8_t *public_key);
 int pq_mldsa44_verify(const uint8_t *signature, size_t signature_len, const uint8_t *message,
-                      size_t message_len, const uint8_t *public_key);
+                      size_t message_len, const uint8_t *ctx, size_t ctx_len, const uint8_t *public_key);
 int pq_mldsa87_verify(const uint8_t *signature, size_t signature_len, const uint8_t *message,
-                      size_t message_len, const uint8_t *public_key);
+                      size_t message_len, const uint8_t *ctx, size_t ctx_len, const uint8_t *public_key);
 
 int pq_public_key_to_pqc_container_der(uint8_t **output, size_t *output_len,
                                        const uint8_t *public_key,
@@ -189,13 +189,18 @@ const char *pq_version(void);
 #define PQ_MLDSA_MUBYTES        64
 #define PQ_MLDSA_TRBYTES        64
 
-int pq_mldsa_extract_tr_from_secret_key(uint8_t *tr_out, const uint8_t *secret_key);
-int pq_mldsa_compute_tr_from_public_key(uint8_t *tr_out, const uint8_t *public_key);
+int pq_mldsa_extract_tr_from_secret_key(uint8_t *tr_out, const uint8_t *secret_key,
+                                        size_t public_key_len,
+                                        int (*pk_from_sk)(uint8_t *, const uint8_t *));
+int pq_mldsa_compute_tr_from_public_key(uint8_t *tr_out, const uint8_t *public_key,
+                                        size_t public_key_len);
 
 int pq_sign_mu(uint8_t *signature, size_t *signature_len,
-               const uint8_t *mu, const uint8_t *secret_key);
+               const uint8_t *mu, const uint8_t *secret_key,
+               int (*signature_extmu)(uint8_t *, size_t *, const uint8_t *, const uint8_t *));
 int pq_verify_mu(const uint8_t *signature, size_t signature_len,
-                 const uint8_t *mu, const uint8_t *public_key);
+                 const uint8_t *mu, const uint8_t *public_key, size_t expected_signature_len,
+                 int (*verify_extmu)(const uint8_t *, size_t, const uint8_t *, const uint8_t *));
 void *pq_mu_builder_new(void);
 int pq_mu_builder_init(void *state, const uint8_t *tr,
                        const uint8_t *ctx, size_t ctxlen);

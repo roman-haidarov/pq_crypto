@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.6.0] - 2026-05-14
+
+### Added
+
+- Added seed-aware `SecretKey.from_seed` helpers for ML-KEM and ML-DSA, with PKCS#8 `:seed` / `:both` re-export when seed material is retained.
+- Added one-shot ML-DSA `context:` support, ML-DSA-44/65/87 streaming coverage, encrypted PKCS#8, and `PQCrypto::Key.from_pem/from_der` auto-dispatch.
+
+### Security
+
+- Tightened secret-key lifetime handling for PKCS#8 temporary buffers, key equality, and HybridKEM expanded-key wiping.
+
 ## [0.5.3] - 2026-05-08
 
 ### Compatibility

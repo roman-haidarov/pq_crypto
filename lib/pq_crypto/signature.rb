@@ -46,6 +46,10 @@ module PQCrypto
         SecretKey.new(algorithm, bytes)
       end
 
+      def secret_key_from_seed(algorithm, seed)
+        SecretKey.from_seed(resolve_algorithm!(algorithm), seed)
+      end
+
       def public_key_from_pqc_container_der(der, algorithm = nil)
         resolved_algorithm, bytes = Serialization.public_key_from_pqc_container_der(algorithm, der)
         resolve_algorithm!(resolved_algorithm)
@@ -82,12 +86,12 @@ module PQCrypto
         PublicKey.new(resolve_algorithm!(resolved_algorithm), bytes)
       end
 
-      def secret_key_from_pkcs8_der(der)
-        secret_key_from_decoded_pkcs8(*PKCS8.decode_der(der))
+      def secret_key_from_pkcs8_der(der, passphrase: nil)
+        secret_key_from_decoded_pkcs8(*PKCS8.decode_der(der, passphrase: passphrase))
       end
 
-      def secret_key_from_pkcs8_pem(pem)
-        secret_key_from_decoded_pkcs8(*PKCS8.decode_pem(pem))
+      def secret_key_from_pkcs8_pem(pem, passphrase: nil)
+        secret_key_from_decoded_pkcs8(*PKCS8.decode_pem(pem, passphrase: passphrase))
       end
 
       def details(algorithm)
@@ -114,10 +118,10 @@ module PQCrypto
           SecretKey.new(algorithm, material)
         when :seed
           _public_key, expanded = PQCrypto.__send__(native_method_for(algorithm, :keypair_from_seed), material)
-          SecretKey.new(algorithm, expanded)
+          SecretKey.new(algorithm, expanded, seed: material)
         when :both
           _seed, expanded = material
-          SecretKey.new(algorithm, expanded)
+          SecretKey.new(algorithm, expanded, seed: _seed)
         else
           raise SerializationError, "Unsupported ML-DSA PKCS#8 private key format: #{format.inspect}"
         end
@@ -145,9 +149,10 @@ module PQCrypto
         context = validate_context!(context)
         validate_io!(io)
 
+        algorithm = secret_key.algorithm
         sk_bytes = secret_key.__send__(:bytes_for_native)
         begin
-          tr = PQCrypto.__send__(:_native_mldsa_extract_tr, sk_bytes)
+          tr = PQCrypto.__send__(:_native_mldsa_extract_tr, algorithm, sk_bytes)
         rescue ArgumentError => e
           raise InvalidKeyError, e.message
         end
@@ -159,7 +164,7 @@ module PQCrypto
           _drain_io_into_builder(io, builder, chunk_size)
           mu = PQCrypto.__send__(:_native_mldsa_mu_builder_finalize, builder)
           builder_consumed = true
-          PQCrypto.__send__(:_native_mldsa_sign_mu, mu, sk_bytes)
+          PQCrypto.__send__(:_native_mldsa_sign_mu, algorithm, mu, sk_bytes)
         ensure
           PQCrypto.__send__(:_native_mldsa_mu_builder_release, builder) unless builder_consumed
           PQCrypto.secure_wipe(tr) if tr && !tr.frozen?
@@ -173,9 +178,10 @@ module PQCrypto
         context = validate_context!(context)
         validate_io!(io)
 
+        algorithm = public_key.algorithm
         pk_bytes = public_key.__send__(:bytes_for_native)
         begin
-          tr = PQCrypto.__send__(:_native_mldsa_compute_tr, pk_bytes)
+          tr = PQCrypto.__send__(:_native_mldsa_compute_tr, algorithm, pk_bytes)
         rescue ArgumentError => e
           raise InvalidKeyError, e.message
         end
@@ -188,7 +194,7 @@ module PQCrypto
           _drain_io_into_builder(io, builder, chunk_size)
           mu = PQCrypto.__send__(:_native_mldsa_mu_builder_finalize, builder)
           builder_consumed = true
-          PQCrypto.__send__(:_native_mldsa_verify_mu, mu, sig_bytes, pk_bytes)
+          PQCrypto.__send__(:_native_mldsa_verify_mu, algorithm, mu, sig_bytes, pk_bytes)
         ensure
           PQCrypto.__send__(:_native_mldsa_mu_builder_release, builder) unless builder_consumed
 
@@ -232,10 +238,7 @@ module PQCrypto
       end
 
       def validate_streaming_algorithm!(algorithm)
-        return if resolve_algorithm!(algorithm) == CANONICAL_ALGORITHM
-
-        raise UnsupportedAlgorithmError,
-              "Streaming sign_io/verify_io currently supports only #{CANONICAL_ALGORITHM.inspect}"
+        resolve_algorithm!(algorithm)
       end
     end
 
@@ -285,14 +288,17 @@ module PQCrypto
         SPKI.encode_pem(@algorithm, @bytes)
       end
 
-      def verify(message, signature)
-        PQCrypto.__send__(Signature.send(:native_method_for, @algorithm, :verify), String(message).b, String(signature).b, @bytes)
-      rescue ArgumentError => e
-        raise InvalidKeyError, e.message
+      def verify(message, signature, context: "".b)
+        context = Signature.send(:validate_context!, context)
+        begin
+          PQCrypto.__send__(Signature.send(:native_method_for, @algorithm, :verify), String(message).b, String(signature).b, @bytes, context)
+        rescue ArgumentError => e
+          raise InvalidKeyError, e.message
+        end
       end
 
-      def verify!(message, signature)
-        raise PQCrypto::VerificationError, "Verification failed" unless verify(message, signature)
+      def verify!(message, signature, context: "".b)
+        raise PQCrypto::VerificationError, "Verification failed" unless verify(message, signature, context: context)
         true
       end
 
@@ -309,7 +315,7 @@ module PQCrypto
 
       def ==(other)
         return false unless other.is_a?(PublicKey) && other.algorithm == algorithm
-        PQCrypto.__send__(:native_ct_equals, other.to_bytes, @bytes)
+        PQCrypto.__send__(:native_ct_equals, other.send(:bytes_for_native), @bytes)
       end
 
       alias eql? ==
@@ -337,10 +343,20 @@ module PQCrypto
     class SecretKey
       attr_reader :algorithm
 
-      def initialize(algorithm, bytes)
+      def initialize(algorithm, bytes, seed: nil)
         @algorithm = algorithm
         @bytes = String(bytes).b
+        @seed = seed.nil? ? nil : String(seed).b
         validate_length!
+        validate_seed_length! if @seed
+      end
+
+      def self.from_seed(algorithm, seed)
+        seed_bytes = String(seed).b
+        _public_key, expanded = PQCrypto.__send__(Signature.send(:native_method_for, algorithm, :keypair_from_seed), seed_bytes)
+        new(algorithm, expanded, seed: seed_bytes)
+      rescue ArgumentError => e
+        raise InvalidKeyError, e.message
       end
 
       def to_bytes
@@ -355,34 +371,43 @@ module PQCrypto
         Serialization.secret_key_to_pqc_container_pem(@algorithm, @bytes)
       end
 
-      def to_pkcs8_der(format: :expanded)
+      def to_pkcs8_der(format: :expanded, passphrase: nil, iterations: PKCS8::ENCRYPTED_PKCS8_DEFAULT_ITERATIONS)
         case format
         when :expanded
-          PKCS8.encode_der(@algorithm, @bytes, format: :expanded)
-        when :seed, :both
-          raise SerializationError,
-                "ML-DSA seed/both PKCS#8 export requires original seed material; use PQCrypto::PKCS8.encode_der/encode_pem directly"
+          PKCS8.encode_der(@algorithm, @bytes, format: :expanded, passphrase: passphrase, iterations: iterations)
+        when :seed
+          ensure_seed_available!(format)
+          PKCS8.encode_der(@algorithm, @seed, format: :seed, passphrase: passphrase, iterations: iterations)
+        when :both
+          ensure_seed_available!(format)
+          PKCS8.encode_der(@algorithm, [@seed, @bytes], format: :both, passphrase: passphrase, iterations: iterations)
         else
           raise SerializationError, "Unsupported PKCS#8 private key format: #{format.inspect}"
         end
       end
 
-      def to_pkcs8_pem(format: :expanded)
+      def to_pkcs8_pem(format: :expanded, passphrase: nil, iterations: PKCS8::ENCRYPTED_PKCS8_DEFAULT_ITERATIONS)
         case format
         when :expanded
-          PKCS8.encode_pem(@algorithm, @bytes, format: :expanded)
-        when :seed, :both
-          raise SerializationError,
-                "ML-DSA seed/both PKCS#8 export requires original seed material; use PQCrypto::PKCS8.encode_der/encode_pem directly"
+          PKCS8.encode_pem(@algorithm, @bytes, format: :expanded, passphrase: passphrase, iterations: iterations)
+        when :seed
+          ensure_seed_available!(format)
+          PKCS8.encode_pem(@algorithm, @seed, format: :seed, passphrase: passphrase, iterations: iterations)
+        when :both
+          ensure_seed_available!(format)
+          PKCS8.encode_pem(@algorithm, [@seed, @bytes], format: :both, passphrase: passphrase, iterations: iterations)
         else
           raise SerializationError, "Unsupported PKCS#8 private key format: #{format.inspect}"
         end
       end
 
-      def sign(message)
-        PQCrypto.__send__(Signature.send(:native_method_for, @algorithm, :sign), String(message).b, @bytes)
-      rescue ArgumentError => e
-        raise InvalidKeyError, e.message
+      def sign(message, context: "".b)
+        context = Signature.send(:validate_context!, context)
+        begin
+          PQCrypto.__send__(Signature.send(:native_method_for, @algorithm, :sign), String(message).b, @bytes, context)
+        rescue ArgumentError => e
+          raise InvalidKeyError, e.message
+        end
       end
 
       def sign_io(io, chunk_size: 1 << 20, context: "".b)
@@ -391,12 +416,13 @@ module PQCrypto
 
       def wipe!
         PQCrypto.secure_wipe(@bytes)
+        PQCrypto.secure_wipe(@seed) if @seed
         self
       end
 
       def ==(other)
         return false unless other.is_a?(SecretKey) && other.algorithm == algorithm
-        PQCrypto.__send__(:native_ct_equals, other.to_bytes, @bytes)
+        PQCrypto.__send__(:native_ct_equals, other.send(:bytes_for_native), @bytes)
       end
 
       alias eql? ==
@@ -418,6 +444,17 @@ module PQCrypto
       def validate_length!
         expected = Signature.details(@algorithm).fetch(:secret_key_bytes)
         raise InvalidKeyError, "Invalid signature secret key length" unless @bytes.bytesize == expected
+      end
+
+      def validate_seed_length!
+        expected = PKCS8::PRIVATE_KEY_CHOICES.fetch(@algorithm).fetch(:seed_bytes)
+        raise InvalidKeyError, "Invalid signature seed length" unless @seed.bytesize == expected
+      end
+
+      def ensure_seed_available!(format)
+        return if @seed
+
+        raise SerializationError, "ML-DSA #{format.inspect} PKCS#8 export requires original seed material"
       end
     end
   end

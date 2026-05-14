@@ -95,6 +95,11 @@ int pqcr_mldsa44_verify(const uint8_t *sig, size_t siglen, const uint8_t *m, siz
 size_t pqcr_mldsa44_prepare_domain_separation_prefix(
     uint8_t prefix[MLDSA_DOMAIN_SEPARATION_MAX_BYTES], const uint8_t *ph, size_t phlen,
     const uint8_t *ctx, size_t ctxlen, int hashalg);
+int pqcr_mldsa44_signature_extmu(uint8_t *sig, size_t *siglen, const uint8_t mu[MLDSA_CRHBYTES],
+                                 const uint8_t *sk);
+int pqcr_mldsa44_verify_extmu(const uint8_t *sig, size_t siglen, const uint8_t mu[MLDSA_CRHBYTES],
+                              const uint8_t *pk);
+int pqcr_mldsa44_pk_from_sk(uint8_t *pk, const uint8_t *sk);
 
 int pqcr_mldsa65_keypair(uint8_t *pk, uint8_t *sk);
 int pqcr_mldsa65_keypair_internal(uint8_t *pk, uint8_t *sk, const uint8_t seed[MLDSA_SEEDBYTES]);
@@ -128,5 +133,10 @@ int pqcr_mldsa87_verify(const uint8_t *sig, size_t siglen, const uint8_t *m, siz
 size_t pqcr_mldsa87_prepare_domain_separation_prefix(
     uint8_t prefix[MLDSA_DOMAIN_SEPARATION_MAX_BYTES], const uint8_t *ph, size_t phlen,
     const uint8_t *ctx, size_t ctxlen, int hashalg);
+int pqcr_mldsa87_signature_extmu(uint8_t *sig, size_t *siglen, const uint8_t mu[MLDSA_CRHBYTES],
+                                 const uint8_t *sk);
+int pqcr_mldsa87_verify_extmu(const uint8_t *sig, size_t siglen, const uint8_t mu[MLDSA_CRHBYTES],
+                              const uint8_t *pk);
+int pqcr_mldsa87_pk_from_sk(uint8_t *pk, const uint8_t *sk);
 
 #endif

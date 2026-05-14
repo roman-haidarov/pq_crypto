@@ -115,6 +115,19 @@ public_key.verify!(message, signature)
 # returns true, or raises on mismatch
 ```
 
+Use `context:` when the same key is shared across domains or protocols:
+
+```ruby
+context = "orders-v1".b
+signature = secret_key.sign(message, context: context)
+
+public_key.verify(message, signature, context: context)
+# => true
+
+public_key.verify(message, signature, context: "other".b)
+# => false
+```
+
 The same API shape applies to other supported ML-DSA parameter sets:
 
 ```ruby
@@ -125,7 +138,8 @@ PQCrypto::Signature.generate(:ml_dsa_87)
 ## 5. ML-DSA for large files
 
 For large inputs, use the streaming helpers so the whole message does not need
-to be materialized as one Ruby string.
+to be materialized as one Ruby string. Streaming is available for
+`:ml_dsa_44`, `:ml_dsa_65`, and `:ml_dsa_87`.
 
 ```ruby
 keypair = PQCrypto::Signature.generate(:ml_dsa_65)
@@ -246,10 +260,19 @@ der = keypair.secret_key.to_pkcs8_der
 imported = PQCrypto::KEM.secret_key_from_pkcs8_der(der)
 ```
 
-ML-KEM PKCS#8 supports `:seed`, `:expanded`, and `:both` formats. A generated
-`SecretKey` does not retain the original seed, so exporting `:seed` or `:both`
-from `SecretKey#to_pkcs8_*` is intentionally unavailable. If you explicitly
-have the seed material, use the low-level PKCS#8 encoder.
+ML-KEM PKCS#8 supports `:seed`, `:expanded`, and `:both` formats. Generated
+keys export `:expanded` by default. If you have 64-byte seed material, build a
+seed-aware key to allow `:seed` and `:both` re-export:
+
+```ruby
+require "securerandom"
+
+seed = SecureRandom.random_bytes(PQCrypto::PKCS8::ML_KEM_SEED_BYTES)
+secret_key = PQCrypto::KEM.secret_key_from_seed(:ml_kem_768, seed)
+
+pem = secret_key.to_pkcs8_pem(format: :both)
+imported = PQCrypto::KEM.secret_key_from_pkcs8_pem(pem)
+```
 
 ### ML-DSA PKCS#8
 
@@ -269,10 +292,48 @@ PQCrypto::PKCS8.allow_ml_dsa_seed_format = true
 imported = PQCrypto::Signature.secret_key_from_pkcs8_pem(pem)
 ```
 
-Seed/both export from an existing ML-DSA `SecretKey` is intentionally not
-available because the object does not retain the original seed material. When
-you explicitly have seed material, call `PQCrypto::PKCS8.encode_der` /
-`encode_pem` directly.
+If you have 32-byte seed material, build a seed-aware key to allow `:seed` and
+`:both` re-export:
+
+```ruby
+require "securerandom"
+
+PQCrypto::PKCS8.allow_ml_dsa_seed_format = true
+
+seed = SecureRandom.random_bytes(PQCrypto::PKCS8::ML_DSA_SEED_BYTES)
+secret_key = PQCrypto::Signature.secret_key_from_seed(:ml_dsa_65, seed)
+
+pem = secret_key.to_pkcs8_pem(format: :both)
+imported = PQCrypto::Signature.secret_key_from_pkcs8_pem(pem)
+```
+
+### Encrypted PKCS#8
+
+Pass `passphrase:` to export encrypted private keys:
+
+```ruby
+keypair = PQCrypto::Signature.generate(:ml_dsa_65)
+
+pem = keypair.secret_key.to_pkcs8_pem(passphrase: "correct horse")
+imported = PQCrypto::Signature.secret_key_from_pkcs8_pem(
+  pem,
+  passphrase: "correct horse",
+)
+```
+
+The same option is available for DER and ML-KEM secret keys.
+
+### Auto-dispatch key loading
+
+Use `PQCrypto::Key` when you want the gem to detect SPKI vs PKCS#8 and the
+algorithm family from the encoded key:
+
+```ruby
+key = PQCrypto::Key.from_pem(pem, passphrase: "correct horse")
+key = PQCrypto::Key.from_der(der)
+
+keypair = PQCrypto::Key.generate(:ml_kem_768)
+```
 
 ## 9. pq_crypto-local container serialization
 

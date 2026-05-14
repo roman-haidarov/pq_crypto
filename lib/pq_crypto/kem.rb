@@ -44,6 +44,10 @@ module PQCrypto
         SecretKey.new(resolve_algorithm!(algorithm), bytes)
       end
 
+      def secret_key_from_seed(algorithm, seed)
+        SecretKey.from_seed(resolve_algorithm!(algorithm), seed)
+      end
+
       def public_key_from_pqc_container_der(der, algorithm = nil)
         resolved_algorithm, bytes = Serialization.public_key_from_pqc_container_der(algorithm, der)
         PublicKey.new(resolve_algorithm!(resolved_algorithm), bytes)
@@ -64,12 +68,12 @@ module PQCrypto
         SecretKey.new(resolve_algorithm!(resolved_algorithm), bytes)
       end
 
-      def secret_key_from_pkcs8_der(der)
-        secret_key_from_decoded_pkcs8(*PKCS8.decode_der(der))
+      def secret_key_from_pkcs8_der(der, passphrase: nil)
+        secret_key_from_decoded_pkcs8(*PKCS8.decode_der(der, passphrase: passphrase))
       end
 
-      def secret_key_from_pkcs8_pem(pem)
-        secret_key_from_decoded_pkcs8(*PKCS8.decode_pem(pem))
+      def secret_key_from_pkcs8_pem(pem, passphrase: nil)
+        secret_key_from_decoded_pkcs8(*PKCS8.decode_pem(pem, passphrase: passphrase))
       end
 
       def public_key_from_spki_der(der, algorithm: nil)
@@ -101,20 +105,20 @@ module PQCrypto
       end
 
       def secret_key_from_decoded_pkcs8(algorithm, format, material)
-        secret_material = case format
-                          when :seed
-                            _public_key, expanded = PQCrypto.__send__(native_method_for(algorithm, :keypair_from_seed), material)
-                            expanded
-                          when :both
-                            _seed, expanded = material
-                            expanded
-                          when :expanded
-                            material
-                          else
-                            raise SerializationError, "Unsupported PKCS#8 private key format: #{format.inspect}"
-                          end
+        algorithm = resolve_algorithm!(algorithm)
 
-        SecretKey.new(resolve_algorithm!(algorithm), secret_material)
+        case format
+        when :seed
+          _public_key, expanded = PQCrypto.__send__(native_method_for(algorithm, :keypair_from_seed), material)
+          SecretKey.new(algorithm, expanded, seed: material)
+        when :both
+          seed, expanded = material
+          SecretKey.new(algorithm, expanded, seed: seed)
+        when :expanded
+          SecretKey.new(algorithm, material)
+        else
+          raise SerializationError, "Unsupported PKCS#8 private key format: #{format.inspect}"
+        end
       end
 
       def native_method_for(algorithm, operation)
@@ -192,7 +196,7 @@ module PQCrypto
 
       def ==(other)
         return false unless other.is_a?(PublicKey) && other.algorithm == algorithm
-        PQCrypto.__send__(:native_ct_equals, other.to_bytes, @bytes)
+        PQCrypto.__send__(:native_ct_equals, other.send(:bytes_for_native), @bytes)
       end
 
       alias eql? ==
@@ -207,6 +211,10 @@ module PQCrypto
 
       private
 
+      def bytes_for_native
+        @bytes
+      end
+
       def validate_length!
         expected = KEM.details(@algorithm).fetch(:public_key_bytes)
         raise InvalidKeyError, "Invalid KEM public key length" unless @bytes.bytesize == expected
@@ -216,10 +224,20 @@ module PQCrypto
     class SecretKey
       attr_reader :algorithm
 
-      def initialize(algorithm, bytes)
+      def initialize(algorithm, bytes, seed: nil)
         @algorithm = algorithm
         @bytes = String(bytes).b
+        @seed = seed.nil? ? nil : String(seed).b
         validate_length!
+        validate_seed_length! if @seed
+      end
+
+      def self.from_seed(algorithm, seed)
+        seed_bytes = String(seed).b
+        _public_key, expanded = PQCrypto.__send__(KEM.send(:native_method_for, algorithm, :keypair_from_seed), seed_bytes)
+        new(algorithm, expanded, seed: seed_bytes)
+      rescue ArgumentError => e
+        raise InvalidKeyError, e.message
       end
 
       def to_bytes
@@ -234,23 +252,31 @@ module PQCrypto
         Serialization.secret_key_to_pqc_container_pem(@algorithm, @bytes)
       end
 
-      def to_pkcs8_der(format: :expanded)
+      def to_pkcs8_der(format: :expanded, passphrase: nil, iterations: PKCS8::ENCRYPTED_PKCS8_DEFAULT_ITERATIONS)
         case format
         when :expanded
-          PKCS8.encode_der(@algorithm, @bytes, format: :expanded)
-        when :seed, :both
-          raise SerializationError, "PKCS#8 #{format.inspect} export from KEM::SecretKey requires original seed material"
+          PKCS8.encode_der(@algorithm, @bytes, format: :expanded, passphrase: passphrase, iterations: iterations)
+        when :seed
+          ensure_seed_available!(format)
+          PKCS8.encode_der(@algorithm, @seed, format: :seed, passphrase: passphrase, iterations: iterations)
+        when :both
+          ensure_seed_available!(format)
+          PKCS8.encode_der(@algorithm, [@seed, @bytes], format: :both, passphrase: passphrase, iterations: iterations)
         else
           raise SerializationError, "Unsupported PKCS#8 private key format: #{format.inspect}"
         end
       end
 
-      def to_pkcs8_pem(format: :expanded)
+      def to_pkcs8_pem(format: :expanded, passphrase: nil, iterations: PKCS8::ENCRYPTED_PKCS8_DEFAULT_ITERATIONS)
         case format
         when :expanded
-          PKCS8.encode_pem(@algorithm, @bytes, format: :expanded)
-        when :seed, :both
-          raise SerializationError, "PKCS#8 #{format.inspect} export from KEM::SecretKey requires original seed material"
+          PKCS8.encode_pem(@algorithm, @bytes, format: :expanded, passphrase: passphrase, iterations: iterations)
+        when :seed
+          ensure_seed_available!(format)
+          PKCS8.encode_pem(@algorithm, @seed, format: :seed, passphrase: passphrase, iterations: iterations)
+        when :both
+          ensure_seed_available!(format)
+          PKCS8.encode_pem(@algorithm, [@seed, @bytes], format: :both, passphrase: passphrase, iterations: iterations)
         else
           raise SerializationError, "Unsupported PKCS#8 private key format: #{format.inspect}"
         end
@@ -264,12 +290,13 @@ module PQCrypto
 
       def wipe!
         PQCrypto.secure_wipe(@bytes)
+        PQCrypto.secure_wipe(@seed) if @seed
         self
       end
 
       def ==(other)
         return false unless other.is_a?(SecretKey) && other.algorithm == algorithm
-        PQCrypto.__send__(:native_ct_equals, other.to_bytes, @bytes)
+        PQCrypto.__send__(:native_ct_equals, other.send(:bytes_for_native), @bytes)
       end
 
       alias eql? ==
@@ -284,9 +311,24 @@ module PQCrypto
 
       private
 
+      def bytes_for_native
+        @bytes
+      end
+
       def validate_length!
         expected = KEM.details(@algorithm).fetch(:secret_key_bytes)
         raise InvalidKeyError, "Invalid KEM secret key length" unless @bytes.bytesize == expected
+      end
+
+      def validate_seed_length!
+        expected = PKCS8::PRIVATE_KEY_CHOICES.fetch(@algorithm).fetch(:seed_bytes)
+        raise InvalidKeyError, "Invalid KEM seed length" unless @seed.bytesize == expected
+      end
+
+      def ensure_seed_available!(format)
+        return if @seed
+
+        raise SerializationError, "PKCS#8 #{format.inspect} export from KEM::SecretKey requires original seed material"
       end
     end
 
