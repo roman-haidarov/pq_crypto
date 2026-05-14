@@ -132,6 +132,26 @@ int pq_secret_key_from_pqc_container_pem(char **algorithm_out, uint8_t **key_out
                                           size_t *key_len_out, const char *input,
                                           size_t input_len);
 
+int pq_pkcs8_private_key_info_to_der(uint8_t **output, size_t *output_len,
+                                     const char *oid_text, const uint8_t *private_key,
+                                     size_t private_key_len);
+int pq_pkcs8_private_key_info_from_der(char **oid_text_out, uint8_t **private_key_out,
+                                       size_t *private_key_len_out, const uint8_t *input,
+                                       size_t input_len);
+int pq_pkcs8_encrypt_private_key_info_der(uint8_t **output, size_t *output_len,
+                                          const uint8_t *plain_der, size_t plain_der_len,
+                                          const char *passphrase, size_t passphrase_len,
+                                          int iterations);
+int pq_pkcs8_decrypt_private_key_info_der(uint8_t **output, size_t *output_len,
+                                          const uint8_t *encrypted_der,
+                                          size_t encrypted_der_len, const char *passphrase,
+                                          size_t passphrase_len);
+int pq_pkcs8_der_is_encrypted_private_key_info(const uint8_t *input, size_t input_len);
+int pq_pkcs8_der_to_pem(char **output, size_t *output_len, const uint8_t *der, size_t der_len,
+                        int encrypted);
+int pq_pkcs8_pem_to_der(uint8_t **der_out, size_t *der_len_out, int *encrypted_out,
+                        const char *input, size_t input_len);
+
 int pq_testing_mlkem_keypair_from_seed(uint8_t *public_key, uint8_t *secret_key,
                                        const uint8_t *seed, size_t seed_len);
 int pq_testing_mlkem512_keypair_from_seed(uint8_t *public_key, uint8_t *secret_key,

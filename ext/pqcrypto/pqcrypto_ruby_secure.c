@@ -1741,6 +1741,136 @@ static VALUE pqcrypto__native_mldsa_verify_mu(int argc, VALUE *argv, VALUE self)
     pq_raise_general_error(call.result);
 }
 
+static VALUE pqcrypto_pkcs8_private_key_info_to_der(VALUE self, VALUE oid_text, VALUE private_key) {
+    (void)self;
+    uint8_t *out = NULL;
+    size_t out_len = 0;
+    VALUE result;
+    int ret;
+
+    StringValue(oid_text);
+    StringValue(private_key);
+    ret = pq_pkcs8_private_key_info_to_der(&out, &out_len, RSTRING_PTR(oid_text),
+                                           (const uint8_t *)RSTRING_PTR(private_key),
+                                           (size_t)RSTRING_LEN(private_key));
+    if (ret != PQ_SUCCESS)
+        pq_raise_general_error(ret);
+    result = pq_string_from_buffer(out, out_len);
+    pq_wipe_and_free(out, out_len);
+    return result;
+}
+
+static VALUE pqcrypto_pkcs8_private_key_info_from_der(VALUE self, VALUE der) {
+    (void)self;
+    char *oid_text = NULL;
+    uint8_t *private_key = NULL;
+    size_t private_key_len = 0;
+    VALUE result;
+    int ret;
+
+    StringValue(der);
+    ret = pq_pkcs8_private_key_info_from_der(&oid_text, &private_key, &private_key_len,
+                                             (const uint8_t *)RSTRING_PTR(der),
+                                             (size_t)RSTRING_LEN(der));
+    if (ret != PQ_SUCCESS)
+        pq_raise_general_error(ret);
+
+    result = rb_ary_new_capa(2);
+    rb_ary_push(result, rb_str_new_cstr(oid_text));
+    rb_ary_push(result, pq_string_from_buffer(private_key, private_key_len));
+    free(oid_text);
+    pq_wipe_and_free(private_key, private_key_len);
+    return result;
+}
+
+static VALUE pqcrypto_pkcs8_encrypt_der(VALUE self, VALUE der, VALUE passphrase,
+                                        VALUE iterations_value) {
+    (void)self;
+    uint8_t *out = NULL;
+    size_t out_len = 0;
+    int iterations;
+    VALUE result;
+    int ret;
+
+    StringValue(der);
+    StringValue(passphrase);
+    iterations = NUM2INT(iterations_value);
+    ret = pq_pkcs8_encrypt_private_key_info_der(&out, &out_len, (const uint8_t *)RSTRING_PTR(der),
+                                                (size_t)RSTRING_LEN(der), RSTRING_PTR(passphrase),
+                                                (size_t)RSTRING_LEN(passphrase), iterations);
+    if (ret != PQ_SUCCESS)
+        pq_raise_general_error(ret);
+    result = pq_string_from_buffer(out, out_len);
+    pq_wipe_and_free(out, out_len);
+    return result;
+}
+
+static VALUE pqcrypto_pkcs8_decrypt_der(VALUE self, VALUE der, VALUE passphrase) {
+    (void)self;
+    uint8_t *out = NULL;
+    size_t out_len = 0;
+    VALUE result;
+    int ret;
+
+    StringValue(der);
+    StringValue(passphrase);
+    ret = pq_pkcs8_decrypt_private_key_info_der(&out, &out_len, (const uint8_t *)RSTRING_PTR(der),
+                                                (size_t)RSTRING_LEN(der), RSTRING_PTR(passphrase),
+                                                (size_t)RSTRING_LEN(passphrase));
+    if (ret != PQ_SUCCESS)
+        pq_raise_general_error(ret);
+    result = pq_string_from_buffer(out, out_len);
+    pq_wipe_and_free(out, out_len);
+    return result;
+}
+
+static VALUE pqcrypto_pkcs8_encrypted_der_p(VALUE self, VALUE der) {
+    (void)self;
+    StringValue(der);
+    return pq_pkcs8_der_is_encrypted_private_key_info((const uint8_t *)RSTRING_PTR(der),
+                                                      (size_t)RSTRING_LEN(der))
+               ? Qtrue
+               : Qfalse;
+}
+
+static VALUE pqcrypto_pkcs8_der_to_pem(VALUE self, VALUE der, VALUE encrypted_value) {
+    (void)self;
+    char *pem = NULL;
+    size_t pem_len = 0;
+    VALUE result;
+    int ret;
+
+    StringValue(der);
+    ret = pq_pkcs8_der_to_pem(&pem, &pem_len, (const uint8_t *)RSTRING_PTR(der),
+                              (size_t)RSTRING_LEN(der), RTEST(encrypted_value) ? 1 : 0);
+    if (ret != PQ_SUCCESS)
+        pq_raise_general_error(ret);
+    result = rb_str_new(pem, (long)pem_len);
+    pq_secure_wipe(pem, pem_len);
+    free(pem);
+    return result;
+}
+
+static VALUE pqcrypto_pkcs8_pem_to_der(VALUE self, VALUE pem) {
+    (void)self;
+    uint8_t *der = NULL;
+    size_t der_len = 0;
+    int encrypted = 0;
+    VALUE result;
+    int ret;
+
+    StringValue(pem);
+    ret =
+        pq_pkcs8_pem_to_der(&der, &der_len, &encrypted, RSTRING_PTR(pem), (size_t)RSTRING_LEN(pem));
+    if (ret != PQ_SUCCESS)
+        pq_raise_general_error(ret);
+    result = rb_ary_new_capa(2);
+    rb_ary_push(result, encrypted ? Qtrue : Qfalse);
+    rb_ary_push(result, pq_string_from_buffer(der, der_len));
+    pq_wipe_and_free(der, der_len);
+    return result;
+}
+
 static void define_constants(void) {
     rb_define_const(mPQCrypto, "ML_KEM_512_PUBLIC_KEY_BYTES", INT2NUM(MLKEM512_PUBLICKEYBYTES));
     rb_define_const(mPQCrypto, "ML_KEM_512_SECRET_KEY_BYTES", INT2NUM(MLKEM512_SECRETKEYBYTES));
@@ -1911,6 +2041,15 @@ void Init_pqcrypto_secure(void) {
                               pqcrypto_secret_key_from_pqc_container_der, 1);
     rb_define_module_function(mPQCrypto, "secret_key_from_pqc_container_pem",
                               pqcrypto_secret_key_from_pqc_container_pem, 1);
+    rb_define_module_function(mPQCrypto, "pkcs8_private_key_info_to_der",
+                              pqcrypto_pkcs8_private_key_info_to_der, 2);
+    rb_define_module_function(mPQCrypto, "pkcs8_private_key_info_from_der",
+                              pqcrypto_pkcs8_private_key_info_from_der, 1);
+    rb_define_module_function(mPQCrypto, "pkcs8_encrypt_der", pqcrypto_pkcs8_encrypt_der, 3);
+    rb_define_module_function(mPQCrypto, "pkcs8_decrypt_der", pqcrypto_pkcs8_decrypt_der, 2);
+    rb_define_module_function(mPQCrypto, "pkcs8_encrypted_der?", pqcrypto_pkcs8_encrypted_der_p, 1);
+    rb_define_module_function(mPQCrypto, "pkcs8_der_to_pem", pqcrypto_pkcs8_der_to_pem, 2);
+    rb_define_module_function(mPQCrypto, "pkcs8_pem_to_der", pqcrypto_pkcs8_pem_to_der, 1);
     rb_define_module_function(mPQCrypto, "_native_mldsa_extract_tr",
                               pqcrypto__native_mldsa_extract_tr, -1);
     rb_define_module_function(mPQCrypto, "_native_mldsa_compute_tr",

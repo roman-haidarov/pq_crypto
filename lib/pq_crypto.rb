@@ -93,6 +93,13 @@ module PQCrypto
       public_key_from_pqc_container_pem
       secret_key_from_pqc_container_der
       secret_key_from_pqc_container_pem
+      pkcs8_private_key_info_to_der
+      pkcs8_private_key_info_from_der
+      pkcs8_encrypt_der
+      pkcs8_decrypt_der
+      pkcs8_encrypted_der?
+      pkcs8_der_to_pem
+      pkcs8_pem_to_der
       __test_ml_kem_keypair_from_seed
       __test_ml_kem_encapsulate_from_seed
       __test_ml_kem_512_encapsulate_from_seed
