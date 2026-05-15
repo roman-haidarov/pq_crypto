@@ -23,6 +23,13 @@ PKCS#8 encodings where the linked OpenSSL exposes the corresponding ML-KEM /
 ML-DSA EVP support. These tests improve compatibility coverage but are not a
 substitute for a security audit.
 
+The test surface also includes libFuzzer targets for PKCS#8 DER/PEM decoding
+and pq_crypto-local container decoding, built with AddressSanitizer and
+UndefinedBehaviorSanitizer. A representative clang-17 run executed
+approximately 253 million inputs across these targets and produced no crash
+artifacts. This improves malformed-input parser coverage but is not a proof of
+memory safety and is not a substitute for a security audit.
+
 ## Algorithm notes
 
 ### ML-KEM / ML-DSA
