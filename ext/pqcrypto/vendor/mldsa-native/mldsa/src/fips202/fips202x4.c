@@ -22,6 +22,8 @@
 #include "fips202x4.h"
 #include "keccakf1600.h"
 
+#if !defined(MLD_CONFIG_NO_KEYPAIR_API) || !defined(MLD_CONFIG_REDUCE_RAM) || \
+    defined(MLD_UNIT_TEST)
 static void mld_keccak_absorb_once_x4(uint64_t *s, uint32_t r,
                                       const uint8_t *in0, const uint8_t *in1,
                                       const uint8_t *in2, const uint8_t *in3,
@@ -94,33 +96,31 @@ __contract__(
     assigns(memory_slice(out2, nblocks * r))
     assigns(memory_slice(out3, nblocks * r)))
 {
+  size_t current_offset = 0;
   while (nblocks > 0)
   __loop__(
-    assigns(out0, out1, out2, out3, nblocks,
+    assigns(nblocks, current_offset,
             memory_slice(s, sizeof(uint64_t) * MLD_KECCAK_LANES * MLD_KECCAK_WAY),
             memory_slice(out0, nblocks * r),
             memory_slice(out1, nblocks * r),
             memory_slice(out2, nblocks * r),
             memory_slice(out3, nblocks * r))
-    invariant(nblocks <= loop_entry(nblocks) &&
-      out0 == loop_entry(out0) + r * (loop_entry(nblocks) - nblocks) &&
-      out1 == loop_entry(out1) + r * (loop_entry(nblocks) - nblocks) &&
-      out2 == loop_entry(out2) + r * (loop_entry(nblocks) - nblocks) &&
-      out3 == loop_entry(out3) + r * (loop_entry(nblocks) - nblocks))
+    invariant(nblocks <= loop_entry(nblocks))
+    invariant(current_offset == (loop_entry(nblocks) - nblocks) * r)
     decreases(nblocks))
   {
     mld_keccakf1600x4_permute(s);
-    mld_keccakf1600x4_extract_bytes(s, out0, out1, out2, out3, 0, r);
-
-    out0 += r;
-    out1 += r;
-    out2 += r;
-    out3 += r;
+    mld_keccakf1600x4_extract_bytes(
+        s, &out0[current_offset], &out1[current_offset], &out2[current_offset],
+        &out3[current_offset], 0, r);
+    current_offset += r;
     nblocks--;
   }
 }
+#endif /* !MLD_CONFIG_NO_KEYPAIR_API || !MLD_CONFIG_REDUCE_RAM || \
+          MLD_UNIT_TEST */
 
-#if !defined(MLD_CONFIG_REDUCE_RAM)
+#if !defined(MLD_CONFIG_REDUCE_RAM) || defined(MLD_UNIT_TEST)
 MLD_INTERNAL_API
 void mld_shake128x4_absorb_once(mld_shake128x4ctx *state, const uint8_t *in0,
                                 const uint8_t *in1, const uint8_t *in2,
@@ -148,8 +148,11 @@ void mld_shake128x4_release(mld_shake128x4ctx *state)
   /* @[FIPS204, Section 3.6.3] Destruction of intermediate values. */
   mld_zeroize(state, sizeof(mld_shake128x4ctx));
 }
-#endif /* !MLD_CONFIG_REDUCE_RAM */
+#endif /* !MLD_CONFIG_REDUCE_RAM || MLD_UNIT_TEST */
 
+#if !defined(MLD_CONFIG_NO_KEYPAIR_API) ||                                  \
+    (!defined(MLD_CONFIG_NO_SIGN_API) &&                                    \
+     (!defined(MLD_CONFIG_REDUCE_RAM) || defined(MLD_UNIT_TEST)))
 MLD_INTERNAL_API
 void mld_shake256x4_absorb_once(mld_shake256x4ctx *state, const uint8_t *in0,
                                 const uint8_t *in1, const uint8_t *in2,
@@ -177,6 +180,8 @@ void mld_shake256x4_release(mld_shake256x4ctx *state)
   /* @[FIPS204, Section 3.6.3] Destruction of intermediate values. */
   mld_zeroize(state, sizeof(mld_shake256x4ctx));
 }
+#endif /* !MLD_CONFIG_NO_KEYPAIR_API || (!MLD_CONFIG_NO_SIGN_API && \
+          (!MLD_CONFIG_REDUCE_RAM || MLD_UNIT_TEST)) */
 
 #endif /* !MLD_CONFIG_MULTILEVEL_NO_SHARED && !MLD_CONFIG_SERIAL_FIPS202_ONLY \
         */

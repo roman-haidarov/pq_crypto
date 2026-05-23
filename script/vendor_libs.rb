@@ -21,9 +21,9 @@ PINS = {
   },
   mldsa: {
     repo: "https://github.com/pq-code-package/mldsa-native.git",
-    ref: "v1.0.0-beta",
-    commit: "db65535319d9750d75d34c6d170677415f9d2c46",
-    tree_sha256: "3b2cb648dade4540191f08d606b422042bf781fb37b434934ab02b58a0121f5c",
+    ref: "v1.0.0-beta2",
+    commit: "9b0ee84f4cf399043eca59eca4e5f8531ca1d61b",
+    tree_sha256: "2887f59926c18a877e8c5a5e30727e84497c357032093d00d7135aedf53f011e",
     target: "mldsa-native",
     source_dir: "mldsa"
   }

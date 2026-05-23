@@ -59,18 +59,13 @@ mldsa-native is used in
 
 We use the [C Bounded Model Checker (CBMC)](https://github.com/diffblue/cbmc) to prove absence of various classes of undefined behaviour in C, including out of bounds memory accesses and integer overflows. The proofs cover all C code in [mldsa/src/*](mldsa) and [mldsa/src/fips202/*](mldsa/src/fips202) involved in running mldsa-native with its C backend. See [proofs/cbmc](proofs/cbmc) for details.
 
-**Note:** The `MLD_CONFIG_REDUCE_RAM` configuration option is not currently covered by CBMC proofs.
-
-HOL-Light functional correctness proofs can be found in [proofs/hol_light](proofs/hol_light). So far, the following functions have been proven correct:
-
-- AArch64 poly_caddq [poly_caddq_asm.S](mldsa/src/native/aarch64/src/poly_caddq_asm.S)
-- x86_64 NTT [ntt.S](mldsa/src/native/x86_64/src/ntt.S)
-
-These proofs utilize the verification infrastructure in [s2n-bignum](https://github.com/awslabs/s2n-bignum).
+HOL-Light functional correctness proofs can be found in [proofs/hol_light](proofs/hol_light). See the [HOL-Light README](proofs/hol_light/README.md) for the list of functions that have been proven correct. These proofs utilize the verification infrastructure in [s2n-bignum](https://github.com/awslabs/s2n-bignum).
 
 Finally, [proofs/isabelle](proofs/isabelle/compress) contains proofs in [Isabelle/HOL](https://isabelle.in.tum.de/) of the correctness of
 different approaches for computing the scalar decomposition routines used in ML-DSA. Those are still experimental and do not yet operate
 on the source level.
+
+**NOTE:** Formal Verification is never absolute. See [SOUNDNESS.md](SOUNDNESS.md) for an analysis of the scope, assumptions and risks of the formal verification efforts around mldsa-native.
 
 ## Security
 
@@ -80,6 +75,8 @@ timing side channels through suitable barriers and constant-time patterns.
 
 Absence of secret-dependent branches, memory-access patterns and variable-latency instructions is also tested using `valgrind`
 with various combinations of compilers and compilation options.
+
+**Other attacks.** mldsa-native targets resistance against timing side-channels only. Other attack classes, such as power and electromagnetic side-channels, microarchitectural side-channels (e.g. speculative execution), or fault-injection attacks, are currently out of scope.
 
 ## Design
 
@@ -98,9 +95,12 @@ mldsa-native currently offers the following backends:
 
 If you'd like contribute new backends, please reach out!
 
-## ACVP Testing
+## Test Vectors
 
-mldsa-native is tested against all official ACVP ML-DSA test vectors[^ACVP].
+mldsa-native is tested against all official ACVP ML-DSA test vectors[^ACVP] and the
+Wycheproof[^wycheproof] ML-DSA test vectors.
+
+### ACVP
 
 You can run ACVP tests using the [`tests`](./scripts/tests) script or the [ACVP client](./test/acvp/acvp_client.py) directly:
 
@@ -120,6 +120,18 @@ python3 ./test/acvp/acvp_client.py --version v1.1.0.41
 python3 ./test/acvp/acvp_client.py \
   -p ./test/acvp/.acvp-data/v1.1.0.41/files/ML-DSA-sigVer-FIPS204/prompt.json \
   -e ./test/acvp/.acvp-data/v1.1.0.41/files/ML-DSA-sigVer-FIPS204/expectedResults.json
+```
+
+### Wycheproof
+
+You can run Wycheproof[^wycheproof] tests using the [`tests`](./scripts/tests) script or the [Wycheproof client](./test/wycheproof/wycheproof_client.py) directly:
+
+```bash
+# Using the tests script
+./scripts/tests wycheproof
+
+# Using the Wycheproof client directly
+python3 ./test/wycheproof/wycheproof_client.py
 ```
 
 ## Benchmarking
@@ -219,3 +231,4 @@ through the [PQCA Discord](https://discord.com/invite/xyVnwzfg5R). See also [CON
 [^NIST_FIPS204_SEC6]: National Institute of Standards and Technology: FIPS 204 Section 6 Guidance, [https://csrc.nist.gov/csrc/media/Projects/post-quantum-cryptography/documents/faq/fips204-sec6-03192025.pdf](https://csrc.nist.gov/csrc/media/Projects/post-quantum-cryptography/documents/faq/fips204-sec6-03192025.pdf)
 [^REF]: Bai, Ducas, Kiltz, Lepoint, Lyubashevsky, Schwabe, Seiler, Stehlé: CRYSTALS-Dilithium reference implementation, [https://github.com/pq-crystals/dilithium/tree/master/ref](https://github.com/pq-crystals/dilithium/tree/master/ref)
 [^tiny_sha3]: Markku-Juhani O. Saarinen: tiny_sha3, [https://github.com/mjosaarinen/tiny_sha3](https://github.com/mjosaarinen/tiny_sha3)
+[^wycheproof]: Community Cryptography Specification Project: Project Wycheproof, [https://github.com/C2SP/wycheproof](https://github.com/C2SP/wycheproof)
