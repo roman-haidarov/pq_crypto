@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.6.2] - 2026-05-24
+
+### Changed
+- update native mldsa `v1.0.0-beta` → `v1.0.0-beta2`
+
 ## [0.6.1] - 2026-05-14
 
 ### Security

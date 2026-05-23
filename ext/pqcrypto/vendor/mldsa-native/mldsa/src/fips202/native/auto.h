@@ -16,9 +16,14 @@
 #include "aarch64/auto.h"
 #endif
 
-#if defined(MLD_SYS_X86_64) && defined(MLD_SYS_X86_64_AVX2)
-#include "x86_64/xkcp.h"
-#endif
+#if defined(MLD_SYS_X86_64) && defined(MLD_SYS_X86_64_AVX2) &&               \
+    (!defined(MLD_CONFIG_NO_KEYPAIR_API) ||                                  \
+     !defined(MLD_CONFIG_NO_SIGN_API) || !defined(MLD_CONFIG_REDUCE_RAM)) && \
+    !defined(MLD_CONFIG_SERIAL_FIPS202_ONLY)
+#include "x86_64/keccak_f1600_x4_avx2.h"
+#endif /* MLD_SYS_X86_64 && MLD_SYS_X86_64_AVX2 && (!MLD_CONFIG_NO_KEYPAIR_API \
+          || !MLD_CONFIG_NO_SIGN_API || !MLD_CONFIG_REDUCE_RAM) &&             \
+          !MLD_CONFIG_SERIAL_FIPS202_ONLY */
 
 /* We do not yet include the FIPS202 backend for Armv8.1-M+MVE by default
  * as it is still experimental and undergoing review. */
