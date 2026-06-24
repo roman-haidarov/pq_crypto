@@ -88,6 +88,9 @@
 #include "src/native/riscv64/src/rv64v_debug.c"
 #include "src/native/riscv64/src/rv64v_poly.c"
 #endif
+#if defined(MLK_SYS_PPC64LE)
+#include "src/native/ppc64le/src/consts.c"
+#endif
 #endif /* MLK_CONFIG_USE_NATIVE_BACKEND_ARITH */
 
 #if defined(MLK_CONFIG_USE_NATIVE_BACKEND_FIPS202)
@@ -213,6 +216,8 @@
 #undef MLK_FIPS202_HEADER_FILE
 #undef MLK_FREE
 #undef MLK_INTERNAL_API
+#undef MLK_INTERNAL_DATA_DECLARATION
+#undef MLK_INTERNAL_DATA_DEFINITION
 #undef MLK_NAMESPACE
 #undef MLK_NAMESPACE_K
 #undef MLK_NAMESPACE_PREFIX
@@ -365,8 +370,11 @@
 #undef MLK_HAVE_INLINE_ASM
 #undef MLK_INLINE
 #undef MLK_MUST_CHECK_RETURN_VALUE
+#undef MLK_NOINLINE
 #undef MLK_RESTRICT
 #undef MLK_STATIC_TESTABLE
+#undef MLK_SYSV_ABI
+#undef MLK_SYSV_ABI_SUPPORTED
 #undef MLK_SYS_AARCH64
 #undef MLK_SYS_AARCH64_EB
 #undef MLK_SYS_APPLE
@@ -446,11 +454,11 @@
 #undef MLK_FIPS202_NATIVE_AARCH64_AUTO_H
 /* mlkem/src/fips202/native/aarch64/src/fips202_native_aarch64.h */
 #undef MLK_FIPS202_NATIVE_AARCH64_SRC_FIPS202_NATIVE_AARCH64_H
-#undef mlk_keccak_f1600_x1_scalar_asm
-#undef mlk_keccak_f1600_x1_v84a_asm
-#undef mlk_keccak_f1600_x2_v84a_asm
-#undef mlk_keccak_f1600_x4_v8a_scalar_hybrid_asm
-#undef mlk_keccak_f1600_x4_v8a_v84a_scalar_hybrid_asm
+#undef mlk_keccak_f1600_x1_scalar_aarch64_asm
+#undef mlk_keccak_f1600_x1_v84a_aarch64_asm
+#undef mlk_keccak_f1600_x2_v84a_aarch64_asm
+#undef mlk_keccak_f1600_x4_v8a_scalar_hybrid_aarch64_asm
+#undef mlk_keccak_f1600_x4_v8a_v84a_scalar_hybrid_aarch64_asm
 #undef mlk_keccakf1600_round_constants
 /* mlkem/src/fips202/native/aarch64/x1_scalar.h */
 #undef MLK_FIPS202_AARCH64_NEED_X1_SCALAR
@@ -483,7 +491,7 @@
 #undef MLK_USE_FIPS202_X4_NATIVE
 /* mlkem/src/fips202/native/x86_64/src/fips202_native_x86_64.h */
 #undef MLK_FIPS202_NATIVE_X86_64_SRC_FIPS202_NATIVE_X86_64_H
-#undef mlk_keccak_f1600_x4_avx2
+#undef mlk_keccak_f1600_x4_avx2_asm
 #undef mlk_keccak_rho56
 #undef mlk_keccak_rho8
 #undef mlk_keccakf1600_round_constants
@@ -542,16 +550,16 @@
 #undef mlk_aarch64_ntt_zetas_layer67
 #undef mlk_aarch64_zetas_mulcache_native
 #undef mlk_aarch64_zetas_mulcache_twisted_native
-#undef mlk_intt_asm
-#undef mlk_ntt_asm
-#undef mlk_poly_mulcache_compute_asm
-#undef mlk_poly_reduce_asm
-#undef mlk_poly_tobytes_asm
-#undef mlk_poly_tomont_asm
-#undef mlk_polyvec_basemul_acc_montgomery_cached_asm_k2
-#undef mlk_polyvec_basemul_acc_montgomery_cached_asm_k3
-#undef mlk_polyvec_basemul_acc_montgomery_cached_asm_k4
-#undef mlk_rej_uniform_asm
+#undef mlk_intt_aarch64_asm
+#undef mlk_ntt_aarch64_asm
+#undef mlk_poly_mulcache_compute_aarch64_asm
+#undef mlk_poly_reduce_aarch64_asm
+#undef mlk_poly_tobytes_aarch64_asm
+#undef mlk_poly_tomont_aarch64_asm
+#undef mlk_polyvec_basemul_acc_montgomery_cached_k2_aarch64_asm
+#undef mlk_polyvec_basemul_acc_montgomery_cached_k3_aarch64_asm
+#undef mlk_polyvec_basemul_acc_montgomery_cached_k4_aarch64_asm
+#undef mlk_rej_uniform_aarch64_asm
 #undef mlk_rej_uniform_table
 #endif /* MLK_SYS_AARCH64 */
 #if defined(MLK_SYS_X86_64)
@@ -582,27 +590,27 @@
 /* mlkem/src/native/x86_64/src/arith_native_x86_64.h */
 #undef MLK_AVX2_REJ_UNIFORM_BUFLEN
 #undef MLK_NATIVE_X86_64_SRC_ARITH_NATIVE_X86_64_H
-#undef mlk_invntt_avx2
-#undef mlk_ntt_avx2
-#undef mlk_nttfrombytes_avx2
-#undef mlk_ntttobytes_avx2
-#undef mlk_nttunpack_avx2
-#undef mlk_poly_compress_d10_avx2
-#undef mlk_poly_compress_d11_avx2
-#undef mlk_poly_compress_d4_avx2
-#undef mlk_poly_compress_d5_avx2
-#undef mlk_poly_decompress_d10_avx2
-#undef mlk_poly_decompress_d11_avx2
-#undef mlk_poly_decompress_d4_avx2
-#undef mlk_poly_decompress_d5_avx2
-#undef mlk_poly_mulcache_compute_avx2
-#undef mlk_polyvec_basemul_acc_montgomery_cached_asm_k2
-#undef mlk_polyvec_basemul_acc_montgomery_cached_asm_k3
-#undef mlk_polyvec_basemul_acc_montgomery_cached_asm_k4
-#undef mlk_reduce_avx2
-#undef mlk_rej_uniform_asm
+#undef mlk_invntt_avx2_asm
+#undef mlk_ntt_avx2_asm
+#undef mlk_nttfrombytes_avx2_asm
+#undef mlk_ntttobytes_avx2_asm
+#undef mlk_nttunpack_avx2_asm
+#undef mlk_poly_compress_d10_avx2_asm
+#undef mlk_poly_compress_d11_avx2_asm
+#undef mlk_poly_compress_d4_avx2_asm
+#undef mlk_poly_compress_d5_avx2_asm
+#undef mlk_poly_decompress_d10_avx2_asm
+#undef mlk_poly_decompress_d11_avx2_asm
+#undef mlk_poly_decompress_d4_avx2_asm
+#undef mlk_poly_decompress_d5_avx2_asm
+#undef mlk_poly_mulcache_compute_avx2_asm
+#undef mlk_polyvec_basemul_acc_montgomery_cached_k2_avx2_asm
+#undef mlk_polyvec_basemul_acc_montgomery_cached_k3_avx2_asm
+#undef mlk_polyvec_basemul_acc_montgomery_cached_k4_avx2_asm
+#undef mlk_reduce_avx2_asm
+#undef mlk_rej_uniform_avx2_asm
 #undef mlk_rej_uniform_table
-#undef mlk_tomont_avx2
+#undef mlk_tomont_avx2_asm
 /* mlkem/src/native/x86_64/src/compress_consts.h */
 #undef MLK_NATIVE_X86_64_SRC_COMPRESS_CONSTS_H
 #undef mlk_compress_d10_data
@@ -656,5 +664,38 @@
 #undef mlk_debug_check_bounds_int16m1
 #undef mlk_debug_check_bounds_int16m2
 #endif /* MLK_SYS_RISCV64 */
+#if defined(MLK_SYS_PPC64LE)
+/*
+ * Undefine macros from native code (Arith, PPC64LE)
+ */
+/* mlkem/src/native/ppc64le/meta.h */
+#undef MLK_ARITH_BACKEND_NAME
+#undef MLK_ARITH_BACKEND_PPC64LE_DEFAULT
+#undef MLK_NATIVE_PPC64LE_META_H
+#undef MLK_USE_NATIVE_INTT
+#undef MLK_USE_NATIVE_NTT
+#undef MLK_USE_NATIVE_POLY_REDUCE
+#undef MLK_USE_NATIVE_POLY_TOMONT
+/* mlkem/src/native/ppc64le/src/arith_native_ppc64le.h */
+#undef MLK_NATIVE_PPC64LE_SRC_ARITH_NATIVE_PPC64LE_H
+#undef mlk_intt_ppc_asm
+#undef mlk_ntt_ppc_asm
+#undef mlk_poly_tomont_ppc_asm
+#undef mlk_reduce_ppc_asm
+/* mlkem/src/native/ppc64le/src/consts.h */
+#undef MLK_NATIVE_PPC64LE_SRC_CONSTS_H
+#undef MLK_PPC_C20159_OFFSET
+#undef MLK_PPC_NQ_OFFSET
+#undef MLK_PPC_N_INV_OFFSET
+#undef MLK_PPC_N_INV_TW_OFFSET
+#undef MLK_PPC_Q_OFFSET
+#undef MLK_PPC_TOMONT_OFFSET
+#undef MLK_PPC_TOMONT_TW_OFFSET
+#undef MLK_PPC_ZETA_INTT_OFFSET
+#undef MLK_PPC_ZETA_INTT_TW_OFFSET
+#undef MLK_PPC_ZETA_NTT_OFFSET
+#undef MLK_PPC_ZETA_NTT_TW_OFFSET
+#undef mlk_ppc_qdata
+#endif /* MLK_SYS_PPC64LE */
 #endif /* MLK_CONFIG_USE_NATIVE_BACKEND_ARITH */
 #endif /* !MLK_CONFIG_MONOBUILD_KEEP_SHARED_HEADERS */

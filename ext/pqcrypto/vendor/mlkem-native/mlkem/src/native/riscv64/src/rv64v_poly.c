@@ -28,7 +28,7 @@
 /* check-magic: 1441 == pow(2,32-7,MLKEM_Q) */
 #define MLK_RVV_MONT_NR 1441
 
-static inline vint16m1_t fq_redc(vint16m1_t rh, vint16m1_t rl, size_t vl)
+static MLK_INLINE vint16m1_t fq_redc(vint16m1_t rh, vint16m1_t rl, size_t vl)
 {
   vint16m1_t t;
 
@@ -41,7 +41,7 @@ static inline vint16m1_t fq_redc(vint16m1_t rh, vint16m1_t rl, size_t vl)
 
 /* Narrowing reduction */
 
-static inline vint16m1_t fq_redc2(vint32m2_t z, size_t vl)
+static MLK_INLINE vint16m1_t fq_redc2(vint32m2_t z, size_t vl)
 {
   vint16m1_t t;
 
@@ -56,7 +56,7 @@ static inline vint16m1_t fq_redc2(vint32m2_t z, size_t vl)
 
 /* Narrowing Barrett */
 
-static inline vint16m1_t fq_barrett(vint16m1_t a, size_t vl)
+static MLK_INLINE vint16m1_t fq_barrett(vint16m1_t a, size_t vl)
 {
   vint16m1_t t;
   const int16_t v = ((1 << 26) + MLKEM_Q / 2) / MLKEM_Q;
@@ -71,31 +71,29 @@ static inline vint16m1_t fq_barrett(vint16m1_t a, size_t vl)
   return t;
 }
 
-/* Conditionally add Q (if negative) */
+/* Conditionally add Q (if negative).
+ *
+ * Constant-time note: We deliberately avoid a `vmslt` + masked `vadd_mu`
+ * here. RVV 1.0 does not mandate mask-population-independent latency for
+ * masked ops, and Zvkt's DIEL guarantee does not cover the v0 mask
+ * register. Using an arithmetic-shift sign mask keeps all operands in the
+ * Zvkt-covered set and matches the idiom used in the portable C
+ * (mlk_ct_cmask_neg_i16, verify.h) and AArch64 (poly_reduce_aarch64_asm.S)
+ * implementations. */
 
-static inline vint16m1_t fq_cadd(vint16m1_t rx, size_t vl)
+static MLK_INLINE vint16m1_t fq_cadd(vint16m1_t rx, size_t vl)
 {
-  vbool16_t bn;
+  vint16m1_t m;
 
-  bn = __riscv_vmslt_vx_i16m1_b16(rx, 0, vl);             /*   if x < 0:   */
-  rx = __riscv_vadd_vx_i16m1_mu(bn, rx, rx, MLKEM_Q, vl); /*     x += Q    */
-  return rx;
-}
-
-/* Conditionally subtract Q (if Q or above) */
-
-static inline vint16m1_t fq_csub(vint16m1_t rx, size_t vl)
-{
-  vbool16_t bn;
-
-  bn = __riscv_vmsge_vx_i16m1_b16(rx, MLKEM_Q, vl);       /*   if x >= Q:  */
-  rx = __riscv_vsub_vx_i16m1_mu(bn, rx, rx, MLKEM_Q, vl); /*     x -= Q    */
+  m = __riscv_vsra_vx_i16m1(rx, 15, vl);     /* m = (x < 0) ? -1 : 0 */
+  m = __riscv_vand_vx_i16m1(m, MLKEM_Q, vl); /* m = (x < 0) ?  Q : 0 */
+  rx = __riscv_vadd_vv_i16m1(rx, m, vl);     /* x += m               */
   return rx;
 }
 
 /* Montgomery multiply: vector-vector  */
 
-static inline vint16m1_t fq_mul_vv(vint16m1_t rx, vint16m1_t ry, size_t vl)
+static MLK_INLINE vint16m1_t fq_mul_vv(vint16m1_t rx, vint16m1_t ry, size_t vl)
 {
   vint16m1_t rl, rh;
 
@@ -106,7 +104,7 @@ static inline vint16m1_t fq_mul_vv(vint16m1_t rx, vint16m1_t ry, size_t vl)
 
 /* Montgomery multiply: vector-scalar  */
 
-static inline vint16m1_t fq_mul_vx(vint16m1_t rx, int16_t ry, size_t vl)
+static MLK_INLINE vint16m1_t fq_mul_vx(vint16m1_t rx, int16_t ry, size_t vl)
 {
   vint16m1_t rl, rh;
 
@@ -117,7 +115,7 @@ static inline vint16m1_t fq_mul_vx(vint16m1_t rx, int16_t ry, size_t vl)
 
 /* full normalization  */
 
-static inline vint16m1_t fq_mulq_vx(vint16m1_t rx, int16_t ry, size_t vl)
+static MLK_INLINE vint16m1_t fq_mulq_vx(vint16m1_t rx, int16_t ry, size_t vl)
 {
   vint16m1_t result;
 
@@ -143,16 +141,12 @@ static vuint16m2_t bitswap_perm(unsigned a, unsigned b, size_t vl)
   return xa;
 }
 
-/*************************************************
- * Name:        poly_ntt
+/**
+ * Compute negacyclic number-theoretic transform (NTT) of a polynomial in
+ * place; input assumed to be in normal order, output in bitreversed order.
  *
- * Description: Computes negacyclic number-theoretic transform (NTT) of
- *              a polynomial in place;
- *              inputs assumed to be in normal order, output in
- *              bitreversed order
- *
- * Arguments:   - uint16_t *r: pointer to in/output polynomial
- **************************************************/
+ * @param[in,out] r Input/output polynomial.
+ */
 
 /* Forward / Cooley-Tukey butterfly operation */
 
@@ -330,17 +324,6 @@ void mlk_rv64v_poly_ntt(int16_t *r)
       &r[0xe0], mlk_rv64v_ntt2(__riscv_vcreate_v_i16m1_i16m2(ve, vf), ze), vl2);
 }
 
-/*************************************************
- * Name:        poly_invntt_tomont
- *
- * Description: Computes inverse of negacyclic number-theoretic transform (NTT)
- *              of a polynomial in place;
- *              inputs assumed to be in bitreversed order,
- *              output in normal order
- *
- * Arguments:   - uint16_t *r: pointer to in/output polynomial
- **************************************************/
-
 /* Reverse / Gentleman-Sande butterfly operation */
 
 #define MLK_RVV_GS_BFLY_RX(u0, u1, ut, uc, vl) \
@@ -461,6 +444,13 @@ static vint16m2_t mlk_rv64v_intt2(vint16m2_t vp, vint16m1_t cz)
   } while (0)
 
 
+/**
+ * Compute the inverse negacyclic number-theoretic transform (NTT) of a
+ * polynomial in place; input assumed to be in bitreversed order, output in
+ * normal order.
+ *
+ * @param[in,out] r Input/output polynomial.
+ */
 /* Only for VLEN=256 for now */
 void mlk_rv64v_poly_invntt_tomont(int16_t *r)
 {
@@ -617,10 +607,10 @@ void mlk_rv64v_poly_invntt_tomont(int16_t *r)
 
 /* ML-KEM's middle field GF(3329)[X]/(X^2) multiplication */
 
-static inline void mlk_rv64v_poly_basemul_mont_add_k(int16_t *r,
-                                                     const int16_t *a,
-                                                     const int16_t *b,
-                                                     unsigned kn)
+static MLK_INLINE void mlk_rv64v_poly_basemul_mont_add_k(int16_t *r,
+                                                         const int16_t *a,
+                                                         const int16_t *b,
+                                                         unsigned kn)
 {
 #include "rv64v_zetas_basemul.inc"
 
@@ -692,19 +682,18 @@ void mlk_rv64v_poly_basemul_mont_add_k4(int16_t *r, const int16_t *a,
 }
 #endif /* MLK_CONFIG_MULTILEVEL_WITH_SHARED || MLKEM_K == 4 */
 
-/*************************************************
- * Name:        poly_tomont
+/**
+ * In-place conversion of all coefficients of a polynomial from the normal
+ * domain to the Montgomery domain.
  *
- * Description: Inplace conversion of all coefficients of a polynomial
- *              from normal domain to Montgomery domain
- *
- * Arguments:   - int16_t *r: pointer to input/output polynomial
- **************************************************/
+ * @param[in,out] r Input/output polynomial.
+ */
 void mlk_rv64v_poly_tomont(int16_t *r)
 {
   size_t vl = __riscv_vsetvl_e16m1(MLKEM_N);
+  size_t i;
 
-  for (size_t i = 0; i < MLKEM_N; i += vl)
+  for (i = 0; i < MLKEM_N; i += vl)
   {
     vint16m1_t vec = __riscv_vle16_v_i16m1(&r[i], vl);
     vec = fq_mul_vx(vec, MLK_RVV_MONT_R2, vl);
@@ -712,21 +701,19 @@ void mlk_rv64v_poly_tomont(int16_t *r)
   }
 }
 
-/*************************************************
- * Name:        poly_reduce
+/**
+ * Apply Barrett reduction to all coefficients of a polynomial. For details
+ * of the Barrett reduction see the comments in poly.c.
  *
- * Description: Applies Barrett reduction to all coefficients of a polynomial
- *              for details of the Barrett reduction see
- *              comments in poly.c
- *
- * Arguments:   - int16_t *r: pointer to input/output polynomial
- **************************************************/
+ * @param[in,out] r Input/output polynomial.
+ */
 void mlk_rv64v_poly_reduce(int16_t *r)
 {
   size_t vl = __riscv_vsetvl_e16m1(MLKEM_N);
   vint16m1_t vt;
+  size_t i;
 
-  for (size_t i = 0; i < MLKEM_N; i += vl)
+  for (i = 0; i < MLKEM_N; i += vl)
   {
     vt = __riscv_vle16_v_i16m1(&r[i], vl);
     vt = fq_barrett(vt, vl);
@@ -735,7 +722,8 @@ void mlk_rv64v_poly_reduce(int16_t *r)
   }
 }
 
-/* Run rejection sampling to get uniform random integers mod q  */
+/* Run rejection sampling to get uniform random integers mod q.
+ * buflen must be a multiple of 12. */
 
 unsigned int mlk_rv64v_rej_uniform(int16_t *r, unsigned int len,
                                    const uint8_t *buf, unsigned int buflen)
