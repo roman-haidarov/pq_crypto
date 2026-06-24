@@ -20,7 +20,7 @@ All C code in [mlkem/src/*](mlkem) and [mlkem/src/fips202/*](mlkem/src/fips202) 
 using CBMC[^CBMC]. All AArch64 and x86_64 assembly is proved to be functionally correct,
 memory-safe, and of secret-independent timing (constant-time), using HOL-Light[^HOL-Light].
 
-mlkem-native includes native backends for Arm (64-bit, Neon), Intel/AMD (64-bit, AVX2), and RISC-V (64-bit, RVV). See [benchmarks](https://pq-code-package.github.io/mlkem-native/dev/bench/) for performance data.
+mlkem-native includes native backends for Arm (64-bit, Neon), Intel/AMD (64-bit, AVX2), RISC-V (64-bit, RVV), and POWER (ppc64le, VSX). See [benchmarks](https://pq-code-package.github.io/mlkem-native/dev/bench/) for performance data.
 
 mlkem-native is supported by the [Post-Quantum Cryptography Alliance](https://pqca.org/) as part of the [Linux Foundation](https://linuxfoundation.org/).
 
@@ -53,7 +53,7 @@ mlkem-native is used in
  - [libOQS](https://github.com/open-quantum-safe/liboqs/) of the Open Quantum Safe project since [0.13.0](https://github.com/open-quantum-safe/liboqs/releases/tag/0.13.0) (as the default ML-KEM implementation)
  - AWS' Cryptography library [AWS-LC](https://github.com/aws/aws-lc/) since [v1.50.0](https://github.com/aws/aws-lc/releases/tag/v1.50.0)
  - The [rustls](https://github.com/rustls/rustls) TLS library written in Rust since [0.23.28](https://github.com/rustls/rustls/releases/tag/v%2F0.23.28) (through AWS-LC as the default cryptography provider)
- - The [zeroRISC's fork of OpenTitan](https://github.com/zerorisc/expo) - an open source silicon Root of Trust (RoT)
+ - [Pavona](https://github.com/pavona/pavona) - a library of modular, tapeout-proven, and secure-by-default open silicon blocks
 
 ## Formal Verification
 
@@ -80,6 +80,8 @@ through suitable barriers and constant-time patterns.
 Absence of secret-dependent branches, memory-access patterns and variable-latency instructions is also tested using `valgrind`
 with various combinations of compilers and compilation options.
 
+**Other attacks.** mlkem-native targets resistance against timing side-channels only. Other attack classes, such as power and electromagnetic side-channels, microarchitectural side-channels (e.g. speculative execution), or fault-injection attacks, are currently out of scope.
+
 ## Design
 
 mlkem-native is split into a _frontend_ and two _backends_ for arithmetic and FIPS202 / SHA3. The frontend is
@@ -94,12 +96,13 @@ mlkem-native currently offers the following backends:
 * 64-bit Arm backend (using Neon)
 * 64-bit Intel/AMD backend (using AVX2)
 * 64-bit RISC-V backend (using RVV)
+* 64-bit POWER backend (ppc64le, using VSX; supports POWER8 and above)
 * 32-bit Armv8.1-M backend (using Helium/MVE) -- see [#1501](https://github.com/pq-code-package/mlkem-native/issues/1501). This is still experimental and disabled by default.
 
 If you'd like contribute new backends, please reach out or just open a PR.
 
 Our AArch64 assembly is developed using the [SLOTHY](https://github.com/slothy-optimizer/slothy) superoptimizer, following the approach described in the SLOTHY paper[^SLOTHY_Paper]:
-We write 'clean' assembly by hand and automate micro-optimizations (e.g. see the [clean](dev/aarch64_clean/src/ntt.S) vs [optimized](dev/aarch64_opt/src/ntt.S) AArch64 NTT).
+We write 'clean' assembly by hand and automate micro-optimizations (e.g. see the [clean](dev/aarch64_clean/src/ntt_aarch64_asm.S) vs [optimized](dev/aarch64_opt/src/ntt_aarch64_asm.S) AArch64 NTT).
 See [dev/README.md](dev/README.md) for more details.
 
 ## Test Vectors

@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.6.3] - 2026-06-24
+
+### Changed
+- update native mlkem `v1.1.0` → `v1.2.0` (new PowerPC backend, Windows/RISC-V portability, 16-bit `int` UB fix; public API unchanged)
+
 ## [0.6.2] - 2026-05-24
 
 ### Changed

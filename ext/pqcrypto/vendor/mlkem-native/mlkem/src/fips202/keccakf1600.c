@@ -31,7 +31,7 @@
 #if !defined(MLK_CONFIG_MULTILEVEL_NO_SHARED)
 
 #define MLK_KECCAK_NROUNDS 24
-#define MLK_KECCAK_ROL(a, offset) ((a << offset) ^ (a >> (64 - offset)))
+#define MLK_KECCAK_ROL(a, offset) (((a) << (offset)) ^ ((a) >> (64 - (offset))))
 
 void mlk_keccakf1600_extract_bytes(uint64_t *state, unsigned char *data,
                                    unsigned offset, unsigned length)
@@ -40,14 +40,16 @@ void mlk_keccakf1600_extract_bytes(uint64_t *state, unsigned char *data,
 #if defined(MLK_SYS_LITTLE_ENDIAN)
   uint8_t *state_ptr = (uint8_t *)state + offset;
   for (i = 0; i < length; i++)
-  __loop__(invariant(i <= length))
+  __loop__(invariant(i <= length)
+           decreases(length - i))
   {
     data[i] = state_ptr[i];
   }
 #else  /* MLK_SYS_LITTLE_ENDIAN */
   /* Portable version */
   for (i = 0; i < length; i++)
-  __loop__(invariant(i <= length))
+  __loop__(invariant(i <= length)
+           decreases(length - i))
   {
     data[i] = (state[(offset + i) >> 3] >> (8 * ((offset + i) & 0x07))) & 0xFF;
   }
@@ -61,14 +63,16 @@ void mlk_keccakf1600_xor_bytes(uint64_t *state, const unsigned char *data,
 #if defined(MLK_SYS_LITTLE_ENDIAN)
   uint8_t *state_ptr = (uint8_t *)state + offset;
   for (i = 0; i < length; i++)
-  __loop__(invariant(i <= length))
+  __loop__(invariant(i <= length)
+           decreases(length - i))
   {
     state_ptr[i] ^= data[i];
   }
 #else  /* MLK_SYS_LITTLE_ENDIAN */
   /* Portable version */
   for (i = 0; i < length; i++)
-  __loop__(invariant(i <= length))
+  __loop__(invariant(i <= length)
+           decreases(length - i))
   {
     state[(offset + i) >> 3] ^= (uint64_t)data[i]
                                 << (8 * ((offset + i) & 0x07));
@@ -82,6 +86,19 @@ static void mlk_keccakf1600x4_extract_bytes_c(uint64_t *state,
                                               unsigned char *data2,
                                               unsigned char *data3,
                                               unsigned offset, unsigned length)
+__contract__(
+    requires(0 <= offset && offset <= MLK_KECCAK_LANES * sizeof(uint64_t) &&
+         0 <= length && length <= MLK_KECCAK_LANES * sizeof(uint64_t) - offset)
+    requires(memory_no_alias(state, sizeof(uint64_t) * MLK_KECCAK_LANES * MLK_KECCAK_WAY))
+    requires(memory_no_alias(data0, length))
+    requires(memory_no_alias(data1, length))
+    requires(memory_no_alias(data2, length))
+    requires(memory_no_alias(data3, length))
+    assigns(memory_slice(data0, length))
+    assigns(memory_slice(data1, length))
+    assigns(memory_slice(data2, length))
+    assigns(memory_slice(data3, length))
+)
 {
   mlk_keccakf1600_extract_bytes(state + MLK_KECCAK_LANES * 0, data0, offset,
                                 length);
@@ -116,6 +133,20 @@ static void mlk_keccakf1600x4_xor_bytes_c(uint64_t *state,
                                           const unsigned char *data2,
                                           const unsigned char *data3,
                                           unsigned offset, unsigned length)
+__contract__(
+    requires(0 <= offset && offset <= MLK_KECCAK_LANES * sizeof(uint64_t) &&
+         0 <= length && length <= MLK_KECCAK_LANES * sizeof(uint64_t) - offset)
+    requires(memory_no_alias(state, sizeof(uint64_t) * MLK_KECCAK_LANES * MLK_KECCAK_WAY))
+    requires(memory_no_alias(data0, length))
+    /* Case 1: all input buffers are distinct; Case 2: All input buffers are the same */
+    requires((data0 == data1 &&
+              data0 == data2 &&
+              data0 == data3) ||
+         (memory_no_alias(data1, length) &&
+              memory_no_alias(data2, length) &&
+              memory_no_alias(data3, length)))
+    assigns(memory_slice(state, sizeof(uint64_t) * MLK_KECCAK_LANES * MLK_KECCAK_WAY))
+)
 {
   mlk_keccakf1600_xor_bytes(state + MLK_KECCAK_LANES * 0, data0, offset,
                             length);
@@ -175,6 +206,10 @@ static const uint64_t mlk_KeccakF_RoundConstants[MLK_KECCAK_NROUNDS] = {
 
 MLK_STATIC_TESTABLE
 void mlk_keccakf1600_permute_c(uint64_t *state)
+__contract__(
+    requires(memory_no_alias(state, sizeof(uint64_t) * MLK_KECCAK_LANES))
+    assigns(memory_slice(state, sizeof(uint64_t) * MLK_KECCAK_LANES))
+)
 {
   unsigned round;
 
@@ -219,7 +254,8 @@ void mlk_keccakf1600_permute_c(uint64_t *state)
   Asu = state[24];
 
   for (round = 0; round < MLK_KECCAK_NROUNDS; round += 2)
-  __loop__(invariant(round <= MLK_KECCAK_NROUNDS && round % 2 == 0))
+  __loop__(invariant(round <= MLK_KECCAK_NROUNDS && round % 2 == 0)
+           decreases(MLK_KECCAK_NROUNDS - round))
   {
     /* prepareTheta */
     BCa = Aba ^ Aga ^ Aka ^ Ama ^ Asa;
