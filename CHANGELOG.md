@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.6.4] - 2026-07-18
+
+### Compatibility
+
+- Lowered the minimum supported Ruby version from `>= 3.1` to `>= 2.7.1`.
+- Kept the Ruby 3.4+ scheduler-aware `RB_NOGVL_OFFLOAD_SAFE` path unchanged.
+- Ruby 2.7.1-3.3 use the existing no-GVL compatibility path without claiming Fiber Scheduler offload guarantees.
+- Made the test-only `async` dependency conditional so development dependencies resolve on Ruby 2.7.1.
+
+### CI
+
+- Added an Ubuntu Ruby 2.7 compatibility job on Ruby 2.7.2, including the full test suite and a built-gem install smoke test. Ruby 2.7.1 remains the declared floor; the hosted Linux job uses 2.7.2 because exact 2.7.1 is not available through the runner toolchain.
+
+### Build
+
+- Fixed OpenSSL 3 discovery on Intel and Apple Silicon macOS by resolving the Homebrew `openssl@3` prefix dynamically.
+- Ignore stale OpenSSL 1.1 `pkg-config` metadata instead of injecting incompatible headers into native builds.
+- Validate the selected OpenSSL prefix and link against the OpenSSL 3 API during configuration, preventing mixed headers/library builds.
+
+### Documentation
+
+- Documented the Ruby 2.7.1+ support policy and the concurrency guarantees for compatibility runtimes.
+
 ## [0.6.3] - 2026-06-24
 
 ### Changed

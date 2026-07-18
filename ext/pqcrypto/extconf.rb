@@ -3,6 +3,7 @@
 
 require "mkmf"
 require "rbconfig"
+require "rubygems/version"
 require_relative "../../lib/pq_crypto/version"
 
 def generate_version_header!
@@ -94,30 +95,154 @@ if ENV["PQCRYPTO_NATIVE_TUNE"] == "1"
   VENDOR_ASM_ARCH_FLAGS << " -march=native -mtune=native"
 end
 
+def openssl_library_dirs(prefix)
+  dirs = [File.join(prefix, "lib64"), File.join(prefix, "lib")]
+  dirs.concat(Dir.glob(File.join(prefix, "lib", "*-linux-gnu")))
+  dirs.select { |dir| File.directory?(dir) }.uniq
+end
+
+def openssl_library_present?(dir, name)
+  patterns = [
+    "lib#{name}.so",
+    "lib#{name}.so.*",
+    "lib#{name}.dylib",
+    "lib#{name}.*.dylib",
+    "lib#{name}.a",
+    "lib#{name}.dll.a",
+    "#{name}.lib"
+  ]
+
+  patterns.any? { |pattern| !Dir.glob(File.join(dir, pattern)).empty? }
+end
+
+def openssl_prefix_usable?(prefix)
+  return false if prefix.nil?
+
+  prefix = prefix.strip
+  return false if prefix.empty?
+  return false unless File.exist?(File.join(prefix, "include", "openssl", "opensslv.h"))
+
+  openssl_library_dirs(prefix).any? do |dir|
+    openssl_library_present?(dir, "crypto") && openssl_library_present?(dir, "ssl")
+  end
+end
+
+def explicit_openssl_prefix
+  %w[OPENSSL_ROOT_DIR OPENSSL_DIR].each do |var|
+    value = ENV[var]
+    next if value.nil? || value.strip.empty?
+
+    prefix = File.expand_path(value.strip)
+    abort <<~MSG unless openssl_prefix_usable?(prefix)
+      #{var}=#{value.inspect} does not point to a complete OpenSSL installation.
+
+      Expected OpenSSL headers under:
+        #{File.join(prefix, "include", "openssl")}
+
+      And libcrypto plus libssl under lib, lib64, or a Linux multiarch lib directory.
+    MSG
+
+    return prefix
+  end
+
+  nil
+end
+
+def resolve_openssl_prefix
+  explicit = explicit_openssl_prefix
+  return explicit if explicit
+
+  candidates = []
+  if find_executable("brew")
+    %w[openssl@3 openssl].each do |formula|
+      prefix = `brew --prefix #{formula} 2>/dev/null`.strip
+      candidates << prefix unless prefix.empty?
+    end
+  end
+  candidates.concat(["/opt/homebrew/opt/openssl@3", "/usr/local/opt/openssl@3"])
+  candidates.uniq.find { |prefix| openssl_prefix_usable?(prefix) }
+end
+
+def pkg_config_value(variable)
+  value = `pkg-config --variable=#{variable} openssl 2>/dev/null`.strip
+  return nil unless $?.success?
+  return nil if value.empty?
+
+  File.expand_path(value)
+end
+
+def openssl_pkg_config
+  return nil unless find_executable("pkg-config")
+
+  version = `pkg-config --modversion openssl 2>/dev/null`.strip
+  return nil unless $?.success?
+  return nil if version.empty?
+  return { version: version } unless openssl_version_at_least_3?(version)
+
+  incdir = pkg_config_value("includedir")
+  libdir = pkg_config_value("libdir")
+  return { version: version } unless incdir && libdir
+  return { version: version } unless File.exist?(File.join(incdir, "openssl", "opensslv.h"))
+  return { version: version } unless openssl_library_present?(libdir, "crypto")
+  return { version: version } unless openssl_library_present?(libdir, "ssl")
+
+  { version: version, incdir: incdir, libdir: libdir }
+end
+
+def openssl_version_at_least_3?(version)
+  Gem::Version.new(version) >= Gem::Version.new("3.0.0")
+rescue ArgumentError
+  false
+end
+
+def configure_openssl_paths(incdir, libdir)
+  dir_config("openssl", incdir, libdir)
+  $INCFLAGS = "-I#{incdir} #{$INCFLAGS}".strip
+  $CPPFLAGS = "-I#{incdir} #{$CPPFLAGS}".strip
+
+  $LIBPATH.delete(libdir)
+  $LIBPATH.unshift(libdir)
+  $LDFLAGS = "-L#{libdir} #{$LDFLAGS}".strip
+
+  unless host_os =~ /mswin|mingw|cygwin/i || libdir.start_with?("/usr/lib")
+    $LDFLAGS = "-Wl,-rpath,#{libdir} #{$LDFLAGS}".strip
+  end
+end
+
 def configure_compiler_environment
-  if RUBY_PLATFORM.include?("darwin")
-    dir_config("homebrew", "/opt/homebrew")
-    $CPPFLAGS << " -I/opt/homebrew/include"
-    $LDFLAGS << " -L/opt/homebrew/lib"
+  prefix = resolve_openssl_prefix
+  if prefix
+    incdir = File.join(prefix, "include")
+    libdir = openssl_library_dirs(prefix).find do |dir|
+      openssl_library_present?(dir, "crypto") && openssl_library_present?(dir, "ssl")
+    end
+
+    configure_openssl_paths(incdir, libdir)
+    puts "OpenSSL prefix: #{prefix}"
+    puts "OpenSSL include dir: #{incdir}"
+    puts "OpenSSL library dir: #{libdir}"
     return
   end
 
-  openssl_root = ENV["OPENSSL_ROOT_DIR"] || ENV["OPENSSL_DIR"]
-  if openssl_root && !openssl_root.strip.empty? && File.directory?(openssl_root)
-    $CPPFLAGS << " -I#{openssl_root}/include"
-    %w[lib64 lib].each do |suffix|
-      libdir = File.join(openssl_root, suffix)
-      next unless File.directory?(libdir)
-
-      $LDFLAGS << " -L#{libdir} -Wl,-rpath,#{libdir}"
-      break
-    end
-  elsif find_executable("pkg-config")
-    cflags = `pkg-config --cflags openssl 2>/dev/null`.strip
-    libs = `pkg-config --libs-only-L openssl 2>/dev/null`.strip
-    $CPPFLAGS << " #{cflags}" unless cflags.empty?
-    $LDFLAGS << " #{libs}" unless libs.empty?
+  pkg = openssl_pkg_config
+  if pkg && pkg[:incdir] && pkg[:libdir]
+    configure_openssl_paths(pkg[:incdir], pkg[:libdir])
+    puts "OpenSSL pkg-config: #{pkg[:version]}"
+    puts "OpenSSL include dir: #{pkg[:incdir]}"
+    puts "OpenSSL library dir: #{pkg[:libdir]}"
+    return
   end
+
+  if pkg && pkg[:version]
+    if openssl_version_at_least_3?(pkg[:version])
+      puts "Ignoring incomplete pkg-config OpenSSL #{pkg[:version]}; headers or libraries were not found"
+    else
+      puts "Ignoring pkg-config OpenSSL #{pkg[:version]}; OpenSSL 3.0 or later is required"
+    end
+  else
+    puts "OpenSSL pkg-config: unavailable"
+  end
+  puts "OpenSSL prefix: (none resolved; using compiler defaults)"
 end
 
 def native_vendor_sources_for(vendor_dir)
@@ -205,13 +330,31 @@ def configure_openssl!
   abort "openssl/pkcs12.h is required" unless have_header("openssl/pkcs12.h")
 
   version_check = <<~SRC
+    #include <openssl/crypto.h>
     #include <openssl/opensslv.h>
     #if OPENSSL_VERSION_NUMBER < 0x30000000L
     #error "OpenSSL 3.0 or later is required"
     #endif
-    int main(void) { return 0; }
+    int main(void) {
+        return (int)OPENSSL_version_major();
+    }
   SRC
-  abort "OpenSSL 3.0 or later is required" unless try_compile(version_check)
+  abort <<~MSG unless try_link(version_check)
+    OpenSSL 3.0 or later is required, but the compiler and linker did not find
+    a consistent OpenSSL 3 headers + libcrypto pair. See mkmf.log for the exact
+    include paths, library paths, and linker error.
+
+    macOS with Homebrew:
+      brew install openssl@3
+      OPENSSL_ROOT_DIR="$(brew --prefix openssl@3)" bundle exec rake clean compile
+
+    Debian/Ubuntu:
+      sudo apt-get install libssl-dev pkg-config
+      pkg-config --modversion openssl   # must report 3.x
+
+    If an old Ruby toolchain injects OpenSSL 1.1 through PKG_CONFIG_PATH,
+    point PKG_CONFIG_PATH/PKG_CONFIG_LIBDIR at the system OpenSSL 3 .pc files.
+  MSG
 
   sha3_check = <<~SRC
     #include <openssl/evp.h>
@@ -220,7 +363,7 @@ def configure_openssl!
         return md == NULL ? 1 : 0;
     }
   SRC
-  abort "OpenSSL SHA3-256 is required (X-Wing combiner)" unless try_compile(sha3_check)
+  abort "OpenSSL SHA3-256 is required (X-Wing combiner)" unless try_link(sha3_check)
 
   shake_check = <<~SRC
     #include <openssl/evp.h>
@@ -229,7 +372,7 @@ def configure_openssl!
         return md == NULL ? 1 : 0;
     }
   SRC
-  abort "OpenSSL SHAKE256 is required (X-Wing key expansion / ML-DSA streaming mu)" unless try_compile(shake_check)
+  abort "OpenSSL SHAKE256 is required (X-Wing key expansion / ML-DSA streaming mu)" unless try_link(shake_check)
 
   $CFLAGS << " -DHAVE_OPENSSL_EVP_H -DHAVE_OPENSSL_RAND_H"
 end
