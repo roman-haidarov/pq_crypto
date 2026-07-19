@@ -2,6 +2,6 @@
 #ifndef PQCRYPTO_VERSION_H
 #define PQCRYPTO_VERSION_H
 
-#define PQCRYPTO_VERSION "0.6.3"
+#define PQCRYPTO_VERSION "0.6.4"
 
 #endif

@@ -5,5 +5,7 @@ source "https://rubygems.org"
 gemspec
 
 group :test do
-  gem "async", "~> 2.21.1"
+  if Gem::Version.new(RUBY_VERSION) >= Gem::Version.new("3.1")
+    gem "async", "~> 2.21.1"
+  end
 end

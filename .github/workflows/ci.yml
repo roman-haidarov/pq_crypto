@@ -8,7 +8,7 @@ on:
 jobs:
   vendor-verify:
     name: vendor-verify
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout
@@ -30,8 +30,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
-        ruby: ["3.1", "3.4", "4.0"]
+        os: [ubuntu-24.04, macos-latest]
+        ruby: ["2.7.2", "3.1", "3.4", "4.0"]
 
     steps:
       - name: Checkout
@@ -48,14 +48,138 @@ jobs:
         with:
           go-version: "1.26.0"
 
+      - name: Select system OpenSSL 3 for Ruby 2.7 on Linux
+        if: matrix.os == 'ubuntu-24.04' && matrix.ruby == '2.7.2'
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          sudo apt-get update
+          sudo apt-get install -y libssl-dev pkg-config
+
+          multiarch="$(dpkg-architecture -qDEB_HOST_MULTIARCH)"
+          system_pc_path="/usr/lib/${multiarch}/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig"
+
+          version="$(
+            PKG_CONFIG_PATH="${system_pc_path}" \
+            PKG_CONFIG_LIBDIR="${system_pc_path}" \
+            pkg-config --modversion openssl
+          )"
+
+          case "${version}" in
+            3.*) ;;
+            *)
+              echo "Expected system OpenSSL 3.x, got ${version}"
+              exit 1
+              ;;
+          esac
+
+          {
+            echo "OPENSSL_ROOT_DIR=/usr"
+            echo "OPENSSL_DIR="
+            echo "PKG_CONFIG_PATH=${system_pc_path}"
+            echo "PKG_CONFIG_LIBDIR=${system_pc_path}"
+          } >> "${GITHUB_ENV}"
+
+          echo "System OpenSSL selected: ${version}"
+          PKG_CONFIG_PATH="${system_pc_path}" PKG_CONFIG_LIBDIR="${system_pc_path}" \
+            pkg-config --variable=includedir openssl
+          PKG_CONFIG_PATH="${system_pc_path}" PKG_CONFIG_LIBDIR="${system_pc_path}" \
+            pkg-config --variable=libdir openssl
+
       - name: Verify vendored sources
         run: bundle exec rake vendor:verify
 
       - name: Compile extension
-        run: bundle exec rake compile
+        run: bundle exec rake clean compile
+
+      - name: Verify linked OpenSSL 3 on Linux Ruby 2.7
+        if: matrix.os == 'ubuntu-24.04' && matrix.ruby == '2.7.2'
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          extension="lib/pqcrypto/pqcrypto_secure.so"
+          test -f "${extension}"
+          ldd "${extension}" | tee linked-libraries.txt
+          # The extension uses libcrypto only (SHA3/SHAKE/EVP/RAND); it links no
+          # TLS symbols, so libssl is intentionally not a dependency.
+          grep -E 'libcrypto\.so\.3([[:space:]]|$)' linked-libraries.txt
+          if grep -E 'libssl\.so' linked-libraries.txt; then
+            echo "Unexpected libssl linkage; the extension should need libcrypto only" >&2
+            exit 1
+          fi
+
+      - name: Verify linked OpenSSL 3 on macOS Ruby 2.7
+        if: matrix.os == 'macos-latest' && matrix.ruby == '2.7.2'
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          extension="lib/pqcrypto/pqcrypto_secure.bundle"
+          test -f "${extension}"
+          otool -L "${extension}" | tee linked-libraries.txt
+          # libcrypto only; the extension links no TLS symbols, so libssl is
+          # intentionally not a dependency.
+          grep -E 'libcrypto\.3\.dylib' linked-libraries.txt
+          if grep -E 'libssl\.3\.dylib' linked-libraries.txt; then
+            echo "Unexpected libssl linkage; the extension should need libcrypto only" >&2
+            exit 1
+          fi
 
       - name: Run tests
         run: bundle exec rake test
+
+      - name: Build and install source gem on Linux Ruby 2.7
+        if: matrix.os == 'ubuntu-24.04' && matrix.ruby == '2.7.2'
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          gem build pq_crypto.gemspec
+
+          gem_file="$(
+            ruby -Ilib -rpq_crypto/version \
+              -e 'print "pq_crypto-#{PQCrypto::VERSION}.gem"'
+          )"
+
+          gem install "./${gem_file}" --no-document
+
+          ruby -e '
+            require "pq_crypto"
+
+            kem = PQCrypto::KEM.generate(:ml_kem_768)
+            encapsulation = kem.public_key.encapsulate
+            shared_secret = kem.secret_key.decapsulate(encapsulation.ciphertext)
+            raise "ML-KEM mismatch" unless shared_secret == encapsulation.shared_secret
+
+            signature_key = PQCrypto::Signature.generate(:ml_dsa_65)
+            message = "ruby-2.7.2-built-gem".b
+            signature = signature_key.secret_key.sign(message)
+            raise "ML-DSA verify failed" unless signature_key.public_key.verify(message, signature)
+          '
+
+          installed_extension="$(
+            ruby -e '
+              spec = Gem::Specification.find_by_name("pq_crypto")
+              path = Dir[File.join(spec.full_gem_path, "lib", "pqcrypto", "pqcrypto_secure.so")].first
+              abort "installed extension not found" unless path
+              print path
+            '
+          )"
+
+          ldd "${installed_extension}" | tee installed-linked-libraries.txt
+          grep -E 'libcrypto\.so\.3([[:space:]]|$)' installed-linked-libraries.txt
+          if grep -E 'libssl\.so' installed-linked-libraries.txt; then
+            echo "Unexpected libssl linkage; the extension should need libcrypto only" >&2
+            exit 1
+          fi
+
+      - name: Show mkmf logs on failure
+        if: failure()
+        shell: bash
+        run: |
+          find tmp -name mkmf.log -print -exec cat {} \; || true
 
   interop-openssl-3-5-required:
     needs: vendor-verify
@@ -81,12 +205,12 @@ jobs:
           sudo ldconfig
           /opt/openssl-3.5/bin/openssl version
           /opt/openssl-3.5/bin/openssl version | grep -E '^OpenSSL 3\.(5|[6-9]|[1-9][0-9])\.'
-          echo /opt/openssl-3.5/bin >> "$GITHUB_PATH"
+          echo /opt/openssl-3.5/bin >> "${GITHUB_PATH}"
           {
             echo "OPENSSL_ROOT_DIR=/opt/openssl-3.5"
             echo "PKG_CONFIG_PATH=/opt/openssl-3.5/lib64/pkgconfig"
             echo "LD_LIBRARY_PATH=/opt/openssl-3.5/lib64"
-          } >> "$GITHUB_ENV"
+          } >> "${GITHUB_ENV}"
 
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
@@ -103,7 +227,7 @@ jobs:
         run: bundle exec rake vendor:verify
 
       - name: Compile extension
-        run: bundle exec rake compile
+        run: bundle exec rake clean compile
 
       - name: Run tests
         run: |
@@ -117,10 +241,17 @@ jobs:
             exit 1
           fi
 
+      - name: Show mkmf logs on failure
+        if: failure()
+        shell: bash
+        run: |
+          find tmp -name mkmf.log -print -exec cat {} \; || true
+
   linux-native-backend:
     needs: test
     name: linux-native-backend
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+
     env:
       PQCRYPTO_NATIVE_ASM: "1"
 
@@ -148,18 +279,19 @@ jobs:
             require "pq_crypto"
 
             kem = PQCrypto::KEM.generate(:ml_kem_768)
-            enc = kem.public_key.encapsulate
-            raise "ML-KEM mismatch" unless kem.secret_key.decapsulate(enc.ciphertext) == enc.shared_secret
+            encapsulation = kem.public_key.encapsulate
+            shared_secret = kem.secret_key.decapsulate(encapsulation.ciphertext)
+            raise "ML-KEM mismatch" unless shared_secret == encapsulation.shared_secret
 
-            sig = PQCrypto::Signature.generate(:ml_dsa_65)
-            msg = "linux-native-backend".b
-            signature = sig.secret_key.sign(msg)
-            raise "ML-DSA verify failed" unless sig.public_key.verify(msg, signature)
+            signature_key = PQCrypto::Signature.generate(:ml_dsa_65)
+            message = "linux-native-backend".b
+            signature = signature_key.secret_key.sign(message)
+            raise "ML-DSA verify failed" unless signature_key.public_key.verify(message, signature)
           '
 
       - name: Verify AVX2 native symbols
         run: |
           set -euxo pipefail
-          so="lib/pqcrypto/pqcrypto_secure.so"
-          test -f "$so"
-          nm "$so" | grep -E "pqcr_(mlkem|mldsa).*avx2|keccak.*avx2"
+          extension="lib/pqcrypto/pqcrypto_secure.so"
+          test -f "${extension}"
+          nm "${extension}" | grep -E "pqcr_(mlkem|mldsa).*avx2|keccak.*avx2"
