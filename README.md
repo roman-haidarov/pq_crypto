@@ -63,9 +63,9 @@ original algorithms:
 
 ## Requirements
 
-- Ruby 3.1 or later
+- Ruby 2.7.1 or later
   - Ruby 3.4+ keeps the optimized Fiber Scheduler offload path via `RB_NOGVL_OFFLOAD_SAFE`
-  - Ruby 3.1-3.3 use the compatibility no-GVL path without scheduler offload guarantees
+  - Ruby 2.7.1-3.3 use the compatibility no-GVL path without scheduler offload guarantees
 - a C toolchain with C11 support
 - OpenSSL 3.0 or later with SHA3-256 and SHAKE256 available
 - vendored minimal PQ Code Package native snapshot in `ext/pqcrypto/vendor`
