@@ -1,5 +1,51 @@
 # Changelog
 
+## [0.6.5] - 2026-08-04
+
+### Changed
+
+- update native mlkem `v1.2.0` -> `v1.3.0`
+
+  Upstream is a feature/integration release with no security fixes and no
+  changes to the ML-KEM algorithm implementation. Everything relevant to this
+  gem is unchanged: the exported symbol set, all key/ciphertext/shared-secret
+  sizes, and the derived key material for ML-KEM-512/768/1024 (verified
+  byte-for-byte against `v1.2.0` for both the portable and the AVX2 build,
+  including the implicit-rejection path and the SHAKE256/SHA3-256 helpers used
+  by the X-Wing combiner).
+
+  What upstream changed that is visible in the vendored tree:
+  - new opt-in `MLK_CONFIG_NO_{KEYPAIR,ENCAPS,DECAPS}_API` build options; the
+    gem needs all three operations and does not set them
+  - the AArch64 arithmetic and FIPS-202 backends are now gated on compile-time
+    NEON availability (`MLK_SYS_AARCH64_NEON`) and on the new `MLK_SYS_CAP_NEON`
+    runtime capability, which defaults to "available"
+  - new opt-in `MLK_SYS_AARCH64_FAST_SHA3` for CPUs with high SHA3 throughput
+  - backend assembly files renamed with an `mlkem_` prefix and assembly-local
+    labels namespaced with `mlk_`; both are internal to the vendored aggregator
+    `mlkem_native_asm.S` and transparent to this build
+  - context-parameter machinery moved into the new `mlkem/src/context.h`
+
+  Note that `mlkem-native` v1.3.0 is the last release before a breaking v2;
+  `release/v1.3` is the upstream support branch.
+
+- `mldsa-native` remains pinned at `v1.0.0-beta2`, which is still the latest
+  upstream tag.
+
+### Testing
+
+- Added `test/native_api_conformance`, a compile-only check that validates the
+  hand-written declarations in `ext/pqcrypto/pqcrypto_native_api.h` against the
+  vendored upstream headers. The extension deliberately never includes
+  `mlkem_native.h` / `mldsa_native.h`, so nothing else in the build could catch
+  size or prototype drift after a vendor bump.
+
+### CI
+
+- Run the native API conformance check right after `vendor:verify`.
+- Verify that the AArch64 assembly backends are actually compiled in on
+  macOS ARM runners, and smoke-test ML-KEM and ML-DSA against that build.
+
 ## [0.6.4] - 2026-07-18
 
 ### Compatibility
