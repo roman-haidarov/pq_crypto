@@ -13,9 +13,9 @@ MANIFEST_PATH = File.join(VENDOR_DIR, ".vendored")
 PINS = {
   mlkem: {
     repo: "https://github.com/pq-code-package/mlkem-native.git",
-    ref: "v1.2.0",
-    commit: "0ba906cb14b1c241476134d7403a811b382ca498",
-    tree_sha256: "cc78ed199b8c65abe68635b23a13b294d5a8deb20c8bc7b4d76590c00976bb2d",
+    ref: "v1.3.0",
+    commit: "398050c877ff4353c96305c6434b63528accfc37",
+    tree_sha256: "3cd7af93cde256f73ce5ffde3ac3accd31e4361616e275f1bf1c39d462c2149e",
     target: "mlkem-native",
     source_dir: "mlkem"
   },
