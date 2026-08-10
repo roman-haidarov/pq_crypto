@@ -26,7 +26,7 @@ module PQCrypto
           ]),
           OpenSSL::ASN1::BitString.new(bytes),
         ]).to_der.b
-      rescue OpenSSL::ASN1::ASN1Error => e
+      rescue OpenSSL::OpenSSLError, TypeError => e
         raise SerializationError, e.message
       end
 
@@ -63,6 +63,8 @@ module PQCrypto
         end
 
         [algorithm, bytes]
+      rescue OpenSSL::OpenSSLError, TypeError => e
+        raise SerializationError, e.message
       end
 
       def decode_pem(pem)
@@ -74,7 +76,7 @@ module PQCrypto
 
       def decode_asn1(der)
         OpenSSL::ASN1.decode(der)
-      rescue OpenSSL::ASN1::ASN1Error => e
+      rescue OpenSSL::OpenSSLError, TypeError => e
         raise SerializationError, e.message
       end
 

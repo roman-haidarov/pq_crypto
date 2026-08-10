@@ -70,10 +70,16 @@ module PQCrypto
         der = encode_der(algorithm, secret_material, format: format, passphrase: passphrase, iterations: iterations)
         pkcs8_native { PQCrypto.__send__(:native_pkcs8_der_to_pem, der, !passphrase.nil?) }
       end
-
-      def decode_der(der, passphrase: nil)
+      def decode_der(der, passphrase: nil, require_encrypted: false)
+        require_encrypted = Internal.strict_boolean!(require_encrypted, name: "require_encrypted")
         input = Internal.binary_string(der)
-        return decode_encrypted_der(input, passphrase: passphrase) if encrypted_der?(input)
+        encrypted = encrypted_der?(input)
+
+        if require_encrypted && !encrypted
+          raise SerializationError, "PKCS#8 input is not encrypted, but require_encrypted: true was requested"
+        end
+
+        return decode_encrypted_der(input, passphrase: passphrase) if encrypted
 
         oid, choice_der = private_key_info_from_der(input)
         algorithm = AlgorithmRegistry.by_standard_oid(oid)
@@ -83,15 +89,17 @@ module PQCrypto
         PrivateKeyChoice.validate_secret_key_algorithm!(algorithm, entry)
         PrivateKeyChoice.decode(algorithm, Internal.binary_string(choice_der))
       rescue ArgumentError => e
+        raise if e.message.start_with?("require_encrypted")
         raise SerializationError, e.message
       ensure
         Internal.safe_wipe(choice_der) if defined?(choice_der)
       end
 
-      def decode_pem(pem, passphrase: nil)
+      def decode_pem(pem, passphrase: nil, require_encrypted: false)
+        require_encrypted = Internal.strict_boolean!(require_encrypted, name: "require_encrypted")
         _encrypted, der = pkcs8_native { PQCrypto.__send__(:native_pkcs8_pem_to_der, String(pem)) }
         begin
-          decode_der(der, passphrase: passphrase)
+          decode_der(der, passphrase: passphrase, require_encrypted: require_encrypted)
         ensure
           Internal.safe_wipe(der)
         end

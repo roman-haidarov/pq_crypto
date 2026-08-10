@@ -127,6 +127,52 @@ into `mldsa-native` `signature_internal`; for an empty context this prefix is
 Outside of test-only deterministic calls, production randomness delegates
 directly to OpenSSL `RAND_bytes`.
 
+## Key import validation (0.6.7+)
+
+ML-KEM public/secret keys and ML-DSA secret keys are structure-checked when
+the corresponding Ruby key objects are constructed:
+
+| Object | Check | Source |
+| --- | --- | --- |
+| `KEM::PublicKey` | FIPS 203 §7.2 modulus check | `check_pk` |
+| `KEM::SecretKey` | FIPS 203 §7.3 `H(pk)` check | `check_sk` |
+| `Signature::SecretKey` | norms / `t0` / `tr` consistency | `pk_from_sk` |
+| `Signature::PublicKey` | length only | — |
+| X-Wing public key | ML-KEM-768 half only | `check_pk` |
+| X-Wing secret key | none (32-byte seed) | — |
+
+These are **import diagnostics**. Encapsulation, decapsulation, signing, and
+verification still apply their own backend checks. A true `#valid?` result
+does not prove full cryptographic integrity of every field (for example an
+ML-KEM secret key with a corrupted IND-CPA `dk` but intact `H(pk)` still
+passes §7.3).
+
+The checks run on import. Keys produced by this process's own key generation
+are valid by construction and are not re-checked, because the ML-DSA check
+re-derives the public key and would roughly double the cost of every keypair.
+
+The ML-DSA check (`pk_from_sk`) is documented upstream as leaking whether the
+secret key is valid, through both its return value and its timing.
+
+`require_encrypted:` applies only to the PKCS#8 branch. `PQCrypto::Key.from_der`
+and `.from_pem` also accept SPKI public keys, and for those inputs the flag has
+no effect and is silently ignored.
+
+Public-key internal buffers are frozen after construction. Secret-key buffers
+remain mutable so `#wipe!` can zero them.
+
+### `require_encrypted:`
+
+`require_encrypted: true` on PKCS#8 loaders rejects plaintext PrivateKeyInfo
+and requires EncryptedPrivateKeyInfo (classified from DER, not PEM labels).
+It does **not**:
+
+- apply to `from_bytes` / `pqc_container_*` loaders
+- enforce passphrase quality or PBKDF iteration count
+- default on (default remains `false`)
+
+The flag must be a boolean; non-boolean values raise `ArgumentError`.
+
 ## Memory wiping
 
 `PQCrypto.secure_wipe` clears mutable Ruby strings in place. Ruby key objects

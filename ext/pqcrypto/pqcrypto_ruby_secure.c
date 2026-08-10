@@ -718,6 +718,12 @@ __attribute__((noreturn)) static void pq_raise_general_error(int err) {
     case PQ_ERROR_OPENSSL:
         rb_raise(ePQCryptoError, "OpenSSL error");
         break;
+    case PQ_ERROR_INVALID_PUBLIC_KEY:
+        rb_raise(ePQCryptoError, "Invalid public key");
+        break;
+    case PQ_ERROR_INVALID_SECRET_KEY:
+        rb_raise(ePQCryptoError, "Invalid secret key");
+        break;
     default:
         rb_raise(ePQCryptoError, "Unknown error: %d", err);
         break;
@@ -765,6 +771,28 @@ static VALUE pq_run_kem_keypair_from_seed(void *(*nogvl)(void *), VALUE seed, si
     X(ml_kem_1024, MLKEM1024_PUBLICKEYBYTES, MLKEM1024_SECRETKEYBYTES, MLKEM1024_CIPHERTEXTBYTES, \
       MLKEM1024_SHAREDSECRETBYTES)
 
+static VALUE pq_run_key_check(int (*check)(const uint8_t *), VALUE key, size_t expected_len) {
+    uint8_t *buffer;
+    size_t copied_len = 0;
+    int result;
+
+    StringValue(key);
+    if ((size_t)RSTRING_LEN(key) != expected_len) {
+        return Qfalse;
+    }
+
+    buffer = pq_copy_ruby_string(key, &copied_len);
+    result = check(buffer);
+    pq_secure_wipe(buffer, copied_len);
+    free(buffer);
+
+    if (result == PQ_ERROR_NOMEM) {
+        rb_raise(rb_eNoMemError, "Memory allocation failed");
+    }
+
+    return result == PQ_SUCCESS ? Qtrue : Qfalse;
+}
+
 #define PQ_DEFINE_RUBY_KEM(rb_name, pk_bytes, sk_bytes, ct_bytes, ss_bytes)                   \
     static VALUE pqcrypto_##rb_name##_keypair(VALUE self) {                                   \
         (void)self;                                                                           \
@@ -786,6 +814,41 @@ static VALUE pq_run_kem_keypair_from_seed(void *(*nogvl)(void *), VALUE seed, si
         return pq_run_kem_decapsulate(pq_##rb_name##_decapsulate_nogvl, ciphertext, ct_bytes, \
                                       secret_key, sk_bytes, ss_bytes);                        \
     }
+
+#define PQ_DEFINE_RUBY_KEM_CHECK(rb_name, c_name)                               \
+    static VALUE pqcrypto_##rb_name##_check_public_key(VALUE self, VALUE key) { \
+        (void)self;                                                             \
+        return pq_run_key_check(pq_##c_name##_check_public_key, key,            \
+                                (size_t)c_name##_PUBLICKEYBYTES_VALUE);         \
+    }                                                                           \
+    static VALUE pqcrypto_##rb_name##_check_secret_key(VALUE self, VALUE key) { \
+        (void)self;                                                             \
+        return pq_run_key_check(pq_##c_name##_check_secret_key, key,            \
+                                (size_t)c_name##_SECRETKEYBYTES_VALUE);         \
+    }
+
+#define mlkem_PUBLICKEYBYTES_VALUE     PQ_MLKEM_PUBLICKEYBYTES
+#define mlkem_SECRETKEYBYTES_VALUE     PQ_MLKEM_SECRETKEYBYTES
+#define mlkem512_PUBLICKEYBYTES_VALUE  MLKEM512_PUBLICKEYBYTES
+#define mlkem512_SECRETKEYBYTES_VALUE  MLKEM512_SECRETKEYBYTES
+#define mlkem1024_PUBLICKEYBYTES_VALUE MLKEM1024_PUBLICKEYBYTES
+#define mlkem1024_SECRETKEYBYTES_VALUE MLKEM1024_SECRETKEYBYTES
+
+PQ_KEM_KEYPAIR_NOGVL_VARIANTS(PQ_DEFINE_RUBY_KEM_CHECK)
+
+#undef PQ_DEFINE_RUBY_KEM_CHECK
+
+#define PQ_DEFINE_RUBY_MLDSA_CHECK_SK(rb_name, c_name, sk_bytes)                          \
+    static VALUE pqcrypto_##rb_name##_check_secret_key(VALUE self, VALUE key) {           \
+        (void)self;                                                                       \
+        return pq_run_key_check(pq_##c_name##_check_secret_key, key, (size_t)(sk_bytes)); \
+    }
+
+PQ_DEFINE_RUBY_MLDSA_CHECK_SK(ml_dsa, mldsa, MLDSA65_SECRETKEYBYTES)
+PQ_DEFINE_RUBY_MLDSA_CHECK_SK(ml_dsa_44, mldsa44, MLDSA44_SECRETKEYBYTES)
+PQ_DEFINE_RUBY_MLDSA_CHECK_SK(ml_dsa_87, mldsa87, MLDSA87_SECRETKEYBYTES)
+
+#undef PQ_DEFINE_RUBY_MLDSA_CHECK_SK
 
 PQ_RUBY_KEM_VARIANTS(PQ_DEFINE_RUBY_KEM)
 
@@ -1999,6 +2062,24 @@ void Init_pqcrypto_secure(void) {
                               pqcrypto_ml_kem_1024_encapsulate, 1);
     rb_define_module_function(mPQCrypto, "ml_kem_1024_decapsulate",
                               pqcrypto_ml_kem_1024_decapsulate, 2);
+    rb_define_module_function(mPQCrypto, "ml_kem_check_public_key",
+                              pqcrypto_ml_kem_check_public_key, 1);
+    rb_define_module_function(mPQCrypto, "ml_kem_check_secret_key",
+                              pqcrypto_ml_kem_check_secret_key, 1);
+    rb_define_module_function(mPQCrypto, "ml_kem_512_check_public_key",
+                              pqcrypto_ml_kem_512_check_public_key, 1);
+    rb_define_module_function(mPQCrypto, "ml_kem_512_check_secret_key",
+                              pqcrypto_ml_kem_512_check_secret_key, 1);
+    rb_define_module_function(mPQCrypto, "ml_kem_1024_check_public_key",
+                              pqcrypto_ml_kem_1024_check_public_key, 1);
+    rb_define_module_function(mPQCrypto, "ml_kem_1024_check_secret_key",
+                              pqcrypto_ml_kem_1024_check_secret_key, 1);
+    rb_define_module_function(mPQCrypto, "ml_dsa_check_secret_key",
+                              pqcrypto_ml_dsa_check_secret_key, 1);
+    rb_define_module_function(mPQCrypto, "ml_dsa_44_check_secret_key",
+                              pqcrypto_ml_dsa_44_check_secret_key, 1);
+    rb_define_module_function(mPQCrypto, "ml_dsa_87_check_secret_key",
+                              pqcrypto_ml_dsa_87_check_secret_key, 1);
     rb_define_module_function(mPQCrypto, "hybrid_kem_keypair", pqcrypto_hybrid_kem_keypair, 0);
     rb_define_module_function(mPQCrypto, "hybrid_kem_encapsulate", pqcrypto_hybrid_kem_encapsulate,
                               1);

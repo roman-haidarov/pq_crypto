@@ -101,6 +101,13 @@ can be tested explicitly with:
 PQCRYPTO_NATIVE_ASM=1 bundle exec rake compile
 ```
 
+The FIPS 140-3 pairwise consistency test is available but off by default,
+because it makes key generation noticeably more expensive:
+
+```bash
+PQCRYPTO_KEYGEN_PCT=1 bundle exec rake compile
+```
+
 ## Security status
 
 `pq_crypto` is experimental and not audited. Treat it as a low-level primitive
@@ -125,7 +132,11 @@ PQCrypto::Signature.secret_key_from_seed(:ml_dsa_65, seed_32_bytes)
 
 PQCrypto::HybridKEM.generate(:ml_kem_768_x25519_xwing)
 PQCrypto::Key.from_pem(pem, passphrase: passphrase)
+PQCrypto::Key.from_pem(pem, passphrase: passphrase, require_encrypted: true)
+keypair.public_key.valid?  # ML-KEM structure check; ML-DSA public keys are length-only
+keypair.secret_key.valid?
 ```
+
 
 ## More examples
 

@@ -265,11 +265,63 @@ cleanup:
             return PQ_ERROR_BUFFER;                                                          \
         }                                                                                    \
         return native##_dec(ss, ct, sk) == 0 ? PQ_SUCCESS : PQ_ERROR_DECAPSULATE;            \
+    }                                                                                        \
+    int pq_##prefix##_check_public_key(const uint8_t *pk) {                                  \
+        int rc;                                                                              \
+        if (!pk) {                                                                           \
+            return PQ_ERROR_BUFFER;                                                          \
+        }                                                                                    \
+        rc = native##_check_pk(pk);                                                          \
+        if (rc == 0) {                                                                       \
+            return PQ_SUCCESS;                                                               \
+        }                                                                                    \
+        if (rc == -2) {                                                                      \
+            return PQ_ERROR_NOMEM;                                                           \
+        }                                                                                    \
+        return PQ_ERROR_INVALID_PUBLIC_KEY;                                                  \
+    }                                                                                        \
+    int pq_##prefix##_check_secret_key(const uint8_t *sk) {                                  \
+        int rc;                                                                              \
+        if (!sk) {                                                                           \
+            return PQ_ERROR_BUFFER;                                                          \
+        }                                                                                    \
+        rc = native##_check_sk(sk);                                                          \
+        if (rc == 0) {                                                                       \
+            return PQ_SUCCESS;                                                               \
+        }                                                                                    \
+        if (rc == -2) {                                                                      \
+            return PQ_ERROR_NOMEM;                                                           \
+        }                                                                                    \
+        return PQ_ERROR_INVALID_SECRET_KEY;                                                  \
     }
 
 PQ_MLKEM_VARIANTS(PQ_DEFINE_MLKEM_SHIMS)
 
 #undef PQ_DEFINE_MLKEM_SHIMS
+
+#define PQ_DEFINE_MLDSA_CHECK_SK(prefix, native, pk_bytes)  \
+    int pq_##prefix##_check_secret_key(const uint8_t *sk) { \
+        uint8_t pk[(pk_bytes)];                             \
+        int rc;                                             \
+        if (!sk) {                                          \
+            return PQ_ERROR_BUFFER;                         \
+        }                                                   \
+        rc = native##_pk_from_sk(pk, sk);                   \
+        pq_secure_wipe(pk, sizeof(pk));                     \
+        if (rc == 0) {                                      \
+            return PQ_SUCCESS;                              \
+        }                                                   \
+        if (rc == -2) {                                     \
+            return PQ_ERROR_NOMEM;                          \
+        }                                                   \
+        return PQ_ERROR_INVALID_SECRET_KEY;                 \
+    }
+
+PQ_DEFINE_MLDSA_CHECK_SK(mldsa, pqcr_mldsa65, MLDSA65_PUBLICKEYBYTES)
+PQ_DEFINE_MLDSA_CHECK_SK(mldsa44, pqcr_mldsa44, MLDSA44_PUBLICKEYBYTES)
+PQ_DEFINE_MLDSA_CHECK_SK(mldsa87, pqcr_mldsa87, MLDSA87_PUBLICKEYBYTES)
+
+#undef PQ_DEFINE_MLDSA_CHECK_SK
 
 static int pq_testing_mlkem_keypair_from_seed_with(uint8_t *public_key, uint8_t *secret_key,
                                                    const uint8_t *seed, size_t seed_len,

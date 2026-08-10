@@ -29,7 +29,9 @@ typedef enum {
     PQ_ERROR_RANDOM = -7,
     PQ_ERROR_BUFFER = -8,
     PQ_ERROR_NOMEM = -9,
-    PQ_ERROR_OPENSSL = -10
+    PQ_ERROR_OPENSSL = -10,
+    PQ_ERROR_INVALID_PUBLIC_KEY = -11,
+    PQ_ERROR_INVALID_SECRET_KEY = -12
 } pq_error_t;
 
 typedef struct {
@@ -82,6 +84,17 @@ int pq_mlkem512_decapsulate(uint8_t *shared_secret, const uint8_t *ciphertext,
                             const uint8_t *secret_key);
 int pq_mlkem1024_decapsulate(uint8_t *shared_secret, const uint8_t *ciphertext,
                              const uint8_t *secret_key);
+
+int pq_mlkem_check_public_key(const uint8_t *public_key);
+int pq_mlkem_check_secret_key(const uint8_t *secret_key);
+int pq_mlkem512_check_public_key(const uint8_t *public_key);
+int pq_mlkem512_check_secret_key(const uint8_t *secret_key);
+int pq_mlkem1024_check_public_key(const uint8_t *public_key);
+int pq_mlkem1024_check_secret_key(const uint8_t *secret_key);
+
+int pq_mldsa_check_secret_key(const uint8_t *secret_key);
+int pq_mldsa44_check_secret_key(const uint8_t *secret_key);
+int pq_mldsa87_check_secret_key(const uint8_t *secret_key);
 
 int pq_sign_keypair(uint8_t *public_key, uint8_t *secret_key);
 int pq_mldsa44_sign_keypair(uint8_t *public_key, uint8_t *secret_key);

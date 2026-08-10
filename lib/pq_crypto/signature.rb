@@ -14,18 +14,21 @@ module PQCrypto
         sign: :native_ml_dsa_44_sign,
         verify: :native_ml_dsa_44_verify,
         keypair_from_seed: :native_ml_dsa_44_keypair_from_seed,
+        check_secret_key: :native_ml_dsa_44_check_secret_key,
       }.freeze,
       ml_dsa_65: {
         keypair: :native_sign_keypair,
         sign: :native_sign,
         verify: :native_verify,
         keypair_from_seed: :native_ml_dsa_keypair_from_seed,
+        check_secret_key: :native_ml_dsa_check_secret_key,
       }.freeze,
       ml_dsa_87: {
         keypair: :native_ml_dsa_87_keypair,
         sign: :native_ml_dsa_87_sign,
         verify: :native_ml_dsa_87_verify,
         keypair_from_seed: :native_ml_dsa_87_keypair_from_seed,
+        check_secret_key: :native_ml_dsa_87_check_secret_key,
       }.freeze,
     }.freeze
 
@@ -33,7 +36,8 @@ module PQCrypto
       def generate(algorithm = CANONICAL_ALGORITHM)
         algorithm = resolve_algorithm!(algorithm)
         public_key, secret_key = PQCrypto.__send__(native_method_for(algorithm, :keypair))
-        Keypair.new(PublicKey.new(algorithm, public_key), SecretKey.new(algorithm, secret_key))
+        Keypair.new(PublicKey.new(algorithm, public_key),
+                    SecretKey.new(algorithm, secret_key, freshly_generated: true))
       end
 
       def public_key_from_bytes(algorithm, bytes)
@@ -86,12 +90,18 @@ module PQCrypto
         PublicKey.new(resolve_algorithm!(resolved_algorithm), bytes)
       end
 
-      def secret_key_from_pkcs8_der(der, passphrase: nil)
-        secret_key_from_decoded_pkcs8(*PKCS8.decode_der(der, passphrase: passphrase))
+      def secret_key_from_pkcs8_der(der, passphrase: nil, require_encrypted: false)
+        require_encrypted = Internal.strict_boolean!(require_encrypted, name: "require_encrypted")
+        secret_key_from_decoded_pkcs8(
+          *PKCS8.decode_der(der, passphrase: passphrase, require_encrypted: require_encrypted)
+        )
       end
 
-      def secret_key_from_pkcs8_pem(pem, passphrase: nil)
-        secret_key_from_decoded_pkcs8(*PKCS8.decode_pem(pem, passphrase: passphrase))
+      def secret_key_from_pkcs8_pem(pem, passphrase: nil, require_encrypted: false)
+        require_encrypted = Internal.strict_boolean!(require_encrypted, name: "require_encrypted")
+        secret_key_from_decoded_pkcs8(
+          *PKCS8.decode_pem(pem, passphrase: passphrase, require_encrypted: require_encrypted)
+        )
       end
 
       def details(algorithm)
@@ -118,7 +128,7 @@ module PQCrypto
           SecretKey.new(algorithm, material)
         when :seed
           _public_key, expanded = PQCrypto.__send__(native_method_for(algorithm, :keypair_from_seed), material)
-          SecretKey.new(algorithm, expanded, seed: material)
+          SecretKey.new(algorithm, expanded, seed: material, freshly_generated: true)
         when :both
           _seed, expanded = material
           SecretKey.new(algorithm, expanded, seed: _seed)
@@ -131,6 +141,10 @@ module PQCrypto
 
       def native_method_for(algorithm, operation)
         NATIVE_DISPATCH.fetch(resolve_algorithm!(algorithm)).fetch(operation)
+      end
+
+      def secret_key_checkable?(algorithm)
+        NATIVE_DISPATCH.key?(algorithm) && NATIVE_DISPATCH.fetch(algorithm).key?(:check_secret_key)
       end
 
       def validate_algorithm_match!(expected_algorithm, actual_algorithm)
@@ -264,7 +278,7 @@ module PQCrypto
 
       def initialize(algorithm, bytes)
         @algorithm = algorithm
-        @bytes = Internal.binary_string(bytes)
+        @bytes = Internal.frozen_binary_string(bytes)
         validate_length!
       end
 
@@ -343,18 +357,25 @@ module PQCrypto
     class SecretKey
       attr_reader :algorithm
 
-      def initialize(algorithm, bytes, seed: nil)
+      def initialize(algorithm, bytes, seed: nil, freshly_generated: false)
         @algorithm = algorithm
         @bytes = Internal.binary_string(bytes)
         @seed = seed.nil? ? nil : Internal.binary_string(seed)
         validate_length!
         validate_seed_length! if @seed
+        validate_structure! unless freshly_generated
+      end
+
+      def valid?
+        return true unless Signature.send(:secret_key_checkable?, @algorithm)
+
+        PQCrypto.__send__(Signature.send(:native_method_for, @algorithm, :check_secret_key), @bytes)
       end
 
       def self.from_seed(algorithm, seed)
         seed_bytes = Internal.binary_string(seed)
         _public_key, expanded = PQCrypto.__send__(Signature.send(:native_method_for, algorithm, :keypair_from_seed), seed_bytes)
-        new(algorithm, expanded, seed: seed_bytes)
+        new(algorithm, expanded, seed: seed_bytes, freshly_generated: true)
       rescue ArgumentError => e
         raise InvalidKeyError, e.message
       end
@@ -422,6 +443,10 @@ module PQCrypto
       def validate_length!
         expected = Signature.details(@algorithm).fetch(:secret_key_bytes)
         raise InvalidKeyError, "Invalid signature secret key length" unless @bytes.bytesize == expected
+      end
+
+      def validate_structure!
+        raise InvalidKeyError, "Invalid #{@algorithm} secret key: ML-DSA structure check failed" unless valid?
       end
 
       def pkcs8_material(format)

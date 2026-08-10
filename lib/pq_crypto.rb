@@ -65,6 +65,15 @@ module PQCrypto
       ml_kem_1024_keypair_from_seed
       ml_kem_1024_encapsulate
       ml_kem_1024_decapsulate
+      ml_kem_check_public_key
+      ml_kem_check_secret_key
+      ml_kem_512_check_public_key
+      ml_kem_512_check_secret_key
+      ml_kem_1024_check_public_key
+      ml_kem_1024_check_secret_key
+      ml_dsa_check_secret_key
+      ml_dsa_44_check_secret_key
+      ml_dsa_87_check_secret_key
       hybrid_kem_keypair
       hybrid_kem_encapsulate
       hybrid_kem_expand_secret_key
