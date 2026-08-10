@@ -16,6 +16,11 @@
  *   FIPS 204 Module-Lattice-Based Digital Signature Standard
  *   National Institute of Standards and Technology
  *   https://csrc.nist.gov/pubs/fips/204/final
+ *
+ * - [FIPS204_UPDATES]
+ *   FIPS 204 Potential Updates (Errata)
+ *   National Institute of Standards and Technology
+ *   https://csrc.nist.gov/files/pubs/fips/204/final/docs/fips-204-potential-updates.xlsx
  */
 
 #ifndef MLD_CONFIG_H
@@ -49,7 +54,7 @@
  *
  * When you need to build mldsa-native in multiple configurations,
  * using varying MLD_CONFIG_FILE can be more convenient
- * then configuring everything through CFLAGS.
+ * than configuring everything through CFLAGS.
  *
  * To use, MLD_CONFIG_FILE _must_ be defined prior
  * to the inclusion of any mldsa-native headers. For example,
@@ -111,8 +116,8 @@
  *
  * By default, mldsa-native includes support for generating key
  * pairs. If you don't need this, set MLD_CONFIG_NO_KEYPAIR_API
- * to exclude crypto_sign_keypair, crypto_sign_keypair_internal,
- * crypto_sign_pk_from_sk, and all internal APIs only needed by
+ * to exclude keypair, keypair_internal,
+ * pk_from_sk, and all internal APIs only needed by
  * those functions.
  */
 /* #define MLD_CONFIG_NO_KEYPAIR_API */
@@ -122,10 +127,10 @@
  *
  * By default, mldsa-native includes support for creating
  * signatures. If you don't need this, set MLD_CONFIG_NO_SIGN_API
- * to exclude crypto_sign, crypto_sign_signature,
- * crypto_sign_signature_extmu, crypto_sign_signature_internal,
- * crypto_sign_signature_pre_hash_internal,
- * crypto_sign_signature_pre_hash_shake256, and all internal APIs
+ * to exclude signature,
+ * signature_extmu, signature_internal,
+ * signature_pre_hash_internal,
+ * signature_pre_hash_shake256, and all internal APIs
  * only needed by those functions.
  */
 /* #define MLD_CONFIG_NO_SIGN_API */
@@ -135,11 +140,10 @@
  *
  * By default, mldsa-native includes support for verifying
  * signatures. If you don't need this, set
- * MLD_CONFIG_NO_VERIFY_API to exclude crypto_sign_open,
- * crypto_sign_verify, crypto_sign_verify_extmu,
- * crypto_sign_verify_internal,
- * crypto_sign_verify_pre_hash_internal,
- * crypto_sign_verify_pre_hash_shake256, and all internal APIs
+ * MLD_CONFIG_NO_VERIFY_API to exclude verify,
+ * verify_extmu, verify_internal,
+ * verify_pre_hash_internal,
+ * verify_pre_hash_shake256, and all internal APIs
  * only needed by those functions.
  */
 /* #define MLD_CONFIG_NO_VERIFY_API */
@@ -148,8 +152,8 @@
  * MLD_CONFIG_CORE_API_ONLY
  *
  * Set this to remove all public APIs except
- * crypto_sign_keypair_internal, crypto_sign_signature_internal,
- * and crypto_sign_verify_internal.
+ * keypair_internal, signature_internal,
+ * and verify_internal.
  */
 /* #define MLD_CONFIG_CORE_API_ONLY */
 
@@ -157,31 +161,18 @@
  * MLD_CONFIG_NO_RANDOMIZED_API
  *
  * If this option is set, mldsa-native will be built without the
- * randomized API functions (crypto_sign_keypair,
- * crypto_sign, crypto_sign_signature, and
- * crypto_sign_signature_extmu).
+ * randomized API functions (keypair,
+ * signature, and signature_extmu).
  * This allows users to build mldsa-native without providing a
  * randombytes() implementation if they only need the
  * internal deterministic API
- * (crypto_sign_keypair_internal, crypto_sign_signature_internal).
+ * (keypair_internal, signature_internal).
  *
  * @note This option is incompatible with MLD_CONFIG_KEYGEN_PCT
  * as the current PCT implementation requires
- * crypto_sign_signature().
+ * signature().
  */
 /* #define MLD_CONFIG_NO_RANDOMIZED_API */
-
-/**
- * MLD_CONFIG_NO_SUPERCOP
- *
- * By default, mldsa_native.h exposes the mldsa-native API in the
- * SUPERCOP naming convention (crypto_sign_xxx). If you don't need
- * this, set MLD_CONFIG_NO_SUPERCOP.
- *
- * @note You must set this for a multi-level build as the SUPERCOP
- * naming does not disambiguate between the parameter sets.
- */
-/* #define MLD_CONFIG_NO_SUPERCOP */
 
 /**
  * MLD_CONFIG_CONSTANTS_ONLY
@@ -213,14 +204,17 @@
  * code will be included in the build, including code needed only
  * for other parameter sets.
  *
- * Example: TODO: add example
+ * Example: mld_polyw1_pack_88 is only needed for
+ * MLD_CONFIG_PARAMETER_SET == 44. Yet, if this option is set for a
+ * build with MLD_CONFIG_PARAMETER_SET == 65/87, it would be included.
  *
  * To build mldsa-native with support for all parameter sets,
  * build it three times -- once per parameter set -- and set the
  * option MLD_CONFIG_MULTILEVEL_WITH_SHARED for exactly one of
  * them, and MLD_CONFIG_MULTILEVEL_NO_SHARED for the others.
+ * MLD_CONFIG_MULTILEVEL_BUILD should be set for all of them.
  *
- * See examples/multilevel_build_mldsa for an example.
+ * See examples/multilevel_build for an example.
  *
  * This can also be set using CFLAGS.
  */
@@ -239,8 +233,9 @@
  * build it three times -- once per parameter set -- and set the
  * option MLD_CONFIG_MULTILEVEL_WITH_SHARED for exactly one of
  * them, and MLD_CONFIG_MULTILEVEL_NO_SHARED for the others.
+ * MLD_CONFIG_MULTILEVEL_BUILD should be set for all of them.
  *
- * See examples/multilevel_build_mldsa for an example.
+ * See examples/multilevel_build for an example.
  *
  * This can also be set using CFLAGS.
  */
@@ -252,8 +247,8 @@
  * This is only relevant for single compilation unit (SCU)
  * builds of mldsa-native. In this case, it determines whether
  * directives defined in parameter-set-independent headers should
- * be #undef'ined or not at the of the SCU file. This is needed
- * in multilevel builds.
+ * be #undef'ined or not at the end of the SCU file. This is
+ * needed in multilevel builds.
  *
  * See examples/multilevel_build_native for an example.
  *
@@ -264,16 +259,16 @@
 /**
  * MLD_CONFIG_USE_NATIVE_BACKEND_ARITH
  *
- * Determines whether an native arithmetic backend should be used.
+ * Determines whether a native arithmetic backend should be used.
  *
  * The arithmetic backend covers performance-critical functions
  * such as the number-theoretic transform (NTT).
  *
  * If this option is unset, the C backend will be used.
  *
- * If this option is set, the arithmetic backend to be use is
+ * If this option is set, the arithmetic backend to be used is
  * determined by MLD_CONFIG_ARITH_BACKEND_FILE: If the latter is
- * unset, the default backend for your the target architecture
+ * unset, the default backend for your target architecture
  * will be used. If set, it must be the name of a backend metadata
  * file.
  *
@@ -305,16 +300,16 @@
 /**
  * MLD_CONFIG_USE_NATIVE_BACKEND_FIPS202
  *
- * Determines whether an native FIPS202 backend should be used.
+ * Determines whether a native FIPS202 backend should be used.
  *
  * The FIPS202 backend covers 1x/2x/4x-fold Keccak-f1600, which is
  * the performance bottleneck of SHA3 and SHAKE.
  *
  * If this option is unset, the C backend will be used.
  *
- * If this option is set, the FIPS202 backend to be use is
+ * If this option is set, the FIPS202 backend to be used is
  * determined by MLD_CONFIG_FIPS202_BACKEND_FILE: If the latter is
- * unset, the default backend for your the target architecture
+ * unset, the default backend for your target architecture
  * will be used. If set, it must be the name of a backend metadata
  * file.
  *
@@ -373,29 +368,36 @@
 /**
  * MLD_CONFIG_CUSTOM_ZEROIZE
  *
- * In compliance with @[FIPS204, Section 3.6.3], mldsa-native,
- * zeroizes intermediate stack buffers before returning from
- * function calls.
+ * In compliance with @[FIPS204, Section 3.6.3], mldsa-native zeroizes
+ * intermediate buffers before returning from function calls. By default,
+ * those buffers are allocated from the stack; if MLD_CONFIG_CUSTOM_ALLOC_FREE
+ * is set, they are (mostly -- few exceptions remain at present) allocated from
+ * the configured custom allocator.
  *
- * Set this option and define `mld_zeroize` if you want to
- * use a custom method to zeroize intermediate stack buffers.
- * The default implementation uses SecureZeroMemory on Windows
- * and a memset + compiler barrier otherwise. If neither of those
- * is available on the target platform, compilation will fail,
- * and you will need to use MLD_CONFIG_CUSTOM_ZEROIZE to provide
- * a custom implementation of `mld_zeroize()`.
+ * mldsa-native also zeroizes caller-owned output buffers as needed to uphold
+ * the API convention that outputs be either unmodified or zeroized upon
+ * failure.
  *
- * @warning The explicit stack zeroization conducted by mldsa-native reduces
- *          the likelihood of data leaking on the stack, but does not
- *          eliminate it. The C standard makes no guarantee about where a
- *          compiler allocates structures and whether/where it makes copies
- *          of them. Also, in addition to entire structures, there may also
- *          be potentially exploitable leakage of individual values on the
- *          stack.
+ * Set this option and define `mld_zeroize` if you want to use a custom
+ * method to zeroize intermediate and output buffers.
  *
- *          If you need bullet-proof zeroization of the stack, you need to
- *          consider additional measures instead of what this feature
- *          provides. In this case, you can set mld_zeroize to a no-op.
+ * The default implementation uses SecureZeroMemory on Windows and a
+ * memset + compiler barrier otherwise. If neither of those is available on
+ * the target platform, compilation will fail, and you will need to use
+ * MLD_CONFIG_CUSTOM_ZEROIZE to provide a custom implementation of
+ * `mld_zeroize()`.
+ *
+ * @warning
+ *   The zeroization conducted by mldsa-native reduces the likelihood of data
+ *   leaking on the stack or custom allocators, but it does not eliminate it.
+ *   For example, the C standard makes no guarantee about where a compiler
+ *   allocates local structures and whether/where it makes copies of them.
+ *   Also, in addition to entire structures, there may also be potentially
+ *   exploitable leakage of individual values on the stack. If you need
+ *   bullet-proof zeroization of the stack, you need to consider additional
+ *   measures instead of what this feature provides. In this case, you can
+ *   set mld_zeroize to a no-op. Note that in this case you are also responsible
+ *   for zeroizing output buffers upon failure.
  */
 /* #define MLD_CONFIG_CUSTOM_ZEROIZE
    #if !defined(__ASSEMBLER__)
@@ -412,8 +414,8 @@
  * MLD_CONFIG_CUSTOM_RANDOMBYTES
  *
  * mldsa-native does not provide a secure randombytes
- * implementation. Such an implementation has to provided by the
- * consumer.
+ * implementation. Such an implementation has to be provided by
+ * the consumer.
  *
  * If this option is not set, mldsa-native expects a function
  * int randombytes(uint8_t *out, size_t outlen).
@@ -440,9 +442,9 @@
  * mldsa-native backends may rely on specific hardware features.
  * Those backends will only be included in an mldsa-native build
  * if support for the respective features is enabled at
- * compile-time. However, when building for a heteroneous set
+ * compile-time. However, when building for a heterogeneous set
  * of CPUs to run the resulting binary/library on, feature
- * detection at _runtime_ is needed to decided whether a backend
+ * detection at _runtime_ is needed to decide whether a backend
  * can be used or not.
  *
  * Set this option and define `mld_sys_check_capability` if you
@@ -488,7 +490,7 @@
  *
  * @warning This option is experimental. Its scope, configuration and
  *          function/macro signatures may change at any time. We expect a
- *          stable API for v2.
+ *          stable API in a future version.
  *
  * @note Even if this option is set, some allocations further down
  * the call stack will still be made from the stack. Those will
@@ -592,7 +594,7 @@
  * function.
  *
  * If this option is set, MLD_CONFIG_USE_NATIVE_BACKEND_FIPS202 and
- * and MLD_CONFIG_USE_NATIVE_BACKEND_ARITH will be ignored, and no
+ * MLD_CONFIG_USE_NATIVE_BACKEND_ARITH will be ignored, and no
  * native backends will be used.
  */
 /* #define MLD_CONFIG_NO_ASM */
@@ -618,8 +620,8 @@
  * generated keypair before it can be exported.
  *
  * Set this option if such a check should be implemented.
- * In this case, crypto_sign_keypair_internal and
- * crypto_sign_keypair will return a non-zero error code if the
+ * In this case, keypair_internal and
+ * keypair will return MLD_ERR_PCT_FAIL if the
  * PCT failed.
  *
  * @note This feature will drastically lower the performance of
@@ -627,7 +629,7 @@
  *
  * @note This option is incompatible with MLD_CONFIG_NO_SIGN_API
  * and MLD_CONFIG_NO_VERIFY_API as the current PCT implementation
- * requires crypto_sign_signature() and crypto_sign_verify().
+ * requires signature() and verify().
  */
 /* #define MLD_CONFIG_KEYGEN_PCT */
 
@@ -661,9 +663,9 @@
  * This is useful in timing-sensitive environments that
  * require a deterministic worst-case bound on signing time.
  *
- * For FIPS 204 compliance, this value MUST be at least 814,
- * cf. @[FIPS204, Appendix C], which is chosen so that the
- * signing failure rate is < 2^{-256}.
+ * For FIPS 204 compliance, this value MUST be at least 821,
+ * cf. @[FIPS204, Appendix C] and @[FIPS204_UPDATES], which is
+ * chosen so that the signing failure rate is < 2^{-256}.
  *
  * Default: Largest possible value before internal counters
  * would overflow. This is larger than the FIPS204 bound.
@@ -671,7 +673,7 @@
  * In particular, in the default configuration, the signing
  * failure rate is < 2^{-256}.
  */
-/* #define MLD_CONFIG_MAX_SIGNING_ATTEMPTS 814 */
+/* #define MLD_CONFIG_MAX_SIGNING_ATTEMPTS 821 */
 
 /**
  * MLD_CONFIG_SERIAL_FIPS202_ONLY
@@ -698,23 +700,115 @@
 /**
  * MLD_CONFIG_CONTEXT_PARAMETER
  *
- * Set this to add a context parameter that is provided to public
- * API functions and is then available in custom callbacks.
+ * Set this to add a caller-supplied context parameter to the public API
+ * functions, which is then forwarded unchanged to the custom callbacks
+ * (allocation, and signing hooks below).
  *
- * The type of the context parameter is configured via
- * MLD_CONFIG_CONTEXT_PARAMETER_TYPE.
+ * When this option is set, every public API function gains a trailing
+ * parameter
+ *
+ *   MLD_CONFIG_CONTEXT_PARAMETER_TYPE context
+ *
+ * as its last argument; its type is configured via
+ * MLD_CONFIG_CONTEXT_PARAMETER_TYPE (see below). mldsa-native treats this
+ * value as opaque: it never dereferences it and only passes it on to the
+ * configurable hook macros. It is meant to carry per-caller state -- e.g. a
+ * pointer to a memory pool for the allocation hooks, or the resume state for
+ * the signing hooks -- into those hooks.
+ *
+ * When this option is unset (the default), no extra parameter is added and
+ * the hook macros never receive a context argument.
+ *
+ * The hooks that receive the context are the allocation hooks (see
+ * MLD_CONFIG_CUSTOM_ALLOC_FREE) and the signing hooks (see
+ * MLD_CONFIG_SIGN_HOOK_RESUME / _ATTEMPT / _FINISH); each is documented with
+ * its own option below.
  */
 /* #define MLD_CONFIG_CONTEXT_PARAMETER */
 
 /**
  * MLD_CONFIG_CONTEXT_PARAMETER_TYPE
  *
- * Set this to define the type for the context parameter used by
- * MLD_CONFIG_CONTEXT_PARAMETER.
+ * Set this to define the type of the context parameter added by
+ * MLD_CONFIG_CONTEXT_PARAMETER. It can be any C type usable as a function
+ * parameter, e.g. `void *` or a pointer to a caller-defined struct such as
+ * `struct my_ctx *`.
  *
- * This is only relevant if MLD_CONFIG_CONTEXT_PARAMETER is set.
+ * This option must be defined if and only if MLD_CONFIG_CONTEXT_PARAMETER is
+ * defined; defining one without the other is a compile-time error.
  */
 /* #define MLD_CONFIG_CONTEXT_PARAMETER_TYPE void* */
+
+/**
+ * Signing hooks: MLD_CONFIG_SIGN_HOOK_RESUME / _ATTEMPT / _FINISH
+ *
+ * Three optional, independent hooks into the ML-DSA signing rejection-sampling
+ * loop. Each is enabled by defining the matching option, in which case the
+ * integration must provide the corresponding function. If a hook needs
+ * per-operation state, enable MLD_CONFIG_CONTEXT_PARAMETER; the context is then
+ * appended as the last argument.
+ *
+ * @warning This feature is experimental. Its scope, configuration and
+ *          function signatures may change at any time, including after v2.
+ *
+ * Enabling any of the hooks requires MLD_CONFIG_NO_RANDOMIZED_API (restricting
+ * the public API to deterministic operations). This is because the restartable
+ * signing as enabled by the signing hooks only produces the uninterrupted
+ * signature when the randomness is fixed across calls. A logging-only use
+ * (attempt always returns 0; resume/finish merely observe) would be safe with
+ * the randomized API too, but for now the requirement is imposed uniformly on
+ * all three hooks.
+ *
+ * Note: Randomized signing is a shim wrapper around deterministic signing, and
+ * all helper functions you need to build it are exposed publicly. Thus, if you
+ * need a restartable, randomized signing operation, you can build your own by
+ * replicating the logic and adding the RNG seed to the restart context. In this
+ * case, please also consider letting the mldsa-native maintainers know of your
+ * need for randomized, restartable signing, so the feature can be appropriately
+ * prioritized.
+ *
+ * - MLD_CONFIG_SIGN_HOOK_ATTEMPT: int mld_sign_hook_attempt(attempt[, ctxt])
+ *   Called before each attempt. Returns 0 to proceed, or non-zero to pause:
+ *   signing then returns MLD_ERR_SIGNING_PAUSED with `attempt` as the resume
+ *   point (needs MLD_CONFIG_SIGN_HOOK_RESUME to resume; otherwise just aborts).
+ *   Always returning 0 makes it a logging/benchmarking hook.
+ *
+ * - MLD_CONFIG_SIGN_HOOK_RESUME: uint16_t mld_sign_hook_resume([ctxt])
+ *   Returns the attempt to resume from (0 for a fresh operation), i.e. the one
+ *   recorded when a previous call paused.
+ *
+ * - MLD_CONFIG_SIGN_HOOK_FINISH: void mld_sign_hook_finish(attempt[, ctxt])
+ *   Called on success with the succeeding attempt. Observe-only.
+ *
+ * When an option is unset, the hook is a no-op (resume to 0, attempt proceeds),
+ * i.e. ordinary one-shot signing.
+ *
+ * Independent of MLD_CONFIG_MAX_SIGNING_ATTEMPTS, which is a static upper bound
+ * on the number of signing attempts.
+ *
+ * See test/src/test_sign_hook.c for a worked example using all three.
+ */
+/* #define MLD_CONFIG_SIGN_HOOK_RESUME
+   #define MLD_CONFIG_SIGN_HOOK_ATTEMPT
+   #define MLD_CONFIG_SIGN_HOOK_FINISH
+   #if !defined(__ASSEMBLER__)
+   #include <stdint.h>
+   #include "src/sys.h"
+   static MLD_INLINE uint16_t mld_sign_hook_resume(void)
+   {
+       ... return the attempt to resume from ...
+   }
+   static MLD_INLINE int mld_sign_hook_attempt(uint16_t attempt)
+   {
+       ... return non-zero to pause here; for resume, store attempt ...
+       return 0;
+   }
+   static MLD_INLINE void mld_sign_hook_finish(uint16_t attempt)
+   {
+       ... mark the operation complete (attempt = successful attempt) ...
+   }
+   #endif
+*/
 
 /**
  * MLD_CONFIG_REDUCE_RAM
@@ -746,7 +840,11 @@
  * e.g., PQCP_MLDSA_NATIVE_MLDSA44_
  */
 
-#if MLD_CONFIG_PARAMETER_SET == 44
+#if defined(MLD_CONFIG_MULTILEVEL_BUILD)
+/* In a multi-level build the parameter set is appended by the namespacing
+ * machinery, so the default prefix must not embed it. */
+#define MLD_DEFAULT_NAMESPACE_PREFIX PQCP_MLDSA_NATIVE_MLDSA
+#elif MLD_CONFIG_PARAMETER_SET == 44
 #define MLD_DEFAULT_NAMESPACE_PREFIX PQCP_MLDSA_NATIVE_MLDSA44
 #elif MLD_CONFIG_PARAMETER_SET == 65
 #define MLD_DEFAULT_NAMESPACE_PREFIX PQCP_MLDSA_NATIVE_MLDSA65

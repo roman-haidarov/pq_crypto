@@ -16,10 +16,13 @@
  */
 
 /*yaml
-  Name: keccak_f1600_x2_v84a_asm
+  Name: keccak_f1600_x2_v84a_aarch64_asm
   Description: AArch64 ARMv8.4-A implementation of Keccak-f[1600] permutation for two sequential states
   Signature: void mld_keccak_f1600_x2_v84a_aarch64_asm(uint64_t state[50], const uint64_t rc[24])
   ABI:
+    Architecture: aarch64
+    CallingConvention: AAPCS64
+    Features: [NEON, SHA3]
     x0:
       type: buffer
       size_bytes: 400
@@ -30,7 +33,7 @@
       type: buffer
       size_bytes: 192
       permissions: read-only
-      c_parameter: const uint64_t rc[24]
+      c_parameter: uint64_t const *rc
       description: Round constants (24 x uint64_t)
   Stack:
     bytes: 64
@@ -119,7 +122,7 @@ MLD_ASM_FN_SYMBOL(keccak_f1600_x2_v84a_aarch64_asm)
         trn1 v24.2d, v25.2d, v27.2d
         mov x2, #0x18               // =24
 
-Lkeccak_f1600_x2_v84a_loop:
+Lmld_keccak_f1600_x2_v84a_loop:
         eor3 v30.16b, v0.16b, v5.16b, v10.16b
         eor3 v29.16b, v1.16b, v6.16b, v11.16b
         eor3 v28.16b, v2.16b, v7.16b, v12.16b
@@ -188,7 +191,7 @@ Lkeccak_f1600_x2_v84a_loop:
         bcax v4.16b, v4.16b, v27.16b, v30.16b
         eor v0.16b, v0.16b, v31.16b
         sub x2, x2, #0x1
-        cbnz x2, Lkeccak_f1600_x2_v84a_loop
+        cbnz x2, Lmld_keccak_f1600_x2_v84a_loop
         sub x0, x0, #0xc0
         add x2, x0, #0xc8
         trn1 v25.2d, v0.2d, v1.2d

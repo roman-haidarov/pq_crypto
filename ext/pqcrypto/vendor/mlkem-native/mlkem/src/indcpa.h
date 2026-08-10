@@ -64,10 +64,8 @@ __contract__(
  *                     MLK_CONFIG_CONTEXT_PARAMETER_TYPE.
  *
  * @retval 0                     Success.
- * @retval MLK_ERR_FAIL          MLK_CONFIG_KEYGEN_PCT enabled and PCT failed.
  * @retval MLK_ERR_OUT_OF_MEMORY MLK_CONFIG_CUSTOM_ALLOC_FREE was used and
  *                               MLK_CUSTOM_ALLOC returned NULL.
- * @retval MLK_ERR_RNG_FAIL      Random number generation failed.
  */
 MLK_INTERNAL_API
 MLK_MUST_CHECK_RETURN_VALUE
@@ -81,9 +79,12 @@ __contract__(
   requires(memory_no_alias(coins, MLKEM_SYMBYTES))
   assigns(memory_slice(pk, MLKEM_INDCPA_PUBLICKEYBYTES))
   assigns(memory_slice(sk, MLKEM_INDCPA_SECRETKEYBYTES))
-  ensures(return_value == 0 || return_value == MLK_ERR_FAIL ||
-          return_value == MLK_ERR_OUT_OF_MEMORY ||
-          return_value == MLK_ERR_RNG_FAIL)
+  ensures(return_value == 0 || return_value == MLK_ERR_OUT_OF_MEMORY)
+  /* Output buffers on error, per API-CONVENTIONS.md */
+  ensures(return_value != 0 ==>
+          array_unchanged_or_zeroized_u8(pk, MLKEM_INDCPA_PUBLICKEYBYTES))
+  ensures(return_value != 0 ==>
+          array_unchanged_or_zeroized_u8(sk, MLKEM_INDCPA_SECRETKEYBYTES))
 );
 #endif /* !MLK_CONFIG_NO_KEYPAIR_API */
 
@@ -106,7 +107,6 @@ __contract__(
  *                     MLK_CONFIG_CONTEXT_PARAMETER_TYPE.
  *
  * @retval 0                     Success.
- * @retval MLK_ERR_FAIL          Operation failed.
  * @retval MLK_ERR_OUT_OF_MEMORY MLK_CONFIG_CUSTOM_ALLOC_FREE was used and
  *                               MLK_CUSTOM_ALLOC returned NULL.
  */
@@ -123,8 +123,10 @@ __contract__(
   requires(memory_no_alias(pk, MLKEM_INDCPA_PUBLICKEYBYTES))
   requires(memory_no_alias(coins, MLKEM_SYMBYTES))
   assigns(memory_slice(c, MLKEM_INDCPA_BYTES))
-  ensures(return_value == 0 || return_value == MLK_ERR_FAIL ||
-          return_value == MLK_ERR_OUT_OF_MEMORY)
+  ensures(return_value == 0 || return_value == MLK_ERR_OUT_OF_MEMORY)
+  /* Output buffers on error, per API-CONVENTIONS.md */
+  ensures(return_value != 0 ==>
+          array_unchanged_or_zeroized_u8(c, MLKEM_INDCPA_BYTES))
 );
 #endif /* !MLK_CONFIG_NO_ENCAPS_API || !MLK_CONFIG_NO_DECAPS_API */
 
@@ -146,7 +148,6 @@ __contract__(
  *                     MLK_CONFIG_CONTEXT_PARAMETER_TYPE.
  *
  * @retval 0                     Success.
- * @retval MLK_ERR_FAIL          Operation failed.
  * @retval MLK_ERR_OUT_OF_MEMORY MLK_CONFIG_CUSTOM_ALLOC_FREE was used and
  *                               MLK_CUSTOM_ALLOC returned NULL.
  */
@@ -161,8 +162,10 @@ __contract__(
   requires(memory_no_alias(m, MLKEM_INDCPA_MSGBYTES))
   requires(memory_no_alias(sk, MLKEM_INDCPA_SECRETKEYBYTES))
   assigns(memory_slice(m, MLKEM_INDCPA_MSGBYTES))
-  ensures(return_value == 0 || return_value == MLK_ERR_FAIL ||
-          return_value == MLK_ERR_OUT_OF_MEMORY)
+  ensures(return_value == 0 || return_value == MLK_ERR_OUT_OF_MEMORY)
+  /* Output buffers on error, per API-CONVENTIONS.md */
+  ensures(return_value != 0 ==>
+          array_unchanged_or_zeroized_u8(m, MLKEM_INDCPA_MSGBYTES))
 );
 #endif /* !MLK_CONFIG_NO_DECAPS_API */
 

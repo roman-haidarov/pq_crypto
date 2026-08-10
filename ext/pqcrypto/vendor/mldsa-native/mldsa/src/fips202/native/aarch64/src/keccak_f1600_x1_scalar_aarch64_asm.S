@@ -10,10 +10,12 @@
 // Author: Matthias Kannwischer <matthias@kannwischer.eu>
 
 /*yaml
-  Name: keccak_f1600_x1_scalar_asm
+  Name: keccak_f1600_x1_scalar_aarch64_asm
   Description: AArch64 scalar implementation of Keccak-f[1600] permutation for single state
   Signature: void mld_keccak_f1600_x1_scalar_aarch64_asm(uint64_t state[25], const uint64_t rc[24])
   ABI:
+    Architecture: aarch64
+    CallingConvention: AAPCS64
     x0:
       type: buffer
       size_bytes: 200
@@ -67,7 +69,7 @@ MLD_ASM_FN_SYMBOL(keccak_f1600_x1_scalar_aarch64_asm)
         .cfi_rel_offset x29, 0x70
         .cfi_rel_offset x30, 0x78
 
-Lkeccak_f1600_x1_scalar_initial:
+Lmld_keccak_f1600_x1_scalar_initial:
         mov x26, x1
         str x1, [sp, #0x8]
         ldp x1, x6, [x0]
@@ -192,7 +194,7 @@ Lkeccak_f1600_x1_scalar_initial:
         eor x14, x26, x6, ror #46
         eor x6, x27, x29, ror #41
 
-Lkeccak_f1600_x1_scalar_loop:
+Lmld_keccak_f1600_x1_scalar_loop:
         eor x0, x15, x11, ror #52
         eor x0, x0, x13, ror #48
         eor x26, x8, x9, ror #57
@@ -305,7 +307,7 @@ Lkeccak_f1600_x1_scalar_loop:
         bic x3, x0, x30, ror #5
         eor x23, x3, x26, ror #52
         eor x3, x29, x30, ror #24
-        b.le Lkeccak_f1600_x1_scalar_loop
+        b.le Lmld_keccak_f1600_x1_scalar_loop
         ror x6, x6, #0x2b
         ror x11, x11, #0x32
         ror x21, x21, #0x14

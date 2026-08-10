@@ -173,11 +173,11 @@ typedef struct {
 
 static const pq_mldsa_profile_t MLDSA_PROFILES[] = {
     {"ml_dsa_44", MLDSA44_PUBLICKEYBYTES, MLDSA44_SECRETKEYBYTES, MLDSA44_BYTES,
-     pqcr_mldsa44_pk_from_sk, pqcr_mldsa44_signature_extmu, pqcr_mldsa44_verify_extmu},
+     pqcr_mldsa44_pk_from_sk, pq_mldsa44_signature_extmu_compat, pq_mldsa44_verify_extmu_compat},
     {"ml_dsa_65", MLDSA65_PUBLICKEYBYTES, MLDSA65_SECRETKEYBYTES, MLDSA65_BYTES,
-     pqcr_mldsa65_pk_from_sk, pqcr_mldsa65_signature_extmu, pqcr_mldsa65_verify_extmu},
+     pqcr_mldsa65_pk_from_sk, pq_mldsa65_signature_extmu_compat, pq_mldsa65_verify_extmu_compat},
     {"ml_dsa_87", MLDSA87_PUBLICKEYBYTES, MLDSA87_SECRETKEYBYTES, MLDSA87_BYTES,
-     pqcr_mldsa87_pk_from_sk, pqcr_mldsa87_signature_extmu, pqcr_mldsa87_verify_extmu},
+     pqcr_mldsa87_pk_from_sk, pq_mldsa87_signature_extmu_compat, pq_mldsa87_verify_extmu_compat},
 };
 
 static const pq_mldsa_profile_t *pq_mldsa_profile_from_value(VALUE algorithm) {
@@ -1306,12 +1306,17 @@ PQ_DEFINE_RUBY_MLDSA_SIGN(ml_dsa_87_sign, mldsa_87_sign, MLDSA87_SECRETKEYBYTES,
 #undef PQ_DEFINE_RUBY_MLDSA_SIGN
 
 static VALUE pq_run_verify(void *(*nogvl)(void *), VALUE message, VALUE signature, VALUE public_key,
-                           VALUE context, size_t public_key_len_expected) {
+                           VALUE context, size_t public_key_len_expected,
+                           size_t signature_len_expected) {
     StringValue(signature);
     pq_validate_bytes_argument(public_key, public_key_len_expected, "public key");
     StringValue(context);
     if (RSTRING_LEN(context) > 255) {
         rb_raise(rb_eArgError, "ML-DSA context length must be <= 255 bytes");
+    }
+
+    if ((size_t)RSTRING_LEN(signature) != signature_len_expected) {
+        return Qfalse;
     }
 
     verify_call_t call = {0};
@@ -1341,7 +1346,7 @@ static VALUE pq_run_verify(void *(*nogvl)(void *), VALUE message, VALUE signatur
     pq_raise_general_error(call.result);
 }
 
-#define PQ_DEFINE_RUBY_MLDSA_VERIFY(rb_name, nogvl_stem, pk_bytes)                             \
+#define PQ_DEFINE_RUBY_MLDSA_VERIFY(rb_name, nogvl_stem, pk_bytes, sig_bytes)                  \
     static VALUE pqcrypto_##rb_name(int argc, VALUE *argv, VALUE self) {                       \
         (void)self;                                                                            \
         VALUE message, signature, public_key, context;                                         \
@@ -1350,12 +1355,14 @@ static VALUE pq_run_verify(void *(*nogvl)(void *), VALUE message, VALUE signatur
             context = rb_str_new("", 0);                                                       \
         }                                                                                      \
         return pq_run_verify(pq_##nogvl_stem##_nogvl, message, signature, public_key, context, \
-                             pk_bytes);                                                        \
+                             pk_bytes, sig_bytes);                                             \
     }
 
-PQ_DEFINE_RUBY_MLDSA_VERIFY(verify, verify, PQ_MLDSA_PUBLICKEYBYTES)
-PQ_DEFINE_RUBY_MLDSA_VERIFY(ml_dsa_44_verify, mldsa_44_verify, MLDSA44_PUBLICKEYBYTES)
-PQ_DEFINE_RUBY_MLDSA_VERIFY(ml_dsa_87_verify, mldsa_87_verify, MLDSA87_PUBLICKEYBYTES)
+PQ_DEFINE_RUBY_MLDSA_VERIFY(verify, verify, PQ_MLDSA_PUBLICKEYBYTES, PQ_MLDSA_BYTES)
+PQ_DEFINE_RUBY_MLDSA_VERIFY(ml_dsa_44_verify, mldsa_44_verify, MLDSA44_PUBLICKEYBYTES,
+                            MLDSA44_BYTES)
+PQ_DEFINE_RUBY_MLDSA_VERIFY(ml_dsa_87_verify, mldsa_87_verify, MLDSA87_PUBLICKEYBYTES,
+                            MLDSA87_BYTES)
 
 #undef PQ_DEFINE_RUBY_MLDSA_VERIFY
 

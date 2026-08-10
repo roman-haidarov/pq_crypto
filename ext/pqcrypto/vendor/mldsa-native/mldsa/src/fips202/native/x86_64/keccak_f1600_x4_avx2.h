@@ -12,7 +12,7 @@
 #define MLD_FIPS202_X86_64_NEED_X4_AVX2
 
 /* Part of backend API */
-#define MLD_USE_FIPS202_X4_NATIVE
+#define MLD_USE_NATIVE_FIPS202_X4
 
 #if !defined(__ASSEMBLER__)
 #include "../api.h"
@@ -20,7 +20,7 @@
 MLD_MUST_CHECK_RETURN_VALUE
 static MLD_INLINE int mld_keccak_f1600_x4_native(uint64_t *state)
 {
-  if (!mld_sys_check_capability(MLD_SYS_CAP_AVX2))
+  if (!mld_sys_check_capability(MLD_SYS_CAP_X86_64_AVX2))
   {
     return MLD_NATIVE_FUNC_FALLBACK;
   }

@@ -69,15 +69,13 @@ void pq_secure_wipe(void *ptr, size_t len);
 int pq_mlkem_keypair(uint8_t *public_key, uint8_t *secret_key);
 int pq_mlkem512_keypair(uint8_t *public_key, uint8_t *secret_key);
 int pq_mlkem1024_keypair(uint8_t *public_key, uint8_t *secret_key);
-int pq_mlkem_keypair_from_seed(uint8_t *public_key, uint8_t *secret_key,
-                               const uint8_t *seed64);
-int pq_mlkem512_keypair_from_seed(uint8_t *public_key, uint8_t *secret_key,
-                                  const uint8_t *seed64);
-int pq_mlkem1024_keypair_from_seed(uint8_t *public_key, uint8_t *secret_key,
-                                   const uint8_t *seed64);
+int pq_mlkem_keypair_from_seed(uint8_t *public_key, uint8_t *secret_key, const uint8_t *seed64);
+int pq_mlkem512_keypair_from_seed(uint8_t *public_key, uint8_t *secret_key, const uint8_t *seed64);
+int pq_mlkem1024_keypair_from_seed(uint8_t *public_key, uint8_t *secret_key, const uint8_t *seed64);
 int pq_mlkem_encapsulate(uint8_t *ciphertext, uint8_t *shared_secret, const uint8_t *public_key);
 int pq_mlkem512_encapsulate(uint8_t *ciphertext, uint8_t *shared_secret, const uint8_t *public_key);
-int pq_mlkem1024_encapsulate(uint8_t *ciphertext, uint8_t *shared_secret, const uint8_t *public_key);
+int pq_mlkem1024_encapsulate(uint8_t *ciphertext, uint8_t *shared_secret,
+                             const uint8_t *public_key);
 int pq_mlkem_decapsulate(uint8_t *shared_secret, const uint8_t *ciphertext,
                          const uint8_t *secret_key);
 int pq_mlkem512_decapsulate(uint8_t *shared_secret, const uint8_t *ciphertext,
@@ -88,53 +86,49 @@ int pq_mlkem1024_decapsulate(uint8_t *shared_secret, const uint8_t *ciphertext,
 int pq_sign_keypair(uint8_t *public_key, uint8_t *secret_key);
 int pq_mldsa44_sign_keypair(uint8_t *public_key, uint8_t *secret_key);
 int pq_mldsa87_sign_keypair(uint8_t *public_key, uint8_t *secret_key);
-int pq_mldsa44_keypair_from_seed(uint8_t *public_key, uint8_t *secret_key,
-                                  const uint8_t *seed32);
-int pq_mldsa_keypair_from_seed(uint8_t *public_key, uint8_t *secret_key,
-                               const uint8_t *seed32);
-int pq_mldsa87_keypair_from_seed(uint8_t *public_key, uint8_t *secret_key,
-                                  const uint8_t *seed32);
+int pq_mldsa44_keypair_from_seed(uint8_t *public_key, uint8_t *secret_key, const uint8_t *seed32);
+int pq_mldsa_keypair_from_seed(uint8_t *public_key, uint8_t *secret_key, const uint8_t *seed32);
+int pq_mldsa87_keypair_from_seed(uint8_t *public_key, uint8_t *secret_key, const uint8_t *seed32);
 int pq_sign(uint8_t *signature, size_t *signature_len, const uint8_t *message, size_t message_len,
             const uint8_t *ctx, size_t ctx_len, const uint8_t *secret_key);
-int pq_mldsa44_sign(uint8_t *signature, size_t *signature_len, const uint8_t *message, size_t message_len,
-                    const uint8_t *ctx, size_t ctx_len, const uint8_t *secret_key);
-int pq_mldsa87_sign(uint8_t *signature, size_t *signature_len, const uint8_t *message, size_t message_len,
-                    const uint8_t *ctx, size_t ctx_len, const uint8_t *secret_key);
+int pq_mldsa44_sign(uint8_t *signature, size_t *signature_len, const uint8_t *message,
+                    size_t message_len, const uint8_t *ctx, size_t ctx_len,
+                    const uint8_t *secret_key);
+int pq_mldsa87_sign(uint8_t *signature, size_t *signature_len, const uint8_t *message,
+                    size_t message_len, const uint8_t *ctx, size_t ctx_len,
+                    const uint8_t *secret_key);
 int pq_verify(const uint8_t *signature, size_t signature_len, const uint8_t *message,
               size_t message_len, const uint8_t *ctx, size_t ctx_len, const uint8_t *public_key);
 int pq_mldsa44_verify(const uint8_t *signature, size_t signature_len, const uint8_t *message,
-                      size_t message_len, const uint8_t *ctx, size_t ctx_len, const uint8_t *public_key);
+                      size_t message_len, const uint8_t *ctx, size_t ctx_len,
+                      const uint8_t *public_key);
 int pq_mldsa87_verify(const uint8_t *signature, size_t signature_len, const uint8_t *message,
-                      size_t message_len, const uint8_t *ctx, size_t ctx_len, const uint8_t *public_key);
+                      size_t message_len, const uint8_t *ctx, size_t ctx_len,
+                      const uint8_t *public_key);
 
 int pq_public_key_to_pqc_container_der(uint8_t **output, size_t *output_len,
-                                       const uint8_t *public_key,
-                                       size_t public_key_len, const char *algorithm);
-int pq_public_key_to_pqc_container_pem(char **output, size_t *output_len,
-                                       const uint8_t *public_key,
+                                       const uint8_t *public_key, size_t public_key_len,
+                                       const char *algorithm);
+int pq_public_key_to_pqc_container_pem(char **output, size_t *output_len, const uint8_t *public_key,
                                        size_t public_key_len, const char *algorithm);
 int pq_secret_key_to_pqc_container_der(uint8_t **output, size_t *output_len,
-                                        const uint8_t *secret_key,
-                                        size_t secret_key_len, const char *algorithm);
-int pq_secret_key_to_pqc_container_pem(char **output, size_t *output_len,
-                                        const uint8_t *secret_key,
-                                        size_t secret_key_len, const char *algorithm);
+                                       const uint8_t *secret_key, size_t secret_key_len,
+                                       const char *algorithm);
+int pq_secret_key_to_pqc_container_pem(char **output, size_t *output_len, const uint8_t *secret_key,
+                                       size_t secret_key_len, const char *algorithm);
 int pq_public_key_from_pqc_container_der(char **algorithm_out, uint8_t **key_out,
                                          size_t *key_len_out, const uint8_t *input,
                                          size_t input_len);
 int pq_public_key_from_pqc_container_pem(char **algorithm_out, uint8_t **key_out,
-                                         size_t *key_len_out, const char *input,
-                                         size_t input_len);
+                                         size_t *key_len_out, const char *input, size_t input_len);
 int pq_secret_key_from_pqc_container_der(char **algorithm_out, uint8_t **key_out,
-                                          size_t *key_len_out, const uint8_t *input,
-                                          size_t input_len);
+                                         size_t *key_len_out, const uint8_t *input,
+                                         size_t input_len);
 int pq_secret_key_from_pqc_container_pem(char **algorithm_out, uint8_t **key_out,
-                                          size_t *key_len_out, const char *input,
-                                          size_t input_len);
+                                         size_t *key_len_out, const char *input, size_t input_len);
 
-int pq_pkcs8_private_key_info_to_der(uint8_t **output, size_t *output_len,
-                                     const char *oid_text, const uint8_t *private_key,
-                                     size_t private_key_len);
+int pq_pkcs8_private_key_info_to_der(uint8_t **output, size_t *output_len, const char *oid_text,
+                                     const uint8_t *private_key, size_t private_key_len);
 int pq_pkcs8_private_key_info_from_der(char **oid_text_out, uint8_t **private_key_out,
                                        size_t *private_key_len_out, const uint8_t *input,
                                        size_t input_len);
@@ -143,9 +137,8 @@ int pq_pkcs8_encrypt_private_key_info_der(uint8_t **output, size_t *output_len,
                                           const char *passphrase, size_t passphrase_len,
                                           int iterations);
 int pq_pkcs8_decrypt_private_key_info_der(uint8_t **output, size_t *output_len,
-                                          const uint8_t *encrypted_der,
-                                          size_t encrypted_der_len, const char *passphrase,
-                                          size_t passphrase_len);
+                                          const uint8_t *encrypted_der, size_t encrypted_der_len,
+                                          const char *passphrase, size_t passphrase_len);
 int pq_pkcs8_der_is_encrypted_private_key_info(const uint8_t *input, size_t input_len);
 int pq_pkcs8_der_to_pem(char **output, size_t *output_len, const uint8_t *der, size_t der_len,
                         int encrypted);
@@ -197,7 +190,7 @@ const char *pq_version(void);
 #define PQ_MLKEM_CIPHERTEXTBYTES   MLKEM_CIPHERTEXTBYTES
 #define PQ_MLKEM_SHAREDSECRETBYTES MLKEM_SHAREDSECRETBYTES
 
-#define PQ_HYBRID_PUBLICKEYBYTES    HYBRID_PUBLICKEYBYTES
+#define PQ_HYBRID_PUBLICKEYBYTES          HYBRID_PUBLICKEYBYTES
 #define PQ_HYBRID_SECRETKEYBYTES          HYBRID_SECRETKEYBYTES
 #define PQ_HYBRID_EXPANDED_SECRETKEYBYTES HYBRID_EXPANDED_SECRETKEYBYTES
 #define PQ_HYBRID_CIPHERTEXTBYTES         HYBRID_CIPHERTEXTBYTES
@@ -215,15 +208,27 @@ int pq_mldsa_extract_tr_from_secret_key(uint8_t *tr_out, const uint8_t *secret_k
 int pq_mldsa_compute_tr_from_public_key(uint8_t *tr_out, const uint8_t *public_key,
                                         size_t public_key_len);
 
-int pq_sign_mu(uint8_t *signature, size_t *signature_len,
-               const uint8_t *mu, const uint8_t *secret_key,
+int pq_mldsa44_signature_extmu_compat(uint8_t *sig, size_t *siglen, const uint8_t *mu,
+                                      const uint8_t *sk);
+int pq_mldsa65_signature_extmu_compat(uint8_t *sig, size_t *siglen, const uint8_t *mu,
+                                      const uint8_t *sk);
+int pq_mldsa87_signature_extmu_compat(uint8_t *sig, size_t *siglen, const uint8_t *mu,
+                                      const uint8_t *sk);
+int pq_mldsa44_verify_extmu_compat(const uint8_t *sig, size_t siglen, const uint8_t *mu,
+                                   const uint8_t *pk);
+int pq_mldsa65_verify_extmu_compat(const uint8_t *sig, size_t siglen, const uint8_t *mu,
+                                   const uint8_t *pk);
+int pq_mldsa87_verify_extmu_compat(const uint8_t *sig, size_t siglen, const uint8_t *mu,
+                                   const uint8_t *pk);
+
+int pq_sign_mu(uint8_t *signature, size_t *signature_len, const uint8_t *mu,
+               const uint8_t *secret_key,
                int (*signature_extmu)(uint8_t *, size_t *, const uint8_t *, const uint8_t *));
-int pq_verify_mu(const uint8_t *signature, size_t signature_len,
-                 const uint8_t *mu, const uint8_t *public_key, size_t expected_signature_len,
+int pq_verify_mu(const uint8_t *signature, size_t signature_len, const uint8_t *mu,
+                 const uint8_t *public_key, size_t expected_signature_len,
                  int (*verify_extmu)(const uint8_t *, size_t, const uint8_t *, const uint8_t *));
 void *pq_mu_builder_new(void);
-int pq_mu_builder_init(void *state, const uint8_t *tr,
-                       const uint8_t *ctx, size_t ctxlen);
+int pq_mu_builder_init(void *state, const uint8_t *tr, const uint8_t *ctx, size_t ctxlen);
 int pq_mu_builder_absorb(void *state, const uint8_t *chunk, size_t chunk_len);
 int pq_mu_builder_finalize(void *state, uint8_t *mu_out);
 void pq_mu_builder_release(void *state);

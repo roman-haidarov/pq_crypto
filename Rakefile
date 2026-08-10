@@ -13,11 +13,32 @@ end
 
 CLEAN.include("tmp", "lib/pqcrypto/*.bundle", "lib/pqcrypto/*.so", "lib/pqcrypto/*.dll")
 
-Rake::TestTask.new(:test) do |t|
+Rake::TestTask.new(:ruby_test) do |t|
   t.libs << "test"
   t.libs << "lib"
   t.test_files = FileList["test/**/*_test.rb", "test/**/test_*.rb"]
 end
+
+def run_shell_check(script, description)
+  path = File.expand_path(script, __dir__)
+  unless File.exist?(path)
+    abort "missing #{description} script: #{script}"
+  end
+  sh "bash", path
+end
+
+desc "Check ext/pqcrypto/pqcrypto_native_api.h against the vendored upstream headers"
+task :native_api_conformance do
+  run_shell_check("test/native_api_conformance/run.sh", "native API conformance")
+end
+
+desc "Run the direct C API tests (PQCRYPTO_SANITIZE=address for a sanitized build)"
+task :c_api_test do
+  run_shell_check("test/c_api/run.sh", "C API test")
+end
+
+desc "Run the Ruby suite plus the native API conformance and C API checks"
+task test: %i[native_api_conformance c_api_test ruby_test]
 
 desc "Backward-compatible alias for the old RSpec task name"
 task spec: :test

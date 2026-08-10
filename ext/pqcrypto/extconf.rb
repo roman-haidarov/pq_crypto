@@ -524,7 +524,10 @@ def native_flags(kind, level, shared:)
   flags << "-D#{prefix}_CONFIG_MULTILEVEL_BUILD"
   flags << "-D#{prefix}_CONFIG_PARAMETER_SET=#{level}"
   flags << "-D#{prefix}_CONFIG_NAMESPACE_PREFIX=#{ns}"
-  flags << "-D#{prefix}_CONFIG_NO_SUPERCOP"
+  # NOTE: MLK/MLD_CONFIG_NO_SUPERCOP was removed in mlkem-native v2.0.0 and
+  # mldsa-native v2.0.0 along with the SUPERCOP crypto_* aliases themselves.
+  # Upstream has no guard against the stale define, so passing it would be a
+  # silently dead -D rather than a build error. Do not reintroduce it.
   flags << (shared ? "-D#{prefix}_CONFIG_MULTILEVEL_WITH_SHARED" : "-D#{prefix}_CONFIG_MULTILEVEL_NO_SHARED")
   flags << "-D#{prefix}_CONFIG_USE_NATIVE_BACKEND_ARITH" if NATIVE_ARITH
   flags << "-D#{prefix}_CONFIG_USE_NATIVE_BACKEND_FIPS202" if NATIVE_FIPS202

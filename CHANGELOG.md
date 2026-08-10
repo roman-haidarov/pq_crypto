@@ -1,5 +1,139 @@
 # Changelog
 
+## [0.6.6] - 2026-08-10
+
+### Changed
+
+- update native mlkem `v1.3.0` -> `v2.0.0` and mldsa `v1.0.0-beta2` -> `v2.0.0`
+
+  `mldsa-native` v2.0.0 is that project's first stable release; it is numbered
+  `2` only to align its API and configuration with `mlkem-native` v2. Upstream
+  now guarantees that non-experimental APIs and configuration options stay
+  stable until a `v3`.
+
+  No cryptographic output changed. All six `kat-sha256` values in the upstream
+  `META.yml` files are identical to the previously vendored versions, and the
+  vendored ML-KEM-768 keygen, ML-DSA-65 keygen and ML-DSA-65 siggen KAT vectors
+  reproduce byte-for-byte. This release is purely an API migration.
+
+### Breaking upstream changes handled
+
+- **`siglen` removed from the ML-DSA signing and verification APIs.** Upstream
+  signatures are always exactly `MLDSA_BYTES(level)`, so `signature`,
+  `signature_internal`, `verify`, `signature_extmu` and `verify_extmu` no longer
+  carry a length parameter. Fifteen declarations in
+  `ext/pqcrypto/pqcrypto_native_api.h` were updated accordingly.
+
+  The `pq_crypto` C API is deliberately *not* changed to match: `pq_sign`,
+  `pq_verify`, `pq_sign_mu` and `pq_verify_mu` keep their length parameters.
+  The adaptation happens at the vendor boundary instead.
+
+- **`pq_crypto` now owns the signing output length.** Because the backend no
+  longer reports it, every signing wrapper sets `*signature_len` itself from a
+  compile-time constant and clears it to `0` when the signing operation fails,
+  reproducing the pre-v2 behaviour. This affects `pq_sign`, `pq_mldsa44_sign`,
+  `pq_mldsa87_sign`, the level-agnostic deterministic helper
+  `pq_testing_mldsa_sign_from_seed_with`, and `pq_sign_mu`.
+
+  Argument-validation failures (`PQ_ERROR_BUFFER`) still leave `*signature_len`
+  untouched, exactly as before, since the pointer itself may be the invalid one.
+
+- **`pq_crypto` now validates signature length before verifying (security
+  relevant).** Prior to v2, `mldsa-native` rejected a wrongly sized signature
+  itself via `if (siglen != MLDSA_BYTES) return -1;`, and `pq_crypto` relied on
+  that. In v2 the verification entry points take a fixed-size array and read
+  `MLDSA_BYTES(level)` bytes unconditionally, so a short caller-supplied buffer
+  would be an out-of-bounds read. `pq_verify`, `pq_mldsa44_verify` and
+  `pq_mldsa87_verify` now enforce the exact length and return `PQ_ERROR_VERIFY`
+  otherwise; the Ruby bindings additionally reject the wrong length before
+  copying the buffer.
+
+  This was not exploitable in 0.6.5 or earlier: the previously vendored
+  `mldsa-native` performed the check. It is a latent contract dependency that a
+  naive port to v2 would have turned into a real memory-safety bug. Verified
+  with AddressSanitizer: removing this check alone reproduces a
+  `heap-buffer-overflow` read inside `pqcr_mldsa65_verify_internal`.
+
+  Observable Ruby behaviour is unchanged: a wrongly sized signature is a failed
+  verification (`false`), never an `ArgumentError`.
+
+- **ExternalMu callbacks adapted rather than re-typed.** Six new adapters,
+  `pq_mldsa{44,65,87}_{signature,verify}_extmu_compat`, sit between the
+  pre-v2 callback contract and the fixed-size v2 API. `pq_sign_mu` and
+  `pq_verify_mu` therefore keep their existing signatures and no consumer of the
+  C interface has to change.
+
+- **`MLK_CONFIG_NO_SUPERCOP` / `MLD_CONFIG_NO_SUPERCOP` removed upstream**
+  along with the SUPERCOP `crypto_*` aliases themselves. The define is no longer
+  passed by `extconf.rb`. Upstream has no guard against the stale macro, so it
+  would have been a silently dead `-D` rather than a build failure.
+
+- **Legacy `MLK_CONFIG_API_*` / `MLD_CONFIG_API_*` configuration removed
+  upstream.** The extension build already used the modern `*_CONFIG_*` macros;
+  only `test/native_api_conformance` still used the legacy path and has been
+  converted.
+
+Upstream breaking changes that do not affect this gem, checked explicitly: the
+SUPERCOP `crypto_*` and signed-message APIs (never used), the split of
+`*_ERR_FAIL` into specific error codes (all call sites compare against `0`), the
+`*_SYS_CAP_*` and `*_USE_NATIVE_FIPS202_*` renames (only relevant to custom
+backends), and the raised `MLD_CONFIG_MAX_SIGNING_ATTEMPTS` floor of 821, which
+this build does not set. `MLD_CONFIG_KEYGEN_PCT` / `MLK_CONFIG_KEYGEN_PCT`
+remain opt-in upstream and are not enabled here, so key generation gains no new
+failure mode or cost.
+
+### Testing
+
+- `test/native_api_conformance` reworked. It previously proved size agreement
+  via `_Static_assert` and, through the double declaration of upstream and
+  gem headers, prototype agreement. It could not detect a symbol that upstream
+  removed entirely, because it only ever compiled to an object file and both a
+  plain compile and a relocatable link tolerate unresolved symbols. The harness
+  now also builds the vendored objects with the same flags `extconf.rb` uses
+  (including which level owns the shared code) and diffs `nm -u` on the probe
+  object against the symbols the vendored build actually defines.
+
+- Conformance now covers `pqcr_mlkem_shake256` and `pqcr_mlkem_sha3_256`, the
+  extension's only dependency on a non-public part of `mlkem-native` (they back
+  the X-Wing key expansion and combiner). They were absent from `probes[]`
+  entirely, and because they are not declared in `mlkem_native.h` the
+  double-declaration check could not reach them either. The shared-level
+  conformance unit now includes the internal `src/fips202/fips202.h` so that
+  prototype drift in these two is caught as well.
+
+- Added `test/c_api`, direct tests for the `pq_crypto` C API, runnable under
+  AddressSanitizer via `PQCRYPTO_SANITIZE=address test/c_api/run.sh`. The Ruby
+  bindings pre-set `call.signature_len` before invoking the signing entry points
+  and read the same field back afterwards, so a wrapper that stopped writing
+  `*signature_len` would leave the entire Ruby suite green. That contract, and
+  the new signature-length validation, now have coverage that does not go
+  through Ruby.
+
+- `rake test` now runs the native API conformance and C API checks alongside the
+  Ruby suite.
+
+- The C API tests were themselves audited by mutation testing: each contract
+  this release changes was deliberately broken in turn and the suite had to
+  fail. That found three checks which passed against broken code and have been
+  rewritten:
+
+  - The ML-DSA-44 output-length check was phrased as "signing failed OR the
+    length is right" and reused the ML-DSA-65 secret key, so a
+    `pq_mldsa44_sign` that always returned an error satisfied it. ML-DSA-44 and
+    -87 now have their own key material and unconditional assertions.
+  - The ExternalMu failure check used a stub callback that cleared `*siglen`
+    itself, so it passed even when the real adapter had stopped doing so. It now
+    drives the genuine backend error path by exhausting the thread-local test
+    seed in `pq_randombytes.c`, which makes `randombytes()` fail. The same
+    technique gives `pq_sign` real coverage of its own error path.
+  - The verify adapters' length guards were unreachable through `pq_verify_mu`,
+    which validates the length first, so they were never exercised. They are now
+    called directly.
+
+  Two further gaps were closed: `pq_sign`'s recovery after a transient RNG
+  failure is now asserted, and a poisoned `*signature_len` that was set but
+  never checked is now checked.
+
 ## [0.6.5] - 2026-08-04
 
 ### Changed

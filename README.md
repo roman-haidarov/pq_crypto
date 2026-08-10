@@ -88,9 +88,11 @@ bundle exec rake compile
 ```
 
 Upstream pins are recorded in `ext/pqcrypto/vendor/.vendored` and enforced by
-`bundle exec rake vendor:verify`. `mlkem-native` is pinned at `v1.3.0`, which
-upstream describes as the last release before a breaking `v2`; `release/v1.3` is
-the upstream support branch. `mldsa-native` is pinned at `v1.0.0-beta2`.
+`bundle exec rake vendor:verify`. Both `mlkem-native` and `mldsa-native` are
+pinned at `v2.0.0`. For `mldsa-native` this is the first stable release; it
+carries the major version `2` only so that its API and configuration line up
+with `mlkem-native` v2. Upstream guarantees that APIs and configuration options
+not marked experimental stay stable until a `v3`.
 
 The default build uses the portable native source path. Upstream native assembly
 can be tested explicitly with:
