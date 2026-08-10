@@ -1,5 +1,104 @@
 # Changelog
 
+## [0.6.7] - 2026-08-10
+
+### Fixed
+
+- **DER parsers could raise exceptions outside the `PQCrypto::Error` hierarchy.**
+  `OpenSSL::ASN1.decode` raises more than `OpenSSL::ASN1::ASN1Error`, and
+  re-encoding a successfully decoded object can fail as well. Three shapes
+  escaped the previous handling in `PQCrypto::SPKI`:
+
+  - `"\x0A\x01\xFF"` (ENUMERATED) raised `OpenSSL::OpenSSLError`
+  - `"\x17\x00"` / `"\x18\x00"` (empty UTCTIME / GENERALIZEDTIME) raised `TypeError`
+  - `"\x10\x00"` (universal SEQUENCE tag without the constructed bit) decoded
+    cleanly but raised `TypeError` from the `to_der` round trip used for the
+    trailing-data check
+
+  `TypeError` does not descend from `OpenSSL::OpenSSLError`, so widening the
+  rescue to the OpenSSL base class alone was not sufficient. Both rescue sites
+  now catch `OpenSSL::OpenSSLError, TypeError`, and `SPKI.decode_der` is guarded
+  end to end rather than only around the decode call.
+
+  Impact: code written as `rescue PQCrypto::Error` around key loading could be
+  bypassed by malformed input. No memory-safety consequence. Covered by a
+  systematic tag sweep over 1,280 DER shapes × three entry points
+  (`Key.from_der`, `SPKI.decode_der`, `PKCS8.decode_der`).
+
+### Added
+
+- **FIPS 203 key validation for ML-KEM (boundary diagnostics).** mlkem-native
+  v2 exposes `check_pk` and `check_sk`, which this gem did not use. Both are
+  now wired in and run when a `PQCrypto::KEM::PublicKey` or `SecretKey` is
+  constructed:
+
+  - public keys get the Section 7.2 modulus check (coefficients in `[0,q-1]`)
+  - secret keys get the Section 7.3 hash check (`H(pk)` embedded in the sk)
+
+  Scope limits (intentional, matching FIPS 203):
+
+  - these checks are **diagnostics at import**, not a substitute for the
+    checks already performed inside encapsulation / decapsulation
+  - Section 7.3 does **not** detect a corrupted IND-CPA secret (`dk`) when
+    the embedded `H(pk)` is still intact — `#valid?` can still be true
+  - X-Wing public keys validate only the ML-KEM-768 half; the X25519 half is
+    unrestricted. X-Wing secret keys are 32-byte seeds and are not structure-
+    checked
+
+  `#valid?` is exposed on both key classes. Failures raise
+  `PQCrypto::InvalidKeyError`. Public-key internal buffers are frozen after
+  construction to block post-validation mutation; secret-key buffers stay
+  mutable so `#wipe!` can still zero them in place.
+
+  New C API: `pq_mlkem{,512,1024}_check_public_key` / `_check_secret_key`,
+  plus `PQ_ERROR_INVALID_PUBLIC_KEY` (-11) and `PQ_ERROR_INVALID_SECRET_KEY`
+  (-12). Upstream OOM (`-2`) is mapped to `PQ_ERROR_NOMEM` rather than
+  “invalid key”.
+
+- **ML-DSA secret-key structure check on import.** Expanded ML-DSA secret
+  keys are validated via upstream `pk_from_sk` (coefficient norms, recomputed
+  `t0`, and `tr = H(pk)`). This matches the check mldsa-native documents for
+  importers and is enforced on `Signature::SecretKey` construction with
+  `#valid?` exposed. Public keys remain length-checked only (FIPS 204 has no
+  ML-KEM-style modulus check for the public key).
+
+  The check runs on import only. Keys produced by this process's own key
+  generation are valid by construction, and `pk_from_sk` re-derives the public
+  key, so validating them would roughly double the cost of every ML-DSA
+  keypair. Upstream also documents `pk_from_sk` as leaking secret-key validity
+  through its return value and timing.
+
+  New C API: `pq_mldsa{,44,87}_check_secret_key`.
+
+- **`PQCRYPTO_KEYGEN_PCT=1` build option.** Enables the FIPS 140-3 pairwise
+  consistency test in both backends (`MLK_CONFIG_KEYGEN_PCT` /
+  `MLD_CONFIG_KEYGEN_PCT`): after generating a keypair it is exercised to catch
+  a faulty RNG or memory corruption at generation time. Upstream ships this
+  opt-in because it makes key generation noticeably more expensive, and it stays
+  opt-in here for the same reason. The selected setting is reported in the
+  build configuration banner.
+
+- **`require_encrypted:` for PKCS#8 loading.** Supplying a passphrase states an
+  expectation that the key at rest is encrypted, but an unencrypted
+  PrivateKeyInfo was previously accepted and the passphrase left unused. An
+  encrypted key file replaced with a plaintext one therefore loaded without
+  complaint.
+
+  `require_encrypted: true` enforces that the input is an
+  EncryptedPrivateKeyInfo (DER content, not PEM label — relabeling a plaintext
+  key as `ENCRYPTED PRIVATE KEY` does not satisfy the policy). Available on
+  `PKCS8.decode_der` / `decode_pem`, `Key.from_der` / `from_pem`, and
+  `secret_key_from_pkcs8_der` / `_pem` on both `KEM` and `Signature`.
+
+  Limits (documented so the flag is not over-read):
+
+  - default is `false`; other loaders (`from_bytes`, `pqc_container_*`) are
+    unchanged
+  - the flag checks **format**, not passphrase strength (empty passphrase and
+    low PBKDF iterations still count as encrypted)
+  - the value must be a real boolean (`true`/`false`); strings like `"false"`
+    raise `ArgumentError` instead of being treated as truthy
+
 ## [0.6.6] - 2026-08-10
 
 ### Changed

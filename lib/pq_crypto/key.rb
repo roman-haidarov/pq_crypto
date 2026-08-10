@@ -17,22 +17,24 @@ module PQCrypto
         end
       end
 
-      def from_pem(pem, passphrase: nil)
+      def from_pem(pem, passphrase: nil, require_encrypted: false)
+        require_encrypted = Internal.strict_boolean!(require_encrypted, name: "require_encrypted")
         text = String(pem)
         if text.include?(SPKI::PEM_BEGIN)
           public_key_from_spki_pem(text)
         elsif text.include?(PKCS8::PEM_BEGIN) || text.include?(PKCS8::ENCRYPTED_PEM_BEGIN)
-          secret_key_from_pkcs8_pem(text, passphrase: passphrase)
+          secret_key_from_pkcs8_pem(text, passphrase: passphrase, require_encrypted: require_encrypted)
         else
           raise SerializationError, "Unsupported PEM label for PQCrypto::Key.from_pem"
         end
       end
 
-      def from_der(der, passphrase: nil)
+      def from_der(der, passphrase: nil, require_encrypted: false)
+        require_encrypted = Internal.strict_boolean!(require_encrypted, name: "require_encrypted")
         public_key_from_spki_der(der)
       rescue SerializationError => spki_error
         begin
-          secret_key_from_pkcs8_der(der, passphrase: passphrase)
+          secret_key_from_pkcs8_der(der, passphrase: passphrase, require_encrypted: require_encrypted)
         rescue SerializationError => pkcs8_error
           raise SerializationError,
                 "Unable to decode DER as SPKI or PKCS#8 (SPKI: #{spki_error.message}; PKCS#8: #{pkcs8_error.message})"
@@ -56,12 +58,16 @@ module PQCrypto
         public_key_from_algorithm_and_bytes(algorithm, bytes)
       end
 
-      def secret_key_from_pkcs8_pem(pem, passphrase: nil)
-        secret_key_from_decoded_pkcs8(*PKCS8.decode_pem(pem, passphrase: passphrase))
+      def secret_key_from_pkcs8_pem(pem, passphrase: nil, require_encrypted: false)
+        secret_key_from_decoded_pkcs8(
+          *PKCS8.decode_pem(pem, passphrase: passphrase, require_encrypted: require_encrypted)
+        )
       end
 
-      def secret_key_from_pkcs8_der(der, passphrase: nil)
-        secret_key_from_decoded_pkcs8(*PKCS8.decode_der(der, passphrase: passphrase))
+      def secret_key_from_pkcs8_der(der, passphrase: nil, require_encrypted: false)
+        secret_key_from_decoded_pkcs8(
+          *PKCS8.decode_der(der, passphrase: passphrase, require_encrypted: require_encrypted)
+        )
       end
 
       def secret_key_from_decoded_pkcs8(algorithm, format, material)

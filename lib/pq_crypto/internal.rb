@@ -8,6 +8,16 @@ module PQCrypto
       String(value).b
     end
 
+    def frozen_binary_string(value)
+      binary_string(value).freeze
+    end
+
+    def strict_boolean!(value, name:)
+      return value if value.equal?(true) || value.equal?(false)
+
+      raise ArgumentError, "#{name} must be true or false (got #{value.inspect})"
+    end
+
     def safe_wipe(value)
       return unless value.is_a?(String) && !value.frozen?
 

@@ -30,7 +30,8 @@ _Static_assert(GEM_CONST(_SHAREDSECRETBYTES) == UPSTREAM_SS, "ML-KEM shared secr
 static void *const probes[] = {
     (void *)&GEM_FN(keypair),     (void *)&GEM_FN(keypair_derand),
     (void *)&GEM_FN(enc),         (void *)&GEM_FN(enc_derand),
-    (void *)&GEM_FN(dec),
+    (void *)&GEM_FN(dec),         (void *)&GEM_FN(check_pk),
+    (void *)&GEM_FN(check_sk),
 #if defined(MLK_CONFIG_MULTILEVEL_WITH_SHARED)
     (void *)&pqcr_mlkem_shake256, (void *)&pqcr_mlkem_sha3_256,
 #endif

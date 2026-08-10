@@ -36,9 +36,13 @@ static int stub_failing_signature_extmu(uint8_t *sig, size_t *siglen, const uint
  */
 static uint8_t exhausted_seed_marker;
 
-static void force_rng_failure(void) { pq_testing_set_seed(&exhausted_seed_marker, 0); }
+static void force_rng_failure(void) {
+    pq_testing_set_seed(&exhausted_seed_marker, 0);
+}
 
-static void restore_rng(void) { pq_testing_clear_seed(); }
+static void restore_rng(void) {
+    pq_testing_clear_seed();
+}
 
 static void test_sign_output_length(void) {
     uint8_t pk[MLDSA65_PUBLICKEYBYTES];
@@ -270,12 +274,47 @@ static void test_deterministic_helper_length(void) {
        "seed-length rejection leaves *signature_len untouched (argument validation)");
 }
 
+static void test_mlkem_key_checks(void) {
+    uint8_t pk[MLKEM768_PUBLICKEYBYTES];
+    uint8_t sk[MLKEM768_SECRETKEYBYTES];
+
+    ck(pq_mlkem_keypair(pk, sk) == PQ_SUCCESS, "mlkem keypair for checks");
+    ck(pq_mlkem_check_public_key(pk) == PQ_SUCCESS, "generated public key validates");
+    ck(pq_mlkem_check_secret_key(sk) == PQ_SUCCESS, "generated secret key validates");
+    ck(pq_mlkem_check_public_key(NULL) == PQ_ERROR_BUFFER, "check_pk rejects NULL");
+    ck(pq_mlkem_check_secret_key(NULL) == PQ_ERROR_BUFFER, "check_sk rejects NULL");
+
+    pk[0] = 0xff;
+    pk[1] = 0xff;
+    ck(pq_mlkem_check_public_key(pk) == PQ_ERROR_INVALID_PUBLIC_KEY,
+       "modulus-invalid public key rejected");
+
+    sk[sizeof(sk) - 33] ^= 0xff;
+    ck(pq_mlkem_check_secret_key(sk) == PQ_ERROR_INVALID_SECRET_KEY,
+       "hash-invalid secret key rejected");
+}
+
+static void test_mldsa_key_checks(void) {
+    uint8_t pk[MLDSA65_PUBLICKEYBYTES];
+    uint8_t sk[MLDSA65_SECRETKEYBYTES];
+
+    ck(pq_sign_keypair(pk, sk) == PQ_SUCCESS, "mldsa keypair for checks");
+    ck(pq_mldsa_check_secret_key(sk) == PQ_SUCCESS, "generated ML-DSA secret key validates");
+    ck(pq_mldsa_check_secret_key(NULL) == PQ_ERROR_BUFFER, "ML-DSA check rejects NULL");
+
+    sk[0] ^= 0xff;
+    ck(pq_mldsa_check_secret_key(sk) == PQ_ERROR_INVALID_SECRET_KEY,
+       "corrupted ML-DSA secret key rejected");
+}
+
 int main(void) {
     test_sign_output_length();
     test_sign_output_length_other_levels();
     test_verify_rejects_wrong_length();
     test_extmu_length_contract();
     test_deterministic_helper_length();
+    test_mlkem_key_checks();
+    test_mldsa_key_checks();
 
     printf("c api: %d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;

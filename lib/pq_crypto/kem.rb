@@ -14,18 +14,24 @@ module PQCrypto
         keypair_from_seed: :native_ml_kem_512_keypair_from_seed,
         encapsulate: :native_ml_kem_512_encapsulate,
         decapsulate: :native_ml_kem_512_decapsulate,
+        check_public_key: :native_ml_kem_512_check_public_key,
+        check_secret_key: :native_ml_kem_512_check_secret_key,
       }.freeze,
       ml_kem_768: {
         keypair: :native_ml_kem_keypair,
         keypair_from_seed: :native_ml_kem_keypair_from_seed,
         encapsulate: :native_ml_kem_encapsulate,
         decapsulate: :native_ml_kem_decapsulate,
+        check_public_key: :native_ml_kem_check_public_key,
+        check_secret_key: :native_ml_kem_check_secret_key,
       }.freeze,
       ml_kem_1024: {
         keypair: :native_ml_kem_1024_keypair,
         keypair_from_seed: :native_ml_kem_1024_keypair_from_seed,
         encapsulate: :native_ml_kem_1024_encapsulate,
         decapsulate: :native_ml_kem_1024_decapsulate,
+        check_public_key: :native_ml_kem_1024_check_public_key,
+        check_secret_key: :native_ml_kem_1024_check_secret_key,
       }.freeze,
     }.freeze
 
@@ -68,12 +74,18 @@ module PQCrypto
         SecretKey.new(resolve_algorithm!(resolved_algorithm), bytes)
       end
 
-      def secret_key_from_pkcs8_der(der, passphrase: nil)
-        secret_key_from_decoded_pkcs8(*PKCS8.decode_der(der, passphrase: passphrase))
+      def secret_key_from_pkcs8_der(der, passphrase: nil, require_encrypted: false)
+        require_encrypted = Internal.strict_boolean!(require_encrypted, name: "require_encrypted")
+        secret_key_from_decoded_pkcs8(
+          *PKCS8.decode_der(der, passphrase: passphrase, require_encrypted: require_encrypted)
+        )
       end
 
-      def secret_key_from_pkcs8_pem(pem, passphrase: nil)
-        secret_key_from_decoded_pkcs8(*PKCS8.decode_pem(pem, passphrase: passphrase))
+      def secret_key_from_pkcs8_pem(pem, passphrase: nil, require_encrypted: false)
+        require_encrypted = Internal.strict_boolean!(require_encrypted, name: "require_encrypted")
+        secret_key_from_decoded_pkcs8(
+          *PKCS8.decode_pem(pem, passphrase: passphrase, require_encrypted: require_encrypted)
+        )
       end
 
       def public_key_from_spki_der(der, algorithm: nil)
@@ -121,6 +133,10 @@ module PQCrypto
         end
       end
 
+      def checkable?(algorithm)
+        NATIVE_DISPATCH.key?(algorithm) && NATIVE_DISPATCH.fetch(algorithm).key?(:check_public_key)
+      end
+
       def native_method_for(algorithm, operation)
         NATIVE_DISPATCH.fetch(resolve_algorithm!(algorithm)).fetch(operation)
       end
@@ -158,8 +174,19 @@ module PQCrypto
 
       def initialize(algorithm, bytes)
         @algorithm = algorithm
-        @bytes = Internal.binary_string(bytes)
+        @bytes = Internal.frozen_binary_string(bytes)
         validate_length!
+        validate_structure!
+      end
+
+      def valid?
+        if @algorithm == :ml_kem_768_x25519_xwing
+          mlkem_half = @bytes.byteslice(0, KEM.details(:ml_kem_768).fetch(:public_key_bytes))
+          return PQCrypto.__send__(:native_ml_kem_check_public_key, mlkem_half)
+        end
+        return true unless KEM.send(:checkable?, @algorithm)
+
+        PQCrypto.__send__(KEM.send(:native_method_for, @algorithm, :check_public_key), @bytes)
       end
 
       def to_bytes
@@ -219,6 +246,10 @@ module PQCrypto
         expected = KEM.details(@algorithm).fetch(:public_key_bytes)
         raise InvalidKeyError, "Invalid KEM public key length" unless @bytes.bytesize == expected
       end
+
+      def validate_structure!
+        raise InvalidKeyError, "Invalid #{@algorithm} public key: FIPS 203 modulus check failed" unless valid?
+      end
     end
 
     class SecretKey
@@ -230,6 +261,13 @@ module PQCrypto
         @seed = seed.nil? ? nil : Internal.binary_string(seed)
         validate_length!
         validate_seed_length! if @seed
+        validate_structure!
+      end
+
+      def valid?
+        return true unless KEM.send(:checkable?, @algorithm)
+
+        PQCrypto.__send__(KEM.send(:native_method_for, @algorithm, :check_secret_key), @bytes)
       end
 
       def self.from_seed(algorithm, seed)
@@ -296,6 +334,10 @@ module PQCrypto
       def validate_length!
         expected = KEM.details(@algorithm).fetch(:secret_key_bytes)
         raise InvalidKeyError, "Invalid KEM secret key length" unless @bytes.bytesize == expected
+      end
+
+      def validate_structure!
+        raise InvalidKeyError, "Invalid #{@algorithm} secret key: FIPS 203 hash check failed" unless valid?
       end
 
       def pkcs8_material(format)

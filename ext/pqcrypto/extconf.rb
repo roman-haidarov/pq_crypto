@@ -84,6 +84,8 @@ def env_bool(name, default)
   end
 end
 
+KEYGEN_PCT = env_bool("PQCRYPTO_KEYGEN_PCT", false)
+
 NATIVE_ASM = env_bool("PQCRYPTO_NATIVE_ASM", native_asm_supported_by_default?)
 NATIVE_ARITH = env_bool("PQCRYPTO_NATIVE_ARITH", NATIVE_ASM)
 NATIVE_FIPS202 = env_bool("PQCRYPTO_NATIVE_FIPS202", NATIVE_ASM)
@@ -529,6 +531,7 @@ def native_flags(kind, level, shared:)
   # Upstream has no guard against the stale define, so passing it would be a
   # silently dead -D rather than a build error. Do not reintroduce it.
   flags << (shared ? "-D#{prefix}_CONFIG_MULTILEVEL_WITH_SHARED" : "-D#{prefix}_CONFIG_MULTILEVEL_NO_SHARED")
+  flags << "-D#{prefix}_CONFIG_KEYGEN_PCT" if KEYGEN_PCT
   flags << "-D#{prefix}_CONFIG_USE_NATIVE_BACKEND_ARITH" if NATIVE_ARITH
   flags << "-D#{prefix}_CONFIG_USE_NATIVE_BACKEND_FIPS202" if NATIVE_FIPS202
   flags.join(" ")
@@ -615,6 +618,7 @@ puts "Vendor ASM arch flags: #{VENDOR_ASM_ARCH_FLAGS.empty? ? '(none)' : VENDOR_
 if x86_64_host? && (NATIVE_ARITH || NATIVE_FIPS202)
   puts "x86_64 native backend: AVX2 build flags enabled"
 end
+puts "Keygen PCT (FIPS 140-3): #{KEYGEN_PCT ? 'enabled' : 'disabled'}"
 puts "PQClean fallback: removed"
 puts "Output: pqcrypto/pqcrypto_secure"
 puts "===================================="
