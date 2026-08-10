@@ -12,7 +12,7 @@
 #endif
 
 /* Part of backend API */
-#define MLD_USE_FIPS202_X4_NATIVE
+#define MLD_USE_NATIVE_FIPS202_X4
 /* Guard for assembly file */
 #define MLD_FIPS202_AARCH64_NEED_X2_V84A
 
@@ -23,7 +23,8 @@
 MLD_MUST_CHECK_RETURN_VALUE
 static MLD_INLINE int mld_keccak_f1600_x4_native(uint64_t *state)
 {
-  if (!mld_sys_check_capability(MLD_SYS_CAP_SHA3))
+  if (!mld_sys_check_capability(MLD_SYS_CAP_AARCH64_NEON) ||
+      !mld_sys_check_capability(MLD_SYS_CAP_AARCH64_SHA3))
   {
     return MLD_NATIVE_FUNC_FALLBACK;
   }

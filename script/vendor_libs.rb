@@ -13,17 +13,17 @@ MANIFEST_PATH = File.join(VENDOR_DIR, ".vendored")
 PINS = {
   mlkem: {
     repo: "https://github.com/pq-code-package/mlkem-native.git",
-    ref: "v1.3.0",
-    commit: "398050c877ff4353c96305c6434b63528accfc37",
-    tree_sha256: "3cd7af93cde256f73ce5ffde3ac3accd31e4361616e275f1bf1c39d462c2149e",
+    ref: "v2.0.0",
+    commit: "d1b2fe782888bdb761a50336012923180be7f502",
+    tree_sha256: "18bfa9ea4e2232bdf56f8ec374b62d10e50b99a30cb08aafc18d0b97e00cd06f",
     target: "mlkem-native",
     source_dir: "mlkem"
   },
   mldsa: {
     repo: "https://github.com/pq-code-package/mldsa-native.git",
-    ref: "v1.0.0-beta2",
-    commit: "9b0ee84f4cf399043eca59eca4e5f8531ca1d61b",
-    tree_sha256: "2887f59926c18a877e8c5a5e30727e84497c357032093d00d7135aedf53f011e",
+    ref: "v2.0.0",
+    commit: "834a90d5e846ffa1e1611bd24e160bb2e9b86d35",
+    tree_sha256: "25b3c3949d2ed37d1ad5d4722c8476d13deb2a0bb945f12444f463378d69375d",
     target: "mldsa-native",
     source_dir: "mldsa"
   }

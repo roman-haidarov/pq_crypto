@@ -66,6 +66,41 @@ int pq_mldsa_compute_tr_from_public_key(uint8_t *tr_out, const uint8_t *public_k
     return pq_shake256(tr_out, PQ_MLDSA_TRBYTES, public_key, public_key_len);
 }
 
+#define PQ_DEFINE_SIGNATURE_EXTMU_COMPAT(level, native, sig_bytes)                                \
+    int pq_mldsa##level##_signature_extmu_compat(uint8_t *sig, size_t *siglen, const uint8_t *mu, \
+                                                 const uint8_t *sk) {                             \
+        if (sig == NULL || siglen == NULL || mu == NULL || sk == NULL) {                          \
+            return -1;                                                                            \
+        }                                                                                         \
+        if (native##_signature_extmu(sig, mu, sk) != 0) {                                         \
+            *siglen = 0;                                                                          \
+            return -1;                                                                            \
+        }                                                                                         \
+        *siglen = (size_t)(sig_bytes);                                                            \
+        return 0;                                                                                 \
+    }
+
+PQ_DEFINE_SIGNATURE_EXTMU_COMPAT(44, pqcr_mldsa44, MLDSA44_BYTES)
+PQ_DEFINE_SIGNATURE_EXTMU_COMPAT(65, pqcr_mldsa65, MLDSA65_BYTES)
+PQ_DEFINE_SIGNATURE_EXTMU_COMPAT(87, pqcr_mldsa87, MLDSA87_BYTES)
+
+#undef PQ_DEFINE_SIGNATURE_EXTMU_COMPAT
+
+#define PQ_DEFINE_VERIFY_EXTMU_COMPAT(level, native, sig_bytes)                         \
+    int pq_mldsa##level##_verify_extmu_compat(const uint8_t *sig, size_t siglen,        \
+                                              const uint8_t *mu, const uint8_t *pk) {   \
+        if (sig == NULL || mu == NULL || pk == NULL || siglen != (size_t)(sig_bytes)) { \
+            return -1;                                                                  \
+        }                                                                               \
+        return native##_verify_extmu(sig, mu, pk);                                      \
+    }
+
+PQ_DEFINE_VERIFY_EXTMU_COMPAT(44, pqcr_mldsa44, MLDSA44_BYTES)
+PQ_DEFINE_VERIFY_EXTMU_COMPAT(65, pqcr_mldsa65, MLDSA65_BYTES)
+PQ_DEFINE_VERIFY_EXTMU_COMPAT(87, pqcr_mldsa87, MLDSA87_BYTES)
+
+#undef PQ_DEFINE_VERIFY_EXTMU_COMPAT
+
 int pq_sign_mu(uint8_t *signature, size_t *signature_len, const uint8_t *mu,
                const uint8_t *secret_key,
                int (*signature_extmu)(uint8_t *, size_t *, const uint8_t *, const uint8_t *)) {

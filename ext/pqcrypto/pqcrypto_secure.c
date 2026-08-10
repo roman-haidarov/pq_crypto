@@ -322,27 +322,29 @@ PQ_DEFINE_MLDSA_SIGN_KEYPAIR(mldsa87_sign, pqcr_mldsa87)
 
 #undef PQ_DEFINE_MLDSA_SIGN_KEYPAIR
 
-#define PQ_DEFINE_MLDSA_SIGN(name, native)                                                      \
-    int pq_##name(uint8_t *signature, size_t *signature_len, const uint8_t *message,            \
-                  size_t message_len, const uint8_t *ctx, size_t ctx_len,                       \
-                  const uint8_t *secret_key) {                                                  \
-        if (!signature || !signature_len || !secret_key || (message_len > 0 && !message) ||     \
-            (ctx_len > 0 && !ctx) || ctx_len > 255) {                                           \
-            return PQ_ERROR_BUFFER;                                                             \
-        }                                                                                       \
-        return native##_signature(signature, signature_len, message, message_len, ctx, ctx_len, \
-                                  secret_key) == 0                                              \
-                   ? PQ_SUCCESS                                                                 \
-                   : PQ_ERROR_SIGN;                                                             \
+#define PQ_DEFINE_MLDSA_SIGN(name, native, sig_bytes)                                             \
+    int pq_##name(uint8_t *signature, size_t *signature_len, const uint8_t *message,              \
+                  size_t message_len, const uint8_t *ctx, size_t ctx_len,                         \
+                  const uint8_t *secret_key) {                                                    \
+        if (!signature || !signature_len || !secret_key || (message_len > 0 && !message) ||       \
+            (ctx_len > 0 && !ctx) || ctx_len > 255) {                                             \
+            return PQ_ERROR_BUFFER;                                                               \
+        }                                                                                         \
+        if (native##_signature(signature, message, message_len, ctx, ctx_len, secret_key) != 0) { \
+            *signature_len = 0;                                                                   \
+            return PQ_ERROR_SIGN;                                                                 \
+        }                                                                                         \
+        *signature_len = (size_t)(sig_bytes);                                                     \
+        return PQ_SUCCESS;                                                                        \
     }
 
-PQ_DEFINE_MLDSA_SIGN(sign, pqcr_mldsa65)
-PQ_DEFINE_MLDSA_SIGN(mldsa44_sign, pqcr_mldsa44)
-PQ_DEFINE_MLDSA_SIGN(mldsa87_sign, pqcr_mldsa87)
+PQ_DEFINE_MLDSA_SIGN(sign, pqcr_mldsa65, MLDSA65_BYTES)
+PQ_DEFINE_MLDSA_SIGN(mldsa44_sign, pqcr_mldsa44, MLDSA44_BYTES)
+PQ_DEFINE_MLDSA_SIGN(mldsa87_sign, pqcr_mldsa87, MLDSA87_BYTES)
 
 #undef PQ_DEFINE_MLDSA_SIGN
 
-#define PQ_DEFINE_MLDSA_VERIFY(name, native)                                                       \
+#define PQ_DEFINE_MLDSA_VERIFY(name, native, sig_bytes)                                            \
     int pq_##name(const uint8_t *signature, size_t signature_len, const uint8_t *message,          \
                   size_t message_len, const uint8_t *ctx, size_t ctx_len,                          \
                   const uint8_t *public_key) {                                                     \
@@ -350,29 +352,32 @@ PQ_DEFINE_MLDSA_SIGN(mldsa87_sign, pqcr_mldsa87)
             ctx_len > 255) {                                                                       \
             return PQ_ERROR_BUFFER;                                                                \
         }                                                                                          \
-        return native##_verify(signature, signature_len, message, message_len, ctx, ctx_len,       \
-                               public_key) == 0                                                    \
+        if (signature_len != (size_t)(sig_bytes)) {                                                \
+            return PQ_ERROR_VERIFY;                                                                \
+        }                                                                                          \
+        return native##_verify(signature, message, message_len, ctx, ctx_len, public_key) == 0     \
                    ? PQ_SUCCESS                                                                    \
                    : PQ_ERROR_VERIFY;                                                              \
     }
 
-PQ_DEFINE_MLDSA_VERIFY(verify, pqcr_mldsa65)
-PQ_DEFINE_MLDSA_VERIFY(mldsa44_verify, pqcr_mldsa44)
-PQ_DEFINE_MLDSA_VERIFY(mldsa87_verify, pqcr_mldsa87)
+PQ_DEFINE_MLDSA_VERIFY(verify, pqcr_mldsa65, MLDSA65_BYTES)
+PQ_DEFINE_MLDSA_VERIFY(mldsa44_verify, pqcr_mldsa44, MLDSA44_BYTES)
+PQ_DEFINE_MLDSA_VERIFY(mldsa87_verify, pqcr_mldsa87, MLDSA87_BYTES)
 
 #undef PQ_DEFINE_MLDSA_VERIFY
 
 static int pq_testing_mldsa_sign_from_seed_with(
     uint8_t *signature, size_t *signature_len, const uint8_t *message, size_t message_len,
-    const uint8_t *secret_key, const uint8_t *seed, size_t seed_len,
-    int (*signature_internal)(uint8_t *, size_t *, const uint8_t *, size_t, const uint8_t *, size_t,
+    const uint8_t *secret_key, const uint8_t *seed, size_t seed_len, size_t expected_signature_len,
+    int (*signature_internal)(uint8_t *, const uint8_t *, size_t, const uint8_t *, size_t,
                               const uint8_t *, const uint8_t *, int),
     size_t (*prepare_prefix)(uint8_t *, const uint8_t *, size_t, const uint8_t *, size_t, int)) {
     uint8_t pre[MLDSA_DOMAIN_SEPARATION_MAX_BYTES];
     size_t pre_len;
 
     if (!signature || !signature_len || !secret_key || !seed || seed_len != MLDSA_RNDBYTES ||
-        !signature_internal || !prepare_prefix || (message_len > 0 && !message)) {
+        !signature_internal || !prepare_prefix || expected_signature_len == 0 ||
+        (message_len > 0 && !message)) {
         return PQ_ERROR_BUFFER;
     }
 
@@ -385,13 +390,18 @@ static int pq_testing_mldsa_sign_from_seed_with(
      */
     pre_len = prepare_prefix(pre, NULL, 0, NULL, 0, MLDSA_PREHASH_NONE);
     if (pre_len == 0) {
+        *signature_len = 0;
         return PQ_ERROR_SIGN;
     }
 
-    return signature_internal(signature, signature_len, message, message_len, pre, pre_len, seed,
-                              secret_key, 0) == 0
-               ? PQ_SUCCESS
-               : PQ_ERROR_SIGN;
+    if (signature_internal(signature, message, message_len, pre, pre_len, seed, secret_key, 0) !=
+        0) {
+        *signature_len = 0;
+        return PQ_ERROR_SIGN;
+    }
+
+    *signature_len = expected_signature_len;
+    return PQ_SUCCESS;
 }
 
 int pq_mldsa44_keypair_from_seed(uint8_t *public_key, uint8_t *secret_key, const uint8_t *seed32) {
@@ -447,7 +457,7 @@ int pq_testing_mldsa_sign_from_seed(uint8_t *signature, size_t *signature_len,
                                     const uint8_t *secret_key, const uint8_t *seed,
                                     size_t seed_len) {
     return pq_testing_mldsa_sign_from_seed_with(
-        signature, signature_len, message, message_len, secret_key, seed, seed_len,
+        signature, signature_len, message, message_len, secret_key, seed, seed_len, MLDSA65_BYTES,
         pqcr_mldsa65_signature_internal, pqcr_mldsa65_prepare_domain_separation_prefix);
 }
 
@@ -456,7 +466,7 @@ int pq_testing_mldsa44_sign_from_seed(uint8_t *signature, size_t *signature_len,
                                       const uint8_t *secret_key, const uint8_t *seed,
                                       size_t seed_len) {
     return pq_testing_mldsa_sign_from_seed_with(
-        signature, signature_len, message, message_len, secret_key, seed, seed_len,
+        signature, signature_len, message, message_len, secret_key, seed, seed_len, MLDSA44_BYTES,
         pqcr_mldsa44_signature_internal, pqcr_mldsa44_prepare_domain_separation_prefix);
 }
 
@@ -465,7 +475,7 @@ int pq_testing_mldsa87_sign_from_seed(uint8_t *signature, size_t *signature_len,
                                       const uint8_t *secret_key, const uint8_t *seed,
                                       size_t seed_len) {
     return pq_testing_mldsa_sign_from_seed_with(
-        signature, signature_len, message, message_len, secret_key, seed, seed_len,
+        signature, signature_len, message, message_len, secret_key, seed, seed_len, MLDSA87_BYTES,
         pqcr_mldsa87_signature_internal, pqcr_mldsa87_prepare_domain_separation_prefix);
 }
 

@@ -7,7 +7,7 @@
 #define MLK_FIPS202_NATIVE_AARCH64_X4_V8A_SCALAR_H
 
 /* Part of backend API */
-#define MLK_USE_FIPS202_X4_NATIVE
+#define MLK_USE_NATIVE_FIPS202_X4
 /* Guard for assembly file */
 #define MLK_FIPS202_AARCH64_NEED_X4_V8A_SCALAR_HYBRID
 
@@ -17,7 +17,7 @@
 MLK_MUST_CHECK_RETURN_VALUE
 static MLK_INLINE int mlk_keccak_f1600_x4_native(uint64_t *state)
 {
-  if (!mlk_sys_check_capability(MLK_SYS_CAP_NEON))
+  if (!mlk_sys_check_capability(MLK_SYS_CAP_AARCH64_NEON))
   {
     return MLK_NATIVE_FUNC_FALLBACK;
   }

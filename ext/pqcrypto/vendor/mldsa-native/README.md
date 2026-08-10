@@ -3,7 +3,6 @@
 # mldsa-native
 
 ![CI](https://github.com/pq-code-package/mldsa-native/actions/workflows/all.yml/badge.svg)
-![Proof: HOL-Light](https://github.com/pq-code-package/mldsa-native/actions/workflows/hol_light.yml/badge.svg)
 ![Benchmarks](https://github.com/pq-code-package/mldsa-native/actions/workflows/bench.yml/badge.svg)
 ![C90](https://img.shields.io/badge/language-C90-blue.svg)
 
@@ -52,18 +51,25 @@ make test
 mldsa-native is used in
  - AWS' Cryptography library [AWS-LC](https://github.com/aws/aws-lc/)
  - [libOQS](https://github.com/open-quantum-safe/liboqs/) of the Open Quantum Safe project
- - The [zeroRISC's fork of OpenTitan](https://github.com/zerorisc/expo) - an open source silicon Root of Trust (RoT)
+ - [Pavona](https://github.com/pavona/pavona) - a library of modular, tapeout-proven, and secure-by-default open silicon blocks
  - [CHERIoT-PQC](https://github.com/CHERIoT-Platform/cheriot-pqc) — post-quantum cryptography support for the CHERIoT platform
 
 ## Formal Verification
 
 We use the [C Bounded Model Checker (CBMC)](https://github.com/diffblue/cbmc) to prove absence of various classes of undefined behaviour in C, including out of bounds memory accesses and integer overflows. The proofs cover all C code in [mldsa/src/*](mldsa) and [mldsa/src/fips202/*](mldsa/src/fips202) involved in running mldsa-native with its C backend. See [proofs/cbmc](proofs/cbmc) for details.
 
-HOL-Light functional correctness proofs can be found in [proofs/hol_light](proofs/hol_light). See the [HOL-Light README](proofs/hol_light/README.md) for the list of functions that have been proven correct. These proofs utilize the verification infrastructure in [s2n-bignum](https://github.com/awslabs/s2n-bignum).
+All AArch64 and x86_64 assembly is proved functionally correct and memory-safe at the object-code level, using
+[HOL-Light](https://hol-light.github.io/) and the [s2n-bignum](https://github.com/awslabs/s2n-bignum) verification
+infrastructure. All routines are additionally proved to have secret-independent timing, with two exceptions. The
+matrix sampler `rej_uniform` operates on public data only, and is deliberately variable-time. The secret-vector
+samplers `rej_uniform_eta{2,4}` _do_ have secret-independent timing, but this property is not yet backed by proof.
+See [proofs/hol_light](proofs/hol_light) for details.
 
 Finally, [proofs/isabelle](proofs/isabelle/compress) contains proofs in [Isabelle/HOL](https://isabelle.in.tum.de/) of the correctness of
 different approaches for computing the scalar decomposition routines used in ML-DSA. Those are still experimental and do not yet operate
-on the source level.
+on the source level. [proofs/isabelle/neon_ntt](proofs/isabelle/neon_ntt) additionally provides a machine-checked formalisation of the
+modular-arithmetic core of the Neon NTT paper[^NeonNTT], covering the Barrett and Montgomery primitives underlying the AArch64 NTT and
+pointwise-multiplication assembly; see its [README](proofs/isabelle/neon_ntt/README.md).
 
 **NOTE:** Formal Verification is never absolute. See [SOUNDNESS.md](SOUNDNESS.md) for an analysis of the scope, assumptions and risks of the formal verification efforts around mldsa-native.
 
@@ -157,6 +163,8 @@ For CI benchmark results and historical performance data, see the [benchmarking 
 
 If you want to use mldsa-native, import [mldsa](mldsa) into your project's source tree and build using your favourite build system. See [examples/basic](examples/basic) for a simple example. The build system provided in this repository is for development purposes only.
 
+See [API-CONVENTIONS.md](API-CONVENTIONS.md) for conventions that apply to all public functions, such as return values, pointer validity, and the state of output buffers on error.
+
 ### Can I bring my own FIPS-202?
 
 mldsa-native relies on and comes with an implementation of FIPS-202[^FIPS202]. If your library has its own FIPS-202 implementation, you
@@ -185,11 +193,15 @@ Yes. mldsa-native provides a compile-time option `MLD_CONFIG_REDUCE_RAM` that re
 
 To enable this mode, define `MLD_CONFIG_REDUCE_RAM` in [mldsa_native_config.h](mldsa/mldsa_native_config.h) or pass `-DMLD_CONFIG_REDUCE_RAM` as a compiler flag.
 
+### Can I bound or restart the signing loop for real-time systems?
+
+Yes. Signing hooks allow you to pause and restart ML-DSA signature operations, thereby bounding their runtime. See [examples/restartable_sign](examples/restartable_sign) for an example.
+
 ### Does mldsa-native use hedged or deterministic signing?
 
 By default, mldsa-native uses the randomized "hedged" signing variant as specified in FIPS 204 Section 3.4. The hedged variant uses both fresh randomness at signing time and precomputed randomness from the private key. This helps mitigate fault injection attacks and side-channel attacks while protecting against potential flaws in the random number generator.
 
-If you need the deterministic variant of ML-DSA, you can call `crypto_sign_signature_internal`
+If you need the deterministic variant of ML-DSA, you can call `signature_internal`
 directly with an all-zero `rnd` argument.
 However, note that FIPS 204 warns that this should not be used on platforms where fault injection attacks and side-channel attacks are a concern, as the lack of fresh randomness makes fault attacks more difficult to mitigate.
 
@@ -204,8 +216,8 @@ External mu mode enables applications to compute the message digest (mu) externa
 Yes. mldsa-native supports HashML-DSA, the pre-hashing variant of ML-DSA defined in FIPS 204 Algorithms 4 and 5.
 
 mldsa-native provides two levels of API:
-- `crypto_sign_signature_pre_hash_internal` and `crypto_sign_verify_pre_hash_internal` - Low-level functions that accept a pre-hashed message digest. This function supports all 12 allowed hash functions.
-- `crypto_sign_signature_pre_hash_shake256` and `crypto_sign_verify_pre_hash_shake256` - High-level functions that perform SHAKE256 pre-hashing internally for convenience. Currently, only SHAKE256 is supported. If you require another hash function, use the `*_pre_hash_internal` functions or open an issue.
+- `signature_pre_hash_internal` and `verify_pre_hash_internal` - Low-level functions that accept a pre-hashed message digest. This function supports all 12 allowed hash functions.
+- `signature_pre_hash_shake256` and `verify_pre_hash_shake256` - High-level functions that perform SHAKE256 pre-hashing internally for convenience. Currently, only SHAKE256 is supported. If you require another hash function, use the `*_pre_hash_internal` functions or open an issue.
 
 ## Have a Question?
 
@@ -229,6 +241,7 @@ through the [PQCA Discord](https://discord.com/invite/xyVnwzfg5R). See also [CON
 [^FIPS204]: National Institute of Standards and Technology: FIPS 204 Module-Lattice-Based Digital Signature Standard, [https://csrc.nist.gov/pubs/fips/204/final](https://csrc.nist.gov/pubs/fips/204/final)
 [^NIST_FAQ]: National Institute of Standards and Technology: Post-Quantum Cryptography FAQs, [https://csrc.nist.gov/Projects/post-quantum-cryptography/faqs#Rdc7](https://csrc.nist.gov/Projects/post-quantum-cryptography/faqs#Rdc7)
 [^NIST_FIPS204_SEC6]: National Institute of Standards and Technology: FIPS 204 Section 6 Guidance, [https://csrc.nist.gov/csrc/media/Projects/post-quantum-cryptography/documents/faq/fips204-sec6-03192025.pdf](https://csrc.nist.gov/csrc/media/Projects/post-quantum-cryptography/documents/faq/fips204-sec6-03192025.pdf)
+[^NeonNTT]: Becker, Hwang, Kannwischer, Yang, Yang: Neon NTT: Faster Dilithium, Kyber, and Saber on Cortex-A72 and Apple M1, [https://eprint.iacr.org/2021/986](https://eprint.iacr.org/2021/986)
 [^REF]: Bai, Ducas, Kiltz, Lepoint, Lyubashevsky, Schwabe, Seiler, Stehlé: CRYSTALS-Dilithium reference implementation, [https://github.com/pq-crystals/dilithium/tree/master/ref](https://github.com/pq-crystals/dilithium/tree/master/ref)
 [^tiny_sha3]: Markku-Juhani O. Saarinen: tiny_sha3, [https://github.com/mjosaarinen/tiny_sha3](https://github.com/mjosaarinen/tiny_sha3)
 [^wycheproof]: Community Cryptography Specification Project: Project Wycheproof, [https://github.com/C2SP/wycheproof](https://github.com/C2SP/wycheproof)

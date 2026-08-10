@@ -80,7 +80,7 @@
  *                    MLK_CONFIG_CONTEXT_PARAMETER_TYPE.
  *
  * @retval 0                     Success.
- * @retval MLK_ERR_FAIL          Modulus check failed.
+ * @retval MLK_ERR_INVALID_PK    Modulus check failed.
  * @retval MLK_ERR_OUT_OF_MEMORY MLK_CONFIG_CUSTOM_ALLOC_FREE was used and
  *                               MLK_CUSTOM_ALLOC returned NULL.
  */
@@ -91,7 +91,7 @@ int mlk_kem_check_pk(const uint8_t pk[MLKEM_INDCCA_PUBLICKEYBYTES],
                      MLK_CONFIG_CONTEXT_PARAMETER_TYPE context)
 __contract__(
   requires(memory_no_alias(pk, MLKEM_INDCCA_PUBLICKEYBYTES))
-  ensures(return_value == 0 || return_value == MLK_ERR_FAIL ||
+  ensures(return_value == 0 || return_value == MLK_ERR_INVALID_PK ||
           return_value == MLK_ERR_OUT_OF_MEMORY)
 );
 #endif /* !MLK_CONFIG_NO_ENCAPS_API */
@@ -112,7 +112,7 @@ __contract__(
  *                    MLK_CONFIG_CONTEXT_PARAMETER_TYPE.
  *
  * @retval 0                     Success.
- * @retval MLK_ERR_FAIL          Public key hash check failed.
+ * @retval MLK_ERR_INVALID_SK    Public key hash check failed.
  * @retval MLK_ERR_OUT_OF_MEMORY MLK_CONFIG_CUSTOM_ALLOC_FREE was used and
  *                               MLK_CUSTOM_ALLOC returned NULL.
  */
@@ -123,7 +123,7 @@ int mlk_kem_check_sk(const uint8_t sk[MLKEM_INDCCA_SECRETKEYBYTES],
                      MLK_CONFIG_CONTEXT_PARAMETER_TYPE context)
 __contract__(
   requires(memory_no_alias(sk, MLKEM_INDCCA_SECRETKEYBYTES))
-  ensures(return_value == 0 || return_value == MLK_ERR_FAIL ||
+  ensures(return_value == 0 || return_value == MLK_ERR_INVALID_SK ||
           return_value == MLK_ERR_OUT_OF_MEMORY)
 );
 #endif /* !MLK_CONFIG_NO_DECAPS_API */
@@ -145,9 +145,11 @@ __contract__(
  *                     MLK_CONFIG_CONTEXT_PARAMETER_TYPE.
  *
  * @retval 0                     Success.
- * @retval MLK_ERR_FAIL          MLK_CONFIG_KEYGEN_PCT enabled and PCT failed.
+ * @retval MLK_ERR_PCT_FAIL      MLK_CONFIG_KEYGEN_PCT enabled and PCT failed.
  * @retval MLK_ERR_OUT_OF_MEMORY MLK_CONFIG_CUSTOM_ALLOC_FREE was used and
  *                               MLK_CUSTOM_ALLOC returned NULL.
+ * @retval MLK_ERR_RNG_FAIL      MLK_CONFIG_KEYGEN_PCT enabled and random
+ *                               number generation failed within the PCT.
  */
 MLK_EXTERNAL_API
 MLK_MUST_CHECK_RETURN_VALUE
@@ -161,9 +163,14 @@ __contract__(
   requires(memory_no_alias(coins, 2 * MLKEM_SYMBYTES))
   assigns(memory_slice(pk, MLKEM_INDCCA_PUBLICKEYBYTES))
   assigns(memory_slice(sk, MLKEM_INDCCA_SECRETKEYBYTES))
-  ensures(return_value == 0 || return_value == MLK_ERR_FAIL ||
+  ensures(return_value == 0 || return_value == MLK_ERR_PCT_FAIL ||
           return_value == MLK_ERR_OUT_OF_MEMORY ||
           return_value == MLK_ERR_RNG_FAIL)
+  /* Output buffers on error, per API-CONVENTIONS.md */
+  ensures(return_value != 0 ==>
+          array_unchanged_or_zeroized_u8(pk, MLKEM_INDCCA_PUBLICKEYBYTES))
+  ensures(return_value != 0 ==>
+          array_unchanged_or_zeroized_u8(sk, MLKEM_INDCCA_SECRETKEYBYTES))
 );
 
 #if !defined(MLK_CONFIG_NO_RANDOMIZED_API)
@@ -184,7 +191,7 @@ __contract__(
  * @retval MLK_ERR_OUT_OF_MEMORY MLK_CONFIG_CUSTOM_ALLOC_FREE was used and
  *                               MLK_CUSTOM_ALLOC returned NULL.
  * @retval MLK_ERR_RNG_FAIL      Random number generation failed.
- * @retval MLK_ERR_FAIL          MLK_CONFIG_KEYGEN_PCT enabled and PCT failed.
+ * @retval MLK_ERR_PCT_FAIL      MLK_CONFIG_KEYGEN_PCT enabled and PCT failed.
  */
 MLK_EXTERNAL_API
 MLK_MUST_CHECK_RETURN_VALUE
@@ -196,9 +203,14 @@ __contract__(
   requires(memory_no_alias(sk, MLKEM_INDCCA_SECRETKEYBYTES))
   assigns(memory_slice(pk, MLKEM_INDCCA_PUBLICKEYBYTES))
   assigns(memory_slice(sk, MLKEM_INDCCA_SECRETKEYBYTES))
-  ensures(return_value == 0 || return_value == MLK_ERR_FAIL ||
+  ensures(return_value == 0 || return_value == MLK_ERR_PCT_FAIL ||
           return_value == MLK_ERR_OUT_OF_MEMORY ||
           return_value == MLK_ERR_RNG_FAIL)
+  /* Output buffers on error, per API-CONVENTIONS.md */
+  ensures(return_value != 0 ==>
+          array_unchanged_or_zeroized_u8(pk, MLKEM_INDCCA_PUBLICKEYBYTES))
+  ensures(return_value != 0 ==>
+          array_unchanged_or_zeroized_u8(sk, MLKEM_INDCCA_SECRETKEYBYTES))
 );
 #endif /* !MLK_CONFIG_NO_RANDOMIZED_API */
 #endif /* !MLK_CONFIG_NO_KEYPAIR_API */
@@ -221,7 +233,7 @@ __contract__(
  *                     MLK_CONFIG_CONTEXT_PARAMETER_TYPE.
  *
  * @retval 0                     Success.
- * @retval MLK_ERR_FAIL          The 'modulus check' @[FIPS203, Section 7.2]
+ * @retval MLK_ERR_INVALID_PK    The 'modulus check' @[FIPS203, Section 7.2]
  *                               for the public key failed.
  * @retval MLK_ERR_OUT_OF_MEMORY MLK_CONFIG_CUSTOM_ALLOC_FREE was used and
  *                               MLK_CUSTOM_ALLOC returned NULL.
@@ -241,8 +253,13 @@ __contract__(
   requires(memory_no_alias(coins, MLKEM_SYMBYTES))
   assigns(memory_slice(ct, MLKEM_INDCCA_CIPHERTEXTBYTES))
   assigns(memory_slice(ss, MLKEM_SSBYTES))
-  ensures(return_value == 0 || return_value == MLK_ERR_FAIL ||
+  ensures(return_value == 0 || return_value == MLK_ERR_INVALID_PK ||
           return_value == MLK_ERR_OUT_OF_MEMORY)
+  /* Output buffers on error, per API-CONVENTIONS.md */
+  ensures(return_value != 0 ==>
+          array_unchanged_or_zeroized_u8(ct, MLKEM_INDCCA_CIPHERTEXTBYTES))
+  ensures(return_value != 0 ==>
+          array_unchanged_or_zeroized_u8(ss, MLKEM_SSBYTES))
 );
 
 #if !defined(MLK_CONFIG_NO_RANDOMIZED_API)
@@ -265,7 +282,7 @@ __contract__(
  * @retval MLK_ERR_OUT_OF_MEMORY MLK_CONFIG_CUSTOM_ALLOC_FREE was used and
  *                               MLK_CUSTOM_ALLOC returned NULL.
  * @retval MLK_ERR_RNG_FAIL      Random number generation failed.
- * @retval MLK_ERR_FAIL          The 'modulus check' @[FIPS203, Section 7.2]
+ * @retval MLK_ERR_INVALID_PK    The 'modulus check' @[FIPS203, Section 7.2]
  *                               for the public key failed.
  */
 MLK_EXTERNAL_API
@@ -280,9 +297,14 @@ __contract__(
   requires(memory_no_alias(pk, MLKEM_INDCCA_PUBLICKEYBYTES))
   assigns(memory_slice(ct, MLKEM_INDCCA_CIPHERTEXTBYTES))
   assigns(memory_slice(ss, MLKEM_SSBYTES))
-  ensures(return_value == 0 || return_value == MLK_ERR_FAIL ||
+  ensures(return_value == 0 || return_value == MLK_ERR_INVALID_PK ||
           return_value == MLK_ERR_OUT_OF_MEMORY ||
           return_value == MLK_ERR_RNG_FAIL)
+  /* Output buffers on error, per API-CONVENTIONS.md */
+  ensures(return_value != 0 ==>
+          array_unchanged_or_zeroized_u8(ct, MLKEM_INDCCA_CIPHERTEXTBYTES))
+  ensures(return_value != 0 ==>
+          array_unchanged_or_zeroized_u8(ss, MLKEM_SSBYTES))
 );
 #endif /* !MLK_CONFIG_NO_RANDOMIZED_API */
 #endif /* !MLK_CONFIG_NO_ENCAPS_API */
@@ -303,7 +325,7 @@ __contract__(
  *                     MLK_CONFIG_CONTEXT_PARAMETER_TYPE.
  *
  * @retval 0                     Success.
- * @retval MLK_ERR_FAIL          The 'hash check' @[FIPS203, Section 7.3]
+ * @retval MLK_ERR_INVALID_SK    The 'hash check' @[FIPS203, Section 7.3]
  *                               for the secret key failed.
  * @retval MLK_ERR_OUT_OF_MEMORY MLK_CONFIG_CUSTOM_ALLOC_FREE was used and
  *                               MLK_CUSTOM_ALLOC returned NULL.
@@ -320,8 +342,11 @@ __contract__(
   requires(memory_no_alias(ct, MLKEM_INDCCA_CIPHERTEXTBYTES))
   requires(memory_no_alias(sk, MLKEM_INDCCA_SECRETKEYBYTES))
   assigns(memory_slice(ss, MLKEM_SSBYTES))
-  ensures(return_value == 0 || return_value == MLK_ERR_FAIL ||
+  ensures(return_value == 0 || return_value == MLK_ERR_INVALID_SK ||
           return_value == MLK_ERR_OUT_OF_MEMORY)
+  /* Output buffers on error, per API-CONVENTIONS.md */
+  ensures(return_value != 0 ==>
+          array_unchanged_or_zeroized_u8(ss, MLKEM_SSBYTES))
 );
 #endif /* !MLK_CONFIG_NO_DECAPS_API */
 
