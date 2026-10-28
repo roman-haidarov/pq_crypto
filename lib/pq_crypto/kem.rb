@@ -90,13 +90,13 @@ module PQCrypto
 
       def public_key_from_spki_der(der, algorithm: nil)
         resolved_algorithm, bytes = SPKI.decode_der(der)
-        validate_algorithm_match!(algorithm, resolved_algorithm) if algorithm
+        validate_spki_algorithm!(algorithm, resolved_algorithm) if algorithm
         PublicKey.new(resolve_algorithm!(resolved_algorithm), bytes)
       end
 
       def public_key_from_spki_pem(pem, algorithm: nil)
         resolved_algorithm, bytes = SPKI.decode_pem(pem)
-        validate_algorithm_match!(algorithm, resolved_algorithm) if algorithm
+        validate_spki_algorithm!(algorithm, resolved_algorithm) if algorithm
         PublicKey.new(resolve_algorithm!(resolved_algorithm), bytes)
       end
 
@@ -141,14 +141,9 @@ module PQCrypto
         NATIVE_DISPATCH.fetch(resolve_algorithm!(algorithm)).fetch(operation)
       end
 
-      def validate_algorithm_match!(expected_algorithm, actual_algorithm)
-        expected = resolve_algorithm!(expected_algorithm)
-        return if expected == actual_algorithm
-
-        raise SerializationError,
-              "Expected #{expected.inspect}, got #{actual_algorithm.inspect} (SPKI key algorithm mismatch)"
-      rescue UnsupportedAlgorithmError => e
-        raise SerializationError, e.message
+      def validate_spki_algorithm!(expected_algorithm, actual_algorithm)
+        Internal.validate_algorithm_match!(expected_algorithm, actual_algorithm,
+                                           algorithms: DETAILS, family: "KEM")
       end
     end
 
