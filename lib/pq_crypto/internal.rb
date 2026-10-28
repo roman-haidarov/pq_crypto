@@ -29,5 +29,15 @@ module PQCrypto
     def constant_time_equal?(left, right)
       PQCrypto.__send__(:native_ct_equals, left, right)
     end
+
+    def validate_algorithm_match!(expected, actual, algorithms:, family:)
+      unless algorithms.key?(expected)
+        raise SerializationError, "Unsupported #{family} algorithm: #{expected.inspect}"
+      end
+      return if expected == actual
+
+      raise SerializationError,
+            "Expected #{expected.inspect}, got #{actual.inspect} (SPKI key algorithm mismatch)"
+    end
   end
 end

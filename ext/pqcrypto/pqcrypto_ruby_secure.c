@@ -8,6 +8,8 @@
 #if defined(__clang__) || defined(__GNUC__)
 #pragma GCC diagnostic pop
 #endif
+#include <stdbool.h>
+#include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -1460,6 +1462,7 @@ static VALUE pqcrypto_version(VALUE self) {
 
 typedef struct {
     void *builder;
+    atomic_bool busy;
 } mu_builder_wrapper_t;
 
 typedef struct {
@@ -1526,13 +1529,27 @@ static const rb_data_type_t mu_builder_data_type = {
     .flags = RUBY_TYPED_FREE_IMMEDIATELY,
 };
 
-static mu_builder_wrapper_t *mu_builder_unwrap(VALUE obj) {
+static mu_builder_wrapper_t *mu_builder_lock(VALUE obj) {
     mu_builder_wrapper_t *wrapper;
     TypedData_Get_Struct(obj, mu_builder_wrapper_t, &mu_builder_data_type, wrapper);
-    if (wrapper == NULL || wrapper->builder == NULL) {
-        rb_raise(ePQCryptoError, "mu builder used after release");
+    if (wrapper == NULL) {
+        rb_raise(ePQCryptoError, "mu builder is unavailable");
+    }
+    if (atomic_exchange_explicit(&wrapper->busy, true, memory_order_acquire)) {
+        rb_raise(ePQCryptoError, "mu builder is busy");
     }
     return wrapper;
+}
+
+static void mu_builder_unlock(mu_builder_wrapper_t *wrapper) {
+    atomic_store_explicit(&wrapper->busy, false, memory_order_release);
+}
+
+static void mu_builder_require_active(mu_builder_wrapper_t *wrapper) {
+    if (wrapper->builder == NULL) {
+        mu_builder_unlock(wrapper);
+        rb_raise(ePQCryptoError, "mu builder used after release");
+    }
 }
 
 static VALUE pqcrypto__native_mldsa_extract_tr(int argc, VALUE *argv, VALUE self) {
@@ -1614,6 +1631,7 @@ static VALUE pqcrypto__native_mldsa_mu_builder_new(VALUE self, VALUE tr, VALUE c
     VALUE obj =
         TypedData_Make_Struct(rb_cObject, mu_builder_wrapper_t, &mu_builder_data_type, wrapper);
     wrapper->builder = builder;
+    atomic_init(&wrapper->busy, false);
     return obj;
 }
 
@@ -1625,24 +1643,31 @@ static void *pq_mu_absorb_nogvl(void *arg) {
 
 static VALUE pqcrypto__native_mldsa_mu_builder_update(VALUE self, VALUE builder_obj, VALUE chunk) {
     (void)self;
-    mu_builder_wrapper_t *wrapper = mu_builder_unwrap(builder_obj);
     StringValue(chunk);
 
     size_t chunk_len = (size_t)RSTRING_LEN(chunk);
+    mu_builder_wrapper_t *wrapper = mu_builder_lock(builder_obj);
+    mu_builder_require_active(wrapper);
     if (chunk_len == 0) {
+        mu_builder_unlock(wrapper);
         return Qnil;
     }
 
     if (chunk_len < PQ_MU_ABSORB_NOGVL_MIN_BYTES) {
-        int rc =
-            pq_mu_builder_absorb(wrapper->builder, (const uint8_t *)RSTRING_PTR(chunk), chunk_len);
+        int rc = pq_mu_builder_absorb(wrapper->builder,
+                                      (const uint8_t *)RSTRING_PTR(chunk), chunk_len);
+        mu_builder_unlock(wrapper);
         if (rc != PQ_SUCCESS) {
             pq_raise_general_error(rc);
         }
         return Qnil;
     }
 
-    uint8_t *copy = pq_alloc_buffer(chunk_len);
+    uint8_t *copy = malloc(chunk_len);
+    if (copy == NULL) {
+        mu_builder_unlock(wrapper);
+        rb_raise(rb_eNoMemError, "Memory allocation failed");
+    }
     memcpy(copy, RSTRING_PTR(chunk), chunk_len);
 
     mu_absorb_call_t call = {0};
@@ -1651,7 +1676,9 @@ static VALUE pqcrypto__native_mldsa_mu_builder_update(VALUE self, VALUE builder_
     call.chunk_len = chunk_len;
 
     rb_nogvl(pq_mu_absorb_nogvl, &call, NULL, NULL, PQ_RB_NOGVL_OFFLOAD_SAFE);
+    RB_GC_GUARD(builder_obj);
     free(copy);
+    mu_builder_unlock(wrapper);
 
     if (call.result != PQ_SUCCESS) {
         pq_raise_general_error(call.result);
@@ -1667,7 +1694,8 @@ static void *pq_mu_finalize_nogvl(void *arg) {
 
 static VALUE pqcrypto__native_mldsa_mu_builder_finalize(VALUE self, VALUE builder_obj) {
     (void)self;
-    mu_builder_wrapper_t *wrapper = mu_builder_unwrap(builder_obj);
+    mu_builder_wrapper_t *wrapper = mu_builder_lock(builder_obj);
+    mu_builder_require_active(wrapper);
 
     uint8_t mu[PQ_MLDSA_MUBYTES];
 
@@ -1676,8 +1704,10 @@ static VALUE pqcrypto__native_mldsa_mu_builder_finalize(VALUE self, VALUE builde
     call.mu_out = mu;
 
     rb_nogvl(pq_mu_finalize_nogvl, &call, NULL, NULL, PQ_RB_NOGVL_OFFLOAD_SAFE);
+    RB_GC_GUARD(builder_obj);
 
     wrapper->builder = NULL;
+    mu_builder_unlock(wrapper);
 
     if (call.result != PQ_SUCCESS) {
         pq_secure_wipe(mu, sizeof(mu));
@@ -1691,12 +1721,12 @@ static VALUE pqcrypto__native_mldsa_mu_builder_finalize(VALUE self, VALUE builde
 
 static VALUE pqcrypto__native_mldsa_mu_builder_release(VALUE self, VALUE builder_obj) {
     (void)self;
-    mu_builder_wrapper_t *wrapper;
-    TypedData_Get_Struct(builder_obj, mu_builder_wrapper_t, &mu_builder_data_type, wrapper);
-    if (wrapper != NULL && wrapper->builder != NULL) {
+    mu_builder_wrapper_t *wrapper = mu_builder_lock(builder_obj);
+    if (wrapper->builder != NULL) {
         pq_mu_builder_release(wrapper->builder);
         wrapper->builder = NULL;
     }
+    mu_builder_unlock(wrapper);
     return Qnil;
 }
 

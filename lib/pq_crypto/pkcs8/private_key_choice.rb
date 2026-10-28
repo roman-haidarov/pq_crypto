@@ -6,6 +6,8 @@ module PQCrypto
       SEED_TAG = 0x80
       EXPANDED_TAG = 0x04
       BOTH_TAG = 0x30
+      COMPONENT_TAGS = { seed: SEED_TAG, expanded: EXPANDED_TAG }.freeze
+      COMPONENT_LABELS = { seed: "seed", expanded: "expandedKey" }.freeze
 
       KEYPAIR_FROM_SEED_METHODS = {
         ml_kem_512: :native_ml_kem_512_keypair_from_seed,
@@ -23,9 +25,9 @@ module PQCrypto
 
         case format
         when :seed
-          encode_seed(algorithm, secret_material)
+          encode_component(algorithm, secret_material, format)
         when :expanded
-          encode_expanded(algorithm, secret_material)
+          encode_component(algorithm, secret_material, format)
         when :both
           encode_both(algorithm, secret_material)
         else
@@ -40,10 +42,10 @@ module PQCrypto
         case tag
         when SEED_TAG
           ensure_format_supported!(algorithm, :seed)
-          decode_seed(algorithm, choice_der)
+          decode_component(algorithm, choice_der, :seed)
         when EXPANDED_TAG
           ensure_format_supported!(algorithm, :expanded)
-          decode_expanded(algorithm, choice_der)
+          decode_component(algorithm, choice_der, :expanded)
         when BOTH_TAG
           ensure_format_supported!(algorithm, :both)
           decode_both(algorithm, choice_der)
@@ -104,20 +106,13 @@ module PQCrypto
               "Invalid #{algorithm.inspect} expanded private key length: expected #{expected}, got #{expanded.bytesize}"
       end
 
-      def decode_seed(algorithm, choice_der)
-        _tag, seed, next_offset = DER.decode_tlv(choice_der, 0, expected_tag: SEED_TAG, label: "seed")
-        raise SerializationError, "PKCS#8 seed contains trailing data" unless next_offset == choice_der.bytesize
+      def decode_component(algorithm, choice_der, format)
+        label = COMPONENT_LABELS.fetch(format)
+        _tag, bytes, next_offset = DER.decode_tlv(choice_der, 0, expected_tag: COMPONENT_TAGS.fetch(format), label: label)
+        raise SerializationError, "PKCS#8 #{label} contains trailing data" unless next_offset == choice_der.bytesize
 
-        validate_seed_length!(algorithm, seed)
-        [algorithm, :seed, seed]
-      end
-
-      def decode_expanded(algorithm, choice_der)
-        _tag, bytes, next_offset = DER.decode_tlv(choice_der, 0, expected_tag: EXPANDED_TAG, label: "expandedKey")
-        raise SerializationError, "PKCS#8 expandedKey contains trailing data" unless next_offset == choice_der.bytesize
-
-        validate_expanded_length!(algorithm, bytes)
-        [algorithm, :expanded, bytes]
+        validate_component_length!(algorithm, format, bytes)
+        [algorithm, format, bytes]
       end
 
       def decode_both(algorithm, choice_der)
@@ -135,18 +130,19 @@ module PQCrypto
         [algorithm, :both, [seed_bytes, expanded_bytes]]
       end
 
-      def encode_seed(algorithm, secret_material)
-        seed = Internal.binary_string(secret_material)
-        validate_seed_length!(algorithm, seed)
+      def encode_component(algorithm, secret_material, format)
+        bytes = Internal.binary_string(secret_material)
+        validate_component_length!(algorithm, format, bytes)
 
-        DER.encode_tlv(SEED_TAG, seed)
+        DER.encode_tlv(COMPONENT_TAGS.fetch(format), bytes)
       end
 
-      def encode_expanded(algorithm, secret_material)
-        bytes = Internal.binary_string(secret_material)
-        validate_expanded_length!(algorithm, bytes)
+      def validate_component_length!(algorithm, format, bytes)
+        expected = profile(algorithm).fetch(format == :seed ? :seed_bytes : :expanded_bytes)
+        return if bytes.bytesize == expected
 
-        DER.encode_tlv(EXPANDED_TAG, bytes)
+        raise SerializationError,
+              "Invalid #{algorithm.inspect} #{format} private key length: expected #{expected}, got #{bytes.bytesize}"
       end
 
       def encode_both(algorithm, secret_material)

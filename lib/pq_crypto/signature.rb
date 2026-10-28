@@ -80,13 +80,13 @@ module PQCrypto
 
       def public_key_from_spki_der(der, algorithm: nil)
         resolved_algorithm, bytes = SPKI.decode_der(der)
-        validate_algorithm_match!(algorithm, resolved_algorithm) if algorithm
+        validate_spki_algorithm!(algorithm, resolved_algorithm) if algorithm
         PublicKey.new(resolve_algorithm!(resolved_algorithm), bytes)
       end
 
       def public_key_from_spki_pem(pem, algorithm: nil)
         resolved_algorithm, bytes = SPKI.decode_pem(pem)
-        validate_algorithm_match!(algorithm, resolved_algorithm) if algorithm
+        validate_spki_algorithm!(algorithm, resolved_algorithm) if algorithm
         PublicKey.new(resolve_algorithm!(resolved_algorithm), bytes)
       end
 
@@ -147,14 +147,9 @@ module PQCrypto
         NATIVE_DISPATCH.key?(algorithm) && NATIVE_DISPATCH.fetch(algorithm).key?(:check_secret_key)
       end
 
-      def validate_algorithm_match!(expected_algorithm, actual_algorithm)
-        expected = resolve_algorithm!(expected_algorithm)
-        return if expected == actual_algorithm
-
-        raise SerializationError,
-              "Expected #{expected.inspect}, got #{actual_algorithm.inspect} (SPKI key algorithm mismatch)"
-      rescue UnsupportedAlgorithmError => e
-        raise SerializationError, e.message
+      def validate_spki_algorithm!(expected_algorithm, actual_algorithm)
+        Internal.validate_algorithm_match!(expected_algorithm, actual_algorithm,
+                                           algorithms: DETAILS, family: "signature")
       end
 
       def _streaming_sign(secret_key, io, chunk_size, context)
@@ -165,25 +160,12 @@ module PQCrypto
 
         algorithm = secret_key.algorithm
         sk_bytes = secret_key.__send__(:bytes_for_native)
-        begin
-          tr = PQCrypto.__send__(:_native_mldsa_extract_tr, algorithm, sk_bytes)
-        rescue ArgumentError => e
-          raise InvalidKeyError, e.message
-        end
-
-        builder = PQCrypto.__send__(:_native_mldsa_mu_builder_new, tr, context)
-        builder_consumed = false
-        mu = nil
-        begin
-          _drain_io_into_builder(io, builder, chunk_size)
-          mu = PQCrypto.__send__(:_native_mldsa_mu_builder_finalize, builder)
-          builder_consumed = true
+        tr = extract_tr(:_native_mldsa_extract_tr, algorithm, sk_bytes)
+        with_streaming_mu(tr, io, chunk_size, context) do |mu|
           PQCrypto.__send__(:_native_mldsa_sign_mu, algorithm, mu, sk_bytes)
-        ensure
-          PQCrypto.__send__(:_native_mldsa_mu_builder_release, builder) unless builder_consumed
-          PQCrypto.secure_wipe(tr) if tr && !tr.frozen?
-          PQCrypto.secure_wipe(mu) if mu && !mu.frozen?
         end
+      ensure
+        Internal.safe_wipe(tr) if defined?(tr)
       end
 
       def _streaming_verify(public_key, io, signature, chunk_size, context)
@@ -194,26 +176,32 @@ module PQCrypto
 
         algorithm = public_key.algorithm
         pk_bytes = public_key.__send__(:bytes_for_native)
-        begin
-          tr = PQCrypto.__send__(:_native_mldsa_compute_tr, algorithm, pk_bytes)
-        rescue ArgumentError => e
-          raise InvalidKeyError, e.message
-        end
-
-        builder = PQCrypto.__send__(:_native_mldsa_mu_builder_new, tr, context)
-        builder_consumed = false
-        mu = nil
         sig_bytes = Internal.binary_string(signature)
+        tr = extract_tr(:_native_mldsa_compute_tr, algorithm, pk_bytes)
+        with_streaming_mu(tr, io, chunk_size, context) do |mu|
+          PQCrypto.__send__(:_native_mldsa_verify_mu, algorithm, mu, sig_bytes, pk_bytes)
+        end
+      ensure
+        Internal.safe_wipe(tr) if defined?(tr)
+      end
+
+      def extract_tr(native_method, algorithm, key_bytes)
+        PQCrypto.__send__(native_method, algorithm, key_bytes)
+      rescue ArgumentError => e
+        raise InvalidKeyError, e.message
+      end
+
+      def with_streaming_mu(tr, io, chunk_size, context)
+        builder = nil
+        mu = nil
         begin
+          builder = PQCrypto.__send__(:_native_mldsa_mu_builder_new, tr, context)
           _drain_io_into_builder(io, builder, chunk_size)
           mu = PQCrypto.__send__(:_native_mldsa_mu_builder_finalize, builder)
-          builder_consumed = true
-          PQCrypto.__send__(:_native_mldsa_verify_mu, algorithm, mu, sig_bytes, pk_bytes)
+          yield mu
         ensure
-          PQCrypto.__send__(:_native_mldsa_mu_builder_release, builder) unless builder_consumed
-
-          PQCrypto.secure_wipe(tr) if tr && !tr.frozen?
-          PQCrypto.secure_wipe(mu) if mu && !mu.frozen?
+          PQCrypto.__send__(:_native_mldsa_mu_builder_release, builder) if builder
+          Internal.safe_wipe(mu) if defined?(mu)
         end
       end
 

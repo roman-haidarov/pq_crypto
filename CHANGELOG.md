@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.6.8] - 2026-10-28
+
+### Changed
+
+- **Refactored Ruby serialization and streaming paths.** Split SPKI and PKCS#8
+  decoding into focused validation steps, shared the seed/expanded-key codecs,
+  and consolidated ML-DSA streaming builder cleanup. SPKI algorithm matching
+  now uses one shared validator. Public APIs and encoded formats are unchanged.
+
 ## [0.6.7] - 2026-08-10
 
 ### Fixed

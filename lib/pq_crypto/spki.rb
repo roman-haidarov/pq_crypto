@@ -39,30 +39,9 @@ module PQCrypto
       def decode_der(der)
         input = String(der).b
         outer = decode_asn1(input)
-        raise SerializationError, "SPKI DER contains trailing data" unless outer.to_der.b == input
-        raise SerializationError, "SPKI must be an ASN.1 SEQUENCE" unless outer.is_a?(OpenSSL::ASN1::Sequence)
-        raise SerializationError, "SPKI SEQUENCE must contain exactly 2 elements" unless outer.value.size == 2
-
-        algorithm_identifier, subject_public_key = outer.value
+        algorithm_identifier, subject_public_key = spki_elements(outer, input)
         algorithm = decode_algorithm_identifier(algorithm_identifier)
-        entry = AlgorithmRegistry.fetch(algorithm)
-        validate_public_key_algorithm!(algorithm, entry)
-
-        unless subject_public_key.is_a?(OpenSSL::ASN1::BitString)
-          raise SerializationError, "SPKI subjectPublicKey must be a BIT STRING"
-        end
-        unless subject_public_key.unused_bits.zero?
-          raise SerializationError, "SPKI subjectPublicKey must have zero unused bits"
-        end
-
-        bytes = String(subject_public_key.value).b
-        expected = entry.fetch(:public_key_bytes)
-        unless bytes.bytesize == expected
-          raise SerializationError,
-                "Invalid #{algorithm.inspect} SPKI public key length: expected #{expected}, got #{bytes.bytesize}"
-        end
-
-        [algorithm, bytes]
+        [algorithm, decode_subject_public_key(algorithm, subject_public_key)]
       rescue OpenSSL::OpenSSLError, TypeError => e
         raise SerializationError, e.message
       end
@@ -78,6 +57,40 @@ module PQCrypto
         OpenSSL::ASN1.decode(der)
       rescue OpenSSL::OpenSSLError, TypeError => e
         raise SerializationError, e.message
+      end
+
+      def spki_elements(outer, input)
+        raise SerializationError, "SPKI DER contains trailing data" unless outer.to_der.b == input
+        raise SerializationError, "SPKI must be an ASN.1 SEQUENCE" unless outer.is_a?(OpenSSL::ASN1::Sequence)
+        raise SerializationError, "SPKI SEQUENCE must contain exactly 2 elements" unless outer.value.size == 2
+
+        outer.value
+      end
+
+      def decode_subject_public_key(algorithm, subject_public_key)
+        entry = AlgorithmRegistry.fetch(algorithm)
+        validate_public_key_algorithm!(algorithm, entry)
+        validate_subject_public_key!(subject_public_key)
+
+        bytes = String(subject_public_key.value).b
+        validate_public_key_length!(algorithm, bytes, entry.fetch(:public_key_bytes))
+        bytes
+      end
+
+      def validate_subject_public_key!(subject_public_key)
+        unless subject_public_key.is_a?(OpenSSL::ASN1::BitString)
+          raise SerializationError, "SPKI subjectPublicKey must be a BIT STRING"
+        end
+        return if subject_public_key.unused_bits.zero?
+
+        raise SerializationError, "SPKI subjectPublicKey must have zero unused bits"
+      end
+
+      def validate_public_key_length!(algorithm, bytes, expected)
+        return if bytes.bytesize == expected
+
+        raise SerializationError,
+              "Invalid #{algorithm.inspect} SPKI public key length: expected #{expected}, got #{bytes.bytesize}"
       end
 
       def decode_algorithm_identifier(value)

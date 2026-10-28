@@ -44,24 +44,39 @@ module PQCrypto
 
         return [first, 1] if first < 0x80
 
+        length_octets = long_length_octet_count(first)
+        length = decode_long_length(der, offset, length_octets)
+
+        [length, 1 + length_octets]
+      end
+
+      def long_length_octet_count(first)
         length_octets = first & 0x7f
         raise SerializationError, "PKCS#8 DER indefinite length is not allowed" if length_octets.zero?
         raise SerializationError, "PKCS#8 DER length is too large" if length_octets > 4
-        if offset + 1 + length_octets > der.bytesize
-          raise SerializationError, "PKCS#8 DER length exceeds available data"
-        end
 
-        length = 0
-        length_octets.times do |i|
-          byte = der.getbyte(offset + 1 + i)
-          length = (length << 8) | byte
-        end
+        length_octets
+      end
 
-        if length < 0x80 || (length_octets > 1 && der.getbyte(offset + 1).zero?)
-          raise SerializationError, "PKCS#8 DER length is not minimally encoded"
+      def decode_long_length(der, offset, length_octets)
+        ensure_long_length_available!(der, offset, length_octets)
+        length = length_octets.times.reduce(0) do |total, index|
+          (total << 8) | der.getbyte(offset + 1 + index)
         end
+        ensure_minimal_long_length!(der, offset, length, length_octets)
+        length
+      end
 
-        [length, 1 + length_octets]
+      def ensure_long_length_available!(der, offset, length_octets)
+        return if offset + 1 + length_octets <= der.bytesize
+
+        raise SerializationError, "PKCS#8 DER length exceeds available data"
+      end
+
+      def ensure_minimal_long_length!(der, offset, length, length_octets)
+        return unless length < 0x80 || (length_octets > 1 && der.getbyte(offset + 1).zero?)
+
+        raise SerializationError, "PKCS#8 DER length is not minimally encoded"
       end
     end
   end
